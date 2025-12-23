@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import trainBotVisual from "@/assets/train-bot-visual.png";
 
 export default function TrainBot() {
   return (
@@ -21,37 +22,49 @@ export default function TrainBot() {
             Back to home
           </Link>
 
-          {/* Hero - Right Shifted */}
-          <div className="max-w-2xl ml-auto mr-0 md:mr-12 lg:mr-24 mb-16">
-            <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-6 opacity-0 animate-fade-up">
-              Train your own bot
-            </h1>
-            <p
-              className="text-lg text-muted-foreground leading-relaxed mb-8 opacity-0 animate-fade-up"
-              style={{ animationDelay: "100ms" }}
-            >
-              Build custom convolutional neural networks using your labeled
-              datasets. Configure architecture, training parameters, and monitor
-              the learning process with real-time metrics and visualizations.
-            </p>
-
-            <div
-              className="opacity-0 animate-fade-up"
-              style={{ animationDelay: "200ms" }}
-            >
-              <Link
-                to="/tools/trainer"
-                className="btn-primary inline-flex items-center gap-2"
+          {/* Hero with image */}
+          <div className="flex flex-col lg:flex-row gap-12 mb-16">
+            <div className="lg:w-1/2">
+              <div className="aspect-[4/3] bg-secondary/30 rounded-xl border border-border/50 overflow-hidden">
+                <img
+                  src={trainBotVisual}
+                  alt="Train your own bot visualization"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            </div>
+            
+            <div className="lg:w-1/2 flex flex-col justify-center">
+              <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-6 opacity-0 animate-fade-up">
+                Train your own bot
+              </h1>
+              <p
+                className="text-lg text-muted-foreground leading-relaxed mb-8 opacity-0 animate-fade-up"
+                style={{ animationDelay: "100ms" }}
               >
-                Try now
-                <ArrowRight className="w-4 h-4" />
-              </Link>
+                Build custom convolutional neural networks using your labeled
+                datasets. Configure architecture, training parameters, and monitor
+                the learning process with real-time metrics and visualizations.
+              </p>
+
+              <div
+                className="opacity-0 animate-fade-up"
+                style={{ animationDelay: "200ms" }}
+              >
+                <Link
+                  to="/tools/trainer"
+                  className="btn-primary inline-flex items-center gap-2"
+                >
+                  Try now
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
             </div>
           </div>
 
           {/* Features preview */}
           <div
-            className="max-w-3xl ml-auto mr-0 md:mr-12 lg:mr-24 grid md:grid-cols-3 gap-6 opacity-0 animate-fade-up"
+            className="grid md:grid-cols-3 gap-6 opacity-0 animate-fade-up"
             style={{ animationDelay: "300ms" }}
           >
             <div className="bg-card/50 border border-border rounded-xl p-6">

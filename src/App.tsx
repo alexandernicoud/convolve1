@@ -2,8 +2,10 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { useEffect } from "react";
 import Header from "@/components/Header";
+import Footer from "@/components/Footer";
 import Index from "./pages/Index";
 import Vision from "./pages/Vision";
 import Contact from "./pages/Contact";
@@ -27,38 +29,66 @@ import Optimizer from "./pages/tools/Optimizer";
 
 const queryClient = new QueryClient();
 
+function ScrollToTop() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+
+  return null;
+}
+
+function PageWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="animate-page-enter">
+      {children}
+    </div>
+  );
+}
+
+const AppRoutes = () => {
+  return (
+    <>
+      <ScrollToTop />
+      <Header />
+      <Routes>
+        {/* Main pages */}
+        <Route path="/" element={<PageWrapper><Index /></PageWrapper>} />
+        <Route path="/vision" element={<PageWrapper><Vision /></PageWrapper>} />
+        <Route path="/founder" element={<PageWrapper><Founders /></PageWrapper>} />
+        <Route path="/account" element={<PageWrapper><Account /></PageWrapper>} />
+        <Route path="/contact" element={<PageWrapper><Contact /></PageWrapper>} />
+        <Route path="/docs" element={<PageWrapper><Docs /></PageWrapper>} />
+
+        {/* Product landing pages */}
+        <Route path="/products/live-bots" element={<PageWrapper><LiveBots /></PageWrapper>} />
+        <Route path="/products/train-bot" element={<PageWrapper><TrainBot /></PageWrapper>} />
+        <Route path="/products/backtest" element={<PageWrapper><Backtest /></PageWrapper>} />
+        <Route path="/products/generate-data" element={<PageWrapper><GenerateData /></PageWrapper>} />
+        <Route path="/products/optimize-labeling" element={<PageWrapper><OptimizeLabeling /></PageWrapper>} />
+
+        {/* Tool pages */}
+        <Route path="/tools/generator" element={<PageWrapper><Generator /></PageWrapper>} />
+        <Route path="/tools/trainer" element={<PageWrapper><Trainer /></PageWrapper>} />
+        <Route path="/tools/backtester" element={<PageWrapper><Backtester /></PageWrapper>} />
+        <Route path="/tools/optimizer" element={<PageWrapper><Optimizer /></PageWrapper>} />
+
+        {/* Fallback */}
+        <Route path="*" element={<PageWrapper><NotFound /></PageWrapper>} />
+      </Routes>
+      <Footer />
+    </>
+  );
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Header />
-        <Routes>
-          {/* Main pages */}
-          <Route path="/" element={<Index />} />
-          <Route path="/vision" element={<Vision />} />
-          <Route path="/founder" element={<Founders />} />
-          <Route path="/account" element={<Account />} />
-          <Route path="/contact" element={<Contact />} />
-          <Route path="/docs" element={<Docs />} />
-
-          {/* Product landing pages */}
-          <Route path="/products/live-bots" element={<LiveBots />} />
-          <Route path="/products/train-bot" element={<TrainBot />} />
-          <Route path="/products/backtest" element={<Backtest />} />
-          <Route path="/products/generate-data" element={<GenerateData />} />
-          <Route path="/products/optimize-labeling" element={<OptimizeLabeling />} />
-
-          {/* Tool pages */}
-          <Route path="/tools/generator" element={<Generator />} />
-          <Route path="/tools/trainer" element={<Trainer />} />
-          <Route path="/tools/backtester" element={<Backtester />} />
-          <Route path="/tools/optimizer" element={<Optimizer />} />
-
-          {/* Fallback */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <AppRoutes />
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

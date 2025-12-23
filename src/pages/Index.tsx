@@ -1,32 +1,38 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, ArrowDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import trainBotVisual from "@/assets/train-bot-visual.png";
 
 const products = [
   {
     title: "Access live trading bots",
-    description: "Connect to automated trading systems running in real-time. Monitor performance and manage positions.",
+    description: "Connect to our automated trading systems running in real-time across global markets. Monitor live performance metrics, manage positions, and track execution quality with comprehensive dashboards designed for professional traders.",
     href: "/products/live-bots",
+    image: null,
   },
   {
     title: "Train your own bot",
-    description: "Build custom convolutional neural networks using your datasets. Full control over architecture and training.",
+    description: "Build custom convolutional neural networks using your labeled datasets. Configure network architecture, set training hyperparameters, and monitor learning progress with real-time accuracy curves and validation metrics.",
     href: "/products/train-bot",
+    image: trainBotVisual,
   },
   {
     title: "Backtest your bot",
-    description: "Validate model performance with historical data. Comprehensive metrics and risk analysis.",
+    description: "Validate your trained models against historical market data with institutional-grade backtesting infrastructure. Analyze performance across different market regimes, measure risk-adjusted returns, and stress-test your strategies.",
     href: "/products/backtest",
+    image: null,
   },
   {
     title: "Generate training data",
-    description: "Create labeled candlestick chart datasets at scale. Configurable parameters for any strategy.",
+    description: "Create labeled candlestick chart datasets at scale with configurable parameters for any trading strategy. Define entry conditions, holding periods, and labeling criteria to build datasets tailored to your methodology.",
     href: "/products/generate-data",
+    image: null,
   },
   {
     title: "Optimize labeling systems",
-    description: "Fine-tune labeling parameters to maximize model accuracy. Data-driven parameter selection.",
+    description: "Fine-tune your data labeling parameters using systematic optimization algorithms. Test thousands of parameter combinations to discover the configurations that maximize model accuracy and generalization performance.",
     href: "/products/optimize-labeling",
+    image: null,
   },
 ];
 
@@ -71,81 +77,99 @@ function TypewriterText({ text }: { text: string }) {
   return (
     <h2
       ref={ref}
-      className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-light tracking-tight text-foreground/90"
+      className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-light tracking-tight text-foreground/90"
     >
       {displayedText}
     </h2>
   );
 }
 
-function ProductCard({
-  title,
-  description,
-  href,
-  index,
-}: {
-  title: string;
-  description: string;
-  href: string;
-  index: number;
-}) {
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
-  const slideFromRight = index % 2 === 0;
+function ProductCarousel() {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.1 }
-    );
+    const observers: IntersectionObserver[] = [];
 
-    if (cardRef.current) {
-      observer.observe(cardRef.current);
-    }
+    cardRefs.current.forEach((ref, index) => {
+      if (!ref) return;
 
-    return () => observer.disconnect();
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting && entry.intersectionRatio > 0.6) {
+            setActiveIndex(index);
+          }
+        },
+        { threshold: [0.6], rootMargin: "-20% 0px -20% 0px" }
+      );
+
+      observer.observe(ref);
+      observers.push(observer);
+    });
+
+    return () => observers.forEach((obs) => obs.disconnect());
   }, []);
 
   return (
-    <div
-      ref={cardRef}
-      className={`transition-all duration-1000 ease-out ${
-        isVisible
-          ? "opacity-100 translate-x-0"
-          : slideFromRight
-          ? "opacity-0 translate-x-16"
-          : "opacity-0 -translate-x-16"
-      }`}
-      style={{ transitionDelay: `${index * 150}ms` }}
-    >
-      <div className="group flex flex-col md:flex-row gap-6 p-6 bg-card/50 border border-border rounded-xl hover:border-primary/30 hover:bg-card transition-all duration-300">
-        {/* Image placeholder */}
-        <div className="md:w-1/3 aspect-video md:aspect-square bg-secondary/30 rounded-lg flex items-center justify-center border border-border/50 flex-shrink-0">
-          <span className="text-xs text-muted-foreground/50">Visual</span>
-        </div>
+    <div ref={containerRef} className="space-y-[40vh]">
+      {products.map((product, index) => {
+        const isActive = index === activeIndex;
+        const slideFromRight = index % 2 === 0;
 
-        {/* Content */}
-        <div className="flex flex-col justify-center flex-grow">
-          <h3 className="text-lg font-medium text-foreground mb-2 group-hover:text-primary transition-colors">
-            {title}
-          </h3>
-          <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-            {description}
-          </p>
-          <Link
-            to={href}
-            className="text-sm font-medium text-primary inline-flex items-center gap-1 group-hover:gap-2 transition-all w-fit"
+        return (
+          <div
+            key={product.title}
+            ref={(el) => (cardRefs.current[index] = el)}
+            className="min-h-[60vh] flex items-center justify-center sticky top-32"
+            style={{ zIndex: index }}
           >
-            Try now
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-      </div>
+            <div
+              className={`w-full max-w-3xl mx-auto transition-all duration-700 ease-out ${
+                isActive
+                  ? "opacity-100 translate-x-0 scale-100"
+                  : slideFromRight
+                  ? "opacity-0 translate-x-24 scale-95"
+                  : "opacity-0 -translate-x-24 scale-95"
+              }`}
+            >
+              <div className="bg-card/60 backdrop-blur-sm border border-border rounded-2xl p-8 hover:border-primary/30 transition-all duration-300">
+                <div className="flex flex-col md:flex-row gap-8">
+                  {/* Image placeholder */}
+                  <div className="md:w-2/5 aspect-[4/3] bg-secondary/30 rounded-xl flex items-center justify-center border border-border/50 flex-shrink-0 overflow-hidden">
+                    {product.image ? (
+                      <img
+                        src={product.image}
+                        alt={product.title}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground/50">Visual</span>
+                    )}
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex flex-col justify-center flex-grow">
+                    <h3 className="text-2xl md:text-3xl font-semibold text-foreground mb-4">
+                      {product.title}
+                    </h3>
+                    <p className="text-muted-foreground mb-6 leading-relaxed">
+                      {product.description}
+                    </p>
+                    <Link
+                      to={product.href}
+                      className="btn-primary inline-flex items-center gap-2 w-fit"
+                    >
+                      Try now
+                      <ArrowRight className="w-4 h-4" />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -306,10 +330,10 @@ export default function Index() {
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent" />
       </div>
 
-      {/* Hero Section - Right Shifted */}
+      {/* Hero Section - Left Aligned */}
       <section className="relative pt-32 pb-24 min-h-screen flex items-center">
         <div className="container-wide relative">
-          <div className="max-w-4xl ml-auto mr-0 md:mr-12 lg:mr-24 xl:mr-32">
+          <div className="max-w-4xl">
             <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold tracking-tight leading-[0.95] mb-8 opacity-0 animate-fade-up">
               <span className="block text-foreground">TRADE</span>
               <span className="block text-primary">DIFFERENTLY.</span>
@@ -361,35 +385,25 @@ export default function Index() {
       {/* Quote Section - Typewriter Effect */}
       <section
         id="quote"
-        className="relative min-h-screen flex items-center justify-center"
+        className="relative min-h-screen flex items-center"
       >
         <div className="absolute inset-0 bg-gradient-to-b from-background via-card/30 to-background" />
-        <div className="relative text-center px-8 md:text-right md:pr-16 lg:pr-32">
+        <div className="container-wide relative">
           <TypewriterText text="markets manifest visually" />
         </div>
       </section>
 
-      {/* Products Section */}
+      {/* Products Section - Carousel */}
       <section id="products" className="relative py-32">
         <div className="absolute inset-0 bg-gradient-to-b from-background via-card/20 to-background" />
         <div className="container-wide relative">
           {/* Section Title */}
-          <h2 className="text-2xl md:text-3xl font-light text-foreground mb-16 opacity-0 animate-section-reveal">
+          <h2 className="text-2xl md:text-3xl font-light text-foreground mb-24 opacity-0 animate-section-reveal">
             what we built:
           </h2>
 
-          {/* Horizontal Cards */}
-          <div className="flex flex-col gap-6">
-            {products.map((product, index) => (
-              <ProductCard
-                key={product.title}
-                title={product.title}
-                description={product.description}
-                href={product.href}
-                index={index}
-              />
-            ))}
-          </div>
+          {/* Carousel Cards */}
+          <ProductCarousel />
         </div>
       </section>
 
