@@ -21,8 +21,8 @@ export default function Founders() {
             Back to home
           </Link>
 
-          {/* Page Title */}
-          <div className="max-w-3xl ml-auto mr-0 md:mr-12 lg:mr-24 mb-20">
+          {/* Page Title - Top Left */}
+          <div className="max-w-3xl mb-20">
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-semibold text-foreground mb-6 opacity-0 animate-fade-up tracking-tight">
               Founders
             </h1>
@@ -36,7 +36,7 @@ export default function Founders() {
 
           {/* Founder Card */}
           <div
-            className="max-w-4xl ml-auto mr-0 md:mr-12 lg:mr-24 opacity-0 animate-fade-up"
+            className="max-w-4xl opacity-0 animate-fade-up"
             style={{ animationDelay: "200ms" }}
           >
             <div className="flex flex-col md:flex-row gap-8 p-8 bg-card/50 border border-border rounded-xl">

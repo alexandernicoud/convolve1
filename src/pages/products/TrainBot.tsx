@@ -22,8 +22,9 @@ export default function TrainBot() {
             Back to home
           </Link>
 
-          {/* Hero with image */}
+          {/* Hero with image - Title top right */}
           <div className="flex flex-col lg:flex-row gap-12 mb-16">
+            {/* Image left */}
             <div className="lg:w-1/2">
               <div className="aspect-[4/3] bg-secondary/30 rounded-xl border border-border/50 overflow-hidden">
                 <img
@@ -34,9 +35,10 @@ export default function TrainBot() {
               </div>
             </div>
             
-            <div className="lg:w-1/2 flex flex-col justify-center">
-              <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-6 opacity-0 animate-fade-up">
-                Train your own bot
+            {/* Content right */}
+            <div className="lg:w-1/2 flex flex-col justify-start">
+              <h1 className="text-5xl md:text-6xl font-bold text-foreground mb-6 opacity-0 animate-fade-up">
+                Train Your Own Bot
               </h1>
               <p
                 className="text-lg text-muted-foreground leading-relaxed mb-8 opacity-0 animate-fade-up"
@@ -62,28 +64,31 @@ export default function TrainBot() {
             </div>
           </div>
 
-          {/* Features preview */}
+          {/* Features - 2x2 grid (4 cards) */}
           <div
-            className="grid md:grid-cols-3 gap-6 opacity-0 animate-fade-up"
+            className="grid md:grid-cols-2 gap-6 opacity-0 animate-fade-up"
             style={{ animationDelay: "300ms" }}
           >
             <div className="bg-card/50 border border-border rounded-xl p-6">
-              <h3 className="text-foreground font-medium mb-2">Upload datasets</h3>
+              <h3 className="text-foreground font-medium mb-2">Upload Datasets</h3>
               <p className="text-sm text-muted-foreground">
                 Drag and drop your generated ZIP datasets to begin training.
               </p>
             </div>
             <div className="bg-card/50 border border-border rounded-xl p-6">
-              <h3 className="text-foreground font-medium mb-2">
-                Configure training
-              </h3>
+              <h3 className="text-foreground font-medium mb-2">Configure Training</h3>
               <p className="text-sm text-muted-foreground">
-                Set batch size, epochs, validation split, and other
-                hyperparameters.
+                Set batch size, epochs, validation split, and other hyperparameters.
               </p>
             </div>
             <div className="bg-card/50 border border-border rounded-xl p-6">
-              <h3 className="text-foreground font-medium mb-2">Analyze results</h3>
+              <h3 className="text-foreground font-medium mb-2">Monitor Progress</h3>
+              <p className="text-sm text-muted-foreground">
+                Track training metrics in real-time with live accuracy and loss curves.
+              </p>
+            </div>
+            <div className="bg-card/50 border border-border rounded-xl p-6">
+              <h3 className="text-foreground font-medium mb-2">Analyze Results</h3>
               <p className="text-sm text-muted-foreground">
                 View accuracy curves, loss metrics, and model behavior analysis.
               </p>
