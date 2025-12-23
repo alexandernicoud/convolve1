@@ -6,7 +6,7 @@
 
 @layer base {
   :root {
-    /* Dark premium theme */
+    /* Dark premium theme with green accent */
     --background: 220 15% 5%;
     --foreground: 210 20% 98%;
 
@@ -16,8 +16,8 @@
     --popover: 220 15% 8%;
     --popover-foreground: 210 20% 98%;
 
-    /* Cool blue accent */
-    --primary: 217 91% 60%;
+    /* Premium green accent */
+    --primary: 152 60% 52%;
     --primary-foreground: 220 15% 5%;
 
     --secondary: 220 15% 12%;
@@ -26,7 +26,7 @@
     --muted: 220 15% 15%;
     --muted-foreground: 210 15% 55%;
 
-    --accent: 217 91% 60%;
+    --accent: 152 60% 52%;
     --accent-foreground: 220 15% 5%;
 
     --destructive: 0 72% 51%;
@@ -34,7 +34,7 @@
 
     --border: 220 15% 18%;
     --input: 220 15% 15%;
-    --ring: 217 91% 60%;
+    --ring: 152 60% 52%;
 
     --radius: 0.5rem;
 
@@ -43,16 +43,16 @@
     --text-primary: 210 20% 98%;
     --text-secondary: 210 15% 70%;
     --text-muted: 210 15% 55%;
-    --accent-glow: 217 91% 60%;
+    --accent-glow: 152 60% 52%;
 
     --sidebar-background: 220 15% 5%;
     --sidebar-foreground: 210 20% 98%;
-    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary: 152 60% 52%;
     --sidebar-primary-foreground: 220 15% 5%;
     --sidebar-accent: 220 15% 12%;
     --sidebar-accent-foreground: 210 20% 98%;
     --sidebar-border: 220 15% 18%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-ring: 152 60% 52%;
   }
 
   .dark {
@@ -62,19 +62,19 @@
     --card-foreground: 210 20% 98%;
     --popover: 220 15% 8%;
     --popover-foreground: 210 20% 98%;
-    --primary: 217 91% 60%;
+    --primary: 152 60% 52%;
     --primary-foreground: 220 15% 5%;
     --secondary: 220 15% 12%;
     --secondary-foreground: 210 20% 85%;
     --muted: 220 15% 15%;
     --muted-foreground: 210 15% 55%;
-    --accent: 217 91% 60%;
+    --accent: 152 60% 52%;
     --accent-foreground: 220 15% 5%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 210 20% 98%;
     --border: 220 15% 18%;
     --input: 220 15% 15%;
-    --ring: 217 91% 60%;
+    --ring: 152 60% 52%;
   }
 }
 
@@ -90,6 +90,13 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: 
+      linear-gradient(135deg, 
+        hsl(220, 15%, 5%) 0%, 
+        hsl(210, 20%, 6%) 50%, 
+        hsl(160, 15%, 7%) 100%
+      );
+    min-height: 100vh;
   }
 
   /* Typography scale */
@@ -117,6 +124,12 @@
 
   .container-wide {
     @apply max-w-7xl mx-auto px-6;
+  }
+
+  /* Right-shifted content container */
+  .container-shifted {
+    @apply max-w-7xl mx-auto px-6;
+    padding-left: max(6rem, calc((100vw - 1280px) / 2 + 8rem));
   }
 
   .text-gradient {
@@ -168,10 +181,28 @@
     animation: slideIn 0.4s ease-out forwards;
   }
 
+  .animate-slide-in-right {
+    animation: slideInRight 0.8s ease-out forwards;
+  }
+
+  .animate-slide-in-left {
+    animation: slideInLeft 0.8s ease-out forwards;
+  }
+
+  .animate-section-reveal {
+    animation: sectionReveal 0.7s ease-out forwards;
+  }
+
   .delay-100 { animation-delay: 100ms; }
   .delay-200 { animation-delay: 200ms; }
   .delay-300 { animation-delay: 300ms; }
   .delay-400 { animation-delay: 400ms; }
+  .delay-500 { animation-delay: 500ms; }
+  .delay-600 { animation-delay: 600ms; }
+  .delay-700 { animation-delay: 700ms; }
+  .delay-800 { animation-delay: 800ms; }
+  .delay-900 { animation-delay: 900ms; }
+  .delay-1000 { animation-delay: 1000ms; }
 
   @keyframes fadeUp {
     from {
@@ -197,6 +228,39 @@
     to {
       opacity: 1;
       transform: translateX(0);
+    }
+  }
+
+  @keyframes slideInRight {
+    from {
+      opacity: 0;
+      transform: translateX(60px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes slideInLeft {
+    from {
+      opacity: 0;
+      transform: translateX(-60px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes sectionReveal {
+    from {
+      opacity: 0;
+      transform: translateY(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 

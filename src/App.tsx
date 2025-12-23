@@ -9,6 +9,8 @@ import Vision from "./pages/Vision";
 import Contact from "./pages/Contact";
 import Docs from "./pages/Docs";
 import NotFound from "./pages/NotFound";
+import Founders from "./pages/Founders";
+import Account from "./pages/Account";
 
 // Product landing pages
 import LiveBots from "./pages/products/LiveBots";
@@ -36,6 +38,8 @@ const App = () => (
           {/* Main pages */}
           <Route path="/" element={<Index />} />
           <Route path="/vision" element={<Vision />} />
+          <Route path="/founder" element={<Founders />} />
+          <Route path="/account" element={<Account />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/docs" element={<Docs />} />
 
