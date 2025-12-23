@@ -3,11 +3,11 @@ import { Link, useLocation } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
 
 const products = [
-  { name: "Chart Labeler", href: "/products/labeler" },
-  { name: "Labeling Optimizer", href: "/products/optimizer" },
-  { name: "Generator", href: "/products/generator" },
-  { name: "Trainer", href: "/products/trainer" },
-  { name: "Backtester", href: "/products/backtester" },
+  { name: "Access live trading bots", href: "/products/live-bots" },
+  { name: "Train your own bot", href: "/products/train-bot" },
+  { name: "Backtest your bot", href: "/products/backtest" },
+  { name: "Generate training data", href: "/products/generate-data" },
+  { name: "Optimize labeling systems", href: "/products/optimize-labeling" },
 ];
 
 export default function Header() {

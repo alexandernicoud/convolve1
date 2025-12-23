@@ -1,15 +1,42 @@
 import { Link } from "react-router-dom";
 import { ArrowRight, ArrowDown } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+
+const products = [
+  {
+    title: "Access live trading bots",
+    description: "Connect to automated trading systems running in real-time. Monitor performance and manage positions.",
+    href: "/products/live-bots",
+  },
+  {
+    title: "Train your own bot",
+    description: "Build custom convolutional neural networks using your datasets. Full control over architecture and training.",
+    href: "/products/train-bot",
+  },
+  {
+    title: "Backtest your bot",
+    description: "Validate model performance with historical data. Comprehensive metrics and risk analysis.",
+    href: "/products/backtest",
+  },
+  {
+    title: "Generate training data",
+    description: "Create labeled candlestick chart datasets at scale. Configurable parameters for any strategy.",
+    href: "/products/generate-data",
+  },
+  {
+    title: "Optimize labeling systems",
+    description: "Fine-tune labeling parameters to maximize model accuracy. Data-driven parameter selection.",
+    href: "/products/optimize-labeling",
+  },
+];
 
 export default function Index() {
   return (
     <div className="min-h-screen relative overflow-hidden">
       {/* Candlestick Background */}
       <div className="absolute inset-0 pointer-events-none">
-        {/* Base gradient */}
         <div className="absolute inset-0 bg-gradient-to-br from-background via-background to-card" />
         
-        {/* Diagonal line overlay */}
         <svg className="absolute inset-0 w-full h-full opacity-10" preserveAspectRatio="none">
           <defs>
             <pattern id="diagonalLines" patternUnits="userSpaceOnUse" width="60" height="60" patternTransform="rotate(30)">
@@ -19,9 +46,7 @@ export default function Index() {
           <rect width="100%" height="100%" fill="url(#diagonalLines)" />
         </svg>
         
-        {/* Candlestick chart visualization */}
         <svg className="absolute right-0 top-1/2 -translate-y-1/2 w-3/4 h-full opacity-30" viewBox="0 0 800 600" preserveAspectRatio="xMaxYMid slice">
-          {/* Subtle grid lines */}
           <defs>
             <linearGradient id="fadeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
               <stop offset="0%" stopColor="transparent" />
@@ -30,12 +55,10 @@ export default function Index() {
             </linearGradient>
           </defs>
           
-          {/* Horizontal grid lines */}
           {[100, 200, 300, 400, 500].map((y) => (
             <line key={y} x1="0" y1={y} x2="800" y2={y} stroke="url(#fadeGradient)" strokeWidth="1" />
           ))}
           
-          {/* Candlesticks - arranged in an uptrend pattern */}
           {[
             { x: 50, open: 450, close: 420, high: 410, low: 460 },
             { x: 90, open: 420, close: 380, high: 370, low: 430 },
@@ -58,7 +81,6 @@ export default function Index() {
             { x: 770, open: 120, close: 100, high: 90, low: 130 },
           ].map((candle, i) => (
             <g key={i}>
-              {/* Wick */}
               <line
                 x1={candle.x}
                 y1={candle.high}
@@ -68,7 +90,6 @@ export default function Index() {
                 strokeWidth="1.5"
                 opacity="0.6"
               />
-              {/* Body */}
               <rect
                 x={candle.x - 8}
                 y={Math.min(candle.open, candle.close)}
@@ -80,7 +101,6 @@ export default function Index() {
             </g>
           ))}
           
-          {/* Trend line */}
           <line
             x1="50"
             y1="470"
@@ -92,7 +112,6 @@ export default function Index() {
             opacity="0.4"
           />
           
-          {/* Scattered dots */}
           {[
             { cx: 150, cy: 520 },
             { cx: 280, cy: 480 },
@@ -114,7 +133,6 @@ export default function Index() {
           ))}
         </svg>
         
-        {/* Bottom gradient fade */}
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent" />
       </div>
 
@@ -122,7 +140,6 @@ export default function Index() {
       <section className="relative pt-32 pb-24 min-h-screen flex items-center">
         <div className="container-wide relative">
           <div className="max-w-4xl">
-            {/* Stacked headline */}
             <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold tracking-tight leading-[0.95] mb-8 opacity-0 animate-fade-up">
               <span className="block text-foreground">TRADE</span>
               <span className="block text-primary">DIFFERENTLY.</span>
@@ -132,21 +149,19 @@ export default function Index() {
               <span className="block text-primary">CONVOLUTIONAL.</span>
             </h1>
             
-            {/* Subline */}
             <p className="text-lg md:text-xl text-muted-foreground mb-10 opacity-0 animate-fade-up" style={{ animationDelay: '100ms' }}>
               Perceive the markets through the AI-lense.
             </p>
             
-            {/* CTA Buttons */}
             <div className="flex flex-wrap items-center gap-3 opacity-0 animate-fade-up" style={{ animationDelay: '200ms' }}>
               <Link 
-                to="/products/generator" 
+                to="/products/live-bots" 
                 className="btn-primary inline-flex items-center gap-2"
               >
                 Try the Bot
               </Link>
               <Link 
-                to="/products/trainer" 
+                to="/products/train-bot" 
                 className="btn-secondary"
               >
                 Build Your Bot
@@ -159,7 +174,7 @@ export default function Index() {
                 <ArrowRight className="w-4 h-4" />
               </Link>
               <a 
-                href="#products" 
+                href="#quote" 
                 className="btn-secondary inline-flex items-center gap-2"
               >
                 View what we build
@@ -170,69 +185,101 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Products Section */}
-      <section id="products" className="relative py-24 bg-gradient-to-b from-transparent to-card/50">
-        <div className="container-wide">
-          <div className="text-center mb-16 opacity-0 animate-fade-up">
-            <h2 className="text-2xl md:text-3xl font-semibold text-foreground mb-4">
-              The toolkit
-            </h2>
-            <p className="text-muted-foreground max-w-lg mx-auto">
-              End-to-end infrastructure for building and testing visual market models.
-            </p>
-          </div>
+      {/* Quote Section */}
+      <section id="quote" className="relative min-h-screen flex items-center justify-center">
+        <div className="absolute inset-0 bg-gradient-to-b from-background via-card/30 to-background" />
+        <div className="relative text-center px-8">
+          <h2 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-light tracking-tight text-foreground/90 opacity-0 animate-fade-up">
+            markets manifest visually
+          </h2>
+        </div>
+      </section>
 
-          <div className="grid md:grid-cols-3 gap-6">
-            <ProductCard
-              title="Generator"
-              description="Create labeled candlestick chart datasets at scale. Generate thousands of training samples with configurable parameters."
-              href="/products/generator"
-              delay={100}
-            />
-            <ProductCard
-              title="Trainer"
-              description="Train convolutional neural networks on your generated datasets. Monitor progress and analyze model behavior."
-              href="/products/trainer"
-              delay={200}
-            />
-            <ProductCard
-              title="Backtester"
-              description="Validate model performance with comprehensive backtesting. Analyze returns, drawdowns, and risk metrics."
-              href="/products/backtester"
-              delay={300}
-            />
+      {/* Products Section */}
+      <section id="products" className="relative py-32">
+        <div className="absolute inset-0 bg-gradient-to-b from-background via-card/20 to-background" />
+        <div className="container-wide relative">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            {products.map((product, index) => (
+              <ProductCard
+                key={product.title}
+                title={product.title}
+                description={product.description}
+                href={product.href}
+                index={index}
+              />
+            ))}
           </div>
         </div>
       </section>
 
-      {/* Footer spacer */}
       <div className="h-24" />
     </div>
   );
 }
 
-function ProductCard({ title, description, href, delay = 0 }: { 
+function ProductCard({ 
+  title, 
+  description, 
+  href, 
+  index 
+}: { 
   title: string; 
   description: string; 
   href: string; 
-  delay?: number;
+  index: number;
 }) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (cardRef.current) {
+      observer.observe(cardRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <Link 
-      to={href}
-      className="group block p-6 bg-card/50 border border-border rounded-xl hover:border-primary/30 hover:bg-card transition-all duration-300 opacity-0 animate-fade-up"
-      style={{ animationDelay: `${delay}ms` }}
+    <div
+      ref={cardRef}
+      className={`transition-all duration-700 ease-out ${
+        isVisible 
+          ? 'opacity-100 translate-y-0' 
+          : 'opacity-0 translate-y-8'
+      }`}
+      style={{ transitionDelay: `${index * 100}ms` }}
     >
-      <h3 className="text-lg font-medium text-foreground mb-2 group-hover:text-primary transition-colors">
-        {title}
-      </h3>
-      <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-        {description}
-      </p>
-      <span className="text-sm text-primary font-medium inline-flex items-center gap-1 group-hover:gap-2 transition-all">
-        Open tool
-        <ArrowRight className="w-4 h-4" />
-      </span>
-    </Link>
+      <div className="group h-full flex flex-col p-6 bg-card/50 border border-border rounded-xl hover:border-primary/30 hover:bg-card transition-all duration-300">
+        {/* Image placeholder */}
+        <div className="aspect-video bg-secondary/30 rounded-lg mb-4 flex items-center justify-center border border-border/50">
+          <span className="text-xs text-muted-foreground/50">Visual</span>
+        </div>
+        
+        <h3 className="text-base font-medium text-foreground mb-2 group-hover:text-primary transition-colors">
+          {title}
+        </h3>
+        <p className="text-sm text-muted-foreground mb-4 leading-relaxed flex-grow">
+          {description}
+        </p>
+        <Link
+          to={href}
+          className="text-sm font-medium text-primary inline-flex items-center gap-1 group-hover:gap-2 transition-all"
+        >
+          Try now
+          <ArrowRight className="w-4 h-4" />
+        </Link>
+      </div>
+    </div>
   );
 }
