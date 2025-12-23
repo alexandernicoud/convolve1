@@ -23,11 +23,12 @@ export default function PinnedProductCarousel({
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [progress, setProgress] = useState(0);
-  const [topOffset, setTopOffset] = useState(0);
 
-  const scrollHeightVh = useMemo(() => {
-    // Each product gets 80vh of scroll distance
-    return `${products.length * 80}vh`;
+  const heightVh = useMemo(() => {
+    // This is the ONLY thing that scrolls: the section height.
+    // The content is sticky, so it stays at the same screen position.
+    const per = 90; // scroll distance per card
+    return `${products.length * per}vh`;
   }, [products.length]);
 
   useEffect(() => {
@@ -37,24 +38,15 @@ export default function PinnedProductCarousel({
 
       const rect = el.getBoundingClientRect();
       const viewport = window.innerHeight;
-
-      // Keep the layer fixed to the viewport, but allow it to "slide" into place
-      // until it locks at top=0, and slide out when the section ends.
-      // This prevents the cards/title from ever scrolling out of view.
-      const before = rect.top > 0;
-      const after = rect.bottom < viewport;
-      const t = before ? rect.top : after ? rect.bottom - viewport : 0;
-      setTopOffset(t);
-
       const total = rect.height - viewport;
       const raw = total <= 0 ? 0 : -rect.top / total;
       const p = clamp01(raw);
 
+      setProgress(p);
+
       const scaled = p * products.length;
       const idx = Math.min(products.length - 1, Math.floor(scaled));
-
       setActiveIndex(idx);
-      setProgress(p);
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
@@ -68,15 +60,14 @@ export default function PinnedProductCarousel({
   }, [products.length]);
 
   return (
-    <div ref={containerRef} className="relative" style={{ height: scrollHeightVh }}>
-      {/* Viewport-fixed layer */}
-      <div
-        className="fixed left-0 w-full h-screen"
-        style={{ top: topOffset }}
-        aria-hidden={false}
-      >
-        <div className="container-aligned h-full flex flex-col">
-          {/* Title locked */}
+    <div ref={containerRef} className="relative" style={{ height: heightVh }}>
+      {/* Sticky = fixed in the viewer's screen while the section scrolls */}
+      <div className="sticky top-0 h-screen">
+        {/* Cover behind so it feels like nothing scrolls vertically */}
+        <div className="absolute inset-0 bg-background/95" aria-hidden="true" />
+
+        <div className="relative h-full flex flex-col">
+          {/* Title stays in the exact same spot on screen */}
           <div className="pt-24 pb-6">
             <h2 className="text-5xl md:text-6xl lg:text-7xl font-semibold tracking-tight text-foreground">
               {title}
@@ -90,7 +81,7 @@ export default function PinnedProductCarousel({
             </div>
           </div>
 
-          {/* Cards locked to center */}
+          {/* Card stays centered on screen; scrolling only swaps cards */}
           <div className="flex-1 flex items-center justify-center">
             <div className="w-full max-w-4xl relative">
               {products.map((product, index) => {
@@ -151,9 +142,6 @@ export default function PinnedProductCarousel({
           <div className="h-10" aria-hidden="true" />
         </div>
       </div>
-
-      {/* Spacer to keep layout height */}
-      <div className="absolute inset-0 pointer-events-none" aria-hidden="true" />
     </div>
   );
 }
