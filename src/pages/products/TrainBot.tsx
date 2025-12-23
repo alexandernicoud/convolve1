@@ -5,14 +5,8 @@ import trainBotVisual from "@/assets/train-bot-visual.png";
 export default function TrainBot() {
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-b from-background via-card/20 to-background" />
-        <div className="absolute top-1/3 right-1/4 w-[500px] h-[300px] bg-primary/5 rounded-full blur-3xl" />
-      </div>
-
       <div className="relative pt-32 pb-24">
-        <div className="container-wide">
+        <div className="container-aligned">
           {/* Back link */}
           <Link
             to="/"
@@ -22,26 +16,14 @@ export default function TrainBot() {
             Back to home
           </Link>
 
-          {/* Hero with image - Title top right */}
-          <div className="flex flex-col lg:flex-row gap-12 mb-16">
-            {/* Image left */}
-            <div className="lg:w-1/2">
-              <div className="aspect-[4/3] bg-secondary/30 rounded-xl border border-border/50 overflow-hidden">
-                <img
-                  src={trainBotVisual}
-                  alt="Train your own bot visualization"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            </div>
-            
-            {/* Content right */}
-            <div className="lg:w-1/2 flex flex-col justify-start">
-              <h1 className="text-5xl md:text-6xl font-bold text-foreground mb-6 opacity-0 animate-fade-up">
+          <div className="flex flex-col lg:flex-row gap-12">
+            {/* Left side - Title, description, CTA */}
+            <div className="lg:w-1/2 flex flex-col">
+              <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-foreground mb-8 opacity-0 animate-fade-up">
                 Train Your Own Bot
               </h1>
               <p
-                className="text-lg text-muted-foreground leading-relaxed mb-8 opacity-0 animate-fade-up"
+                className="text-lg text-muted-foreground leading-relaxed mb-8 opacity-0 animate-fade-up max-w-xl"
                 style={{ animationDelay: "100ms" }}
               >
                 Build custom convolutional neural networks using your labeled
@@ -50,7 +32,7 @@ export default function TrainBot() {
               </p>
 
               <div
-                className="opacity-0 animate-fade-up"
+                className="opacity-0 animate-fade-up mb-12"
                 style={{ animationDelay: "200ms" }}
               >
                 <Link
@@ -61,37 +43,58 @@ export default function TrainBot() {
                   <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
-            </div>
-          </div>
 
-          {/* Features - 2x2 grid (4 cards) */}
-          <div
-            className="grid md:grid-cols-2 gap-6 opacity-0 animate-fade-up"
-            style={{ animationDelay: "300ms" }}
-          >
-            <div className="bg-card/50 border border-border rounded-xl p-6">
-              <h3 className="text-foreground font-medium mb-2">Upload Datasets</h3>
-              <p className="text-sm text-muted-foreground">
-                Drag and drop your generated ZIP datasets to begin training.
-              </p>
+              {/* Image below on mobile, hidden on lg */}
+              <div className="lg:hidden aspect-[4/3] bg-secondary/30 rounded-xl border border-border/50 overflow-hidden mb-8">
+                <img
+                  src={trainBotVisual}
+                  alt="Train your own bot visualization"
+                  className="w-full h-full object-cover"
+                />
+              </div>
             </div>
-            <div className="bg-card/50 border border-border rounded-xl p-6">
-              <h3 className="text-foreground font-medium mb-2">Configure Training</h3>
-              <p className="text-sm text-muted-foreground">
-                Set batch size, epochs, validation split, and other hyperparameters.
-              </p>
-            </div>
-            <div className="bg-card/50 border border-border rounded-xl p-6">
-              <h3 className="text-foreground font-medium mb-2">Monitor Progress</h3>
-              <p className="text-sm text-muted-foreground">
-                Track training metrics in real-time with live accuracy and loss curves.
-              </p>
-            </div>
-            <div className="bg-card/50 border border-border rounded-xl p-6">
-              <h3 className="text-foreground font-medium mb-2">Analyze Results</h3>
-              <p className="text-sm text-muted-foreground">
-                View accuracy curves, loss metrics, and model behavior analysis.
-              </p>
+
+            {/* Right side - Image (desktop) + 2x2 grid */}
+            <div className="lg:w-1/2 flex flex-col gap-8">
+              {/* Image - visible on lg */}
+              <div className="hidden lg:block aspect-[4/3] bg-secondary/30 rounded-xl border border-border/50 overflow-hidden">
+                <img
+                  src={trainBotVisual}
+                  alt="Train your own bot visualization"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+
+              {/* Features - 2x2 grid */}
+              <div
+                className="grid grid-cols-2 gap-4 opacity-0 animate-fade-up"
+                style={{ animationDelay: "300ms" }}
+              >
+                <div className="bg-card/50 border border-border rounded-xl p-5">
+                  <h3 className="text-foreground font-medium mb-2">Upload Datasets</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Drag and drop your generated ZIP datasets to begin training.
+                  </p>
+                </div>
+                <div className="bg-card/50 border border-border rounded-xl p-5">
+                  <h3 className="text-foreground font-medium mb-2">Configure Training</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Set batch size, epochs, validation split, and other hyperparameters.
+                  </p>
+                </div>
+                <div className="bg-card/50 border border-border rounded-xl p-5">
+                  <h3 className="text-foreground font-medium mb-2">Monitor Progress</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Track training metrics in real-time with live accuracy and loss curves.
+                  </p>
+                </div>
+                <div className="bg-card/50 border border-border rounded-xl p-5">
+                  <h3 className="text-foreground font-medium mb-2">Analyze Results</h3>
+                  <p className="text-sm text-muted-foreground">
+                    View accuracy curves, loss metrics, and model behavior analysis.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
