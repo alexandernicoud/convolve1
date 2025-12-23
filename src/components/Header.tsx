@@ -83,10 +83,10 @@ export default function Header() {
             </div>
 
             <Link 
-              to="/docs" 
+              to="/founder" 
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              Docs
+              Founder
             </Link>
             <Link 
               to="/contact" 
@@ -98,10 +98,10 @@ export default function Header() {
 
           {/* CTA */}
           <Link 
-            to="/products/generator" 
-            className="btn-primary text-sm"
+            to="/account" 
+            className="btn-secondary text-sm"
           >
-            Launch tools
+            My Account
           </Link>
         </nav>
       </div>
