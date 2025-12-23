@@ -123,13 +123,23 @@
   }
 
   .container-wide {
-    @apply max-w-7xl mx-auto px-6;
+    @apply max-w-7xl mx-auto;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
   }
 
-  /* Right-shifted content container */
-  .container-shifted {
-    @apply max-w-7xl mx-auto px-6;
-    padding-left: max(6rem, calc((100vw - 1280px) / 2 + 8rem));
+  @media (min-width: 768px) {
+    .container-wide {
+      padding-left: 2.5rem;
+      padding-right: 2.5rem;
+    }
+  }
+
+  /* Left-aligned content matching header logo position */
+  .container-aligned {
+    @apply max-w-7xl mx-auto;
+    padding-left: 2.5rem;
+    padding-right: 2.5rem;
   }
 
   .text-gradient {
@@ -283,5 +293,20 @@
 
   .animate-drift {
     animation: drift 30s ease-in-out infinite;
+  }
+
+  .animate-page-enter {
+    animation: pageEnter 0.4s ease-out forwards;
+  }
+
+  @keyframes pageEnter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 }

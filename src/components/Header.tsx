@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
+import logo from "@/assets/logo.png";
 
 const products = [
   { name: "Access live trading bots", href: "/products/live-bots" },
@@ -19,17 +20,15 @@ export default function Header() {
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border">
       <div className="container-wide">
-        <nav className="flex items-center justify-between h-16">
+        <nav className="flex items-center justify-between h-20">
           {/* Logo */}
           <Link 
             to="/" 
-            className="flex items-center gap-2 group"
+            className="flex items-center gap-3 group"
           >
-            <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">c</span>
-            </div>
-            <span className="text-foreground font-medium text-lg tracking-tight">
-              convolve.
+            <img src={logo} alt="convolve" className="w-9 h-9" />
+            <span className="text-foreground font-bold text-xl tracking-tight">
+              convolve
             </span>
           </Link>
 
