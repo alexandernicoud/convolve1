@@ -130,13 +130,8 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Products Section - pinned title + one card at a time */}
-      <section id="products" className="relative py-24">
-        <div className="absolute inset-0 bg-gradient-to-b from-background via-card/15 to-background" />
-        <div className="container-aligned relative">
-          <PinnedProductCarousel title="What We Built:" products={products} />
-        </div>
-      </section>
+      {/* Products Section - pinned scroll-driven showcase */}
+      <PinnedProductCarousel title="What We Built:" products={products} />
 
       {/* Metrics page */}
       <MetricsCards items={metrics} />
