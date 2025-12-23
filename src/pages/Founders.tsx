@@ -1,17 +1,12 @@
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
+import founderPortrait from "@/assets/founder-portrait.png";
 
 export default function Founders() {
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-b from-background via-card/20 to-background" />
-        <div className="absolute top-1/4 right-1/4 w-[600px] h-[400px] bg-primary/5 rounded-full blur-3xl" />
-      </div>
-
       <div className="relative pt-32 pb-24">
-        <div className="container-wide">
+        <div className="container-aligned">
           {/* Back link */}
           <Link
             to="/"
@@ -22,51 +17,45 @@ export default function Founders() {
           </Link>
 
           {/* Page Title - Top Left */}
-          <div className="max-w-3xl mb-20">
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-semibold text-foreground mb-6 opacity-0 animate-fade-up tracking-tight">
-              Founders
+          <div className="max-w-3xl mb-16">
+            <h1 className="text-5xl md:text-6xl lg:text-7xl font-semibold text-foreground mb-6 opacity-0 animate-fade-up tracking-tight">
+              Founder
             </h1>
             <p
-              className="text-lg text-muted-foreground opacity-0 animate-fade-up"
+              className="text-xl text-muted-foreground opacity-0 animate-fade-up"
               style={{ animationDelay: "100ms" }}
             >
-              The people building visual intelligence for markets.
+              The person building visual intelligence for markets.
             </p>
           </div>
 
           {/* Founder Card */}
           <div
-            className="max-w-4xl opacity-0 animate-fade-up"
+            className="max-w-5xl opacity-0 animate-fade-up"
             style={{ animationDelay: "200ms" }}
           >
-            <div className="flex flex-col md:flex-row gap-8 p-8 bg-card/50 border border-border rounded-xl">
-              {/* Portrait Placeholder */}
-              <div className="w-full md:w-64 h-80 md:h-auto bg-secondary/30 rounded-lg flex items-center justify-center border border-border/50 flex-shrink-0">
-                <span className="text-sm text-muted-foreground/50">Portrait</span>
+            <div className="flex flex-col md:flex-row gap-10 p-8 bg-card/50 border border-border rounded-xl">
+              {/* Portrait */}
+              <div className="w-full md:w-80 flex-shrink-0 overflow-hidden rounded-lg">
+                <img 
+                  src={founderPortrait} 
+                  alt="Alexander Nicoud"
+                  className="w-full h-auto object-cover"
+                />
               </div>
 
               {/* Bio */}
               <div className="flex flex-col justify-center">
-                <h2 className="text-2xl font-semibold text-foreground mb-2">
+                <h2 className="text-3xl font-semibold text-foreground mb-2">
                   Alexander Nicoud
                 </h2>
-                <p className="text-sm text-primary mb-4">Founder</p>
-                <div className="space-y-4 text-muted-foreground leading-relaxed">
+                <p className="text-lg text-primary mb-6">Founder</p>
+                <div className="space-y-5 text-lg text-foreground/90 leading-relaxed">
                   <p>
-                    Alexander is a quantitative researcher and engineer with a background
-                    in applied mathematics and machine learning. His work focuses on the
-                    intersection of computer vision and financial markets.
+                    I am a young entrepreneur focused on building AI-driven software products from first principles. My work centers on developing visual machine-learning systems, including convolutional neural networks for chart-based analysis, where I design complete pipelines from data generation and labeling to model training and evaluation.
                   </p>
                   <p>
-                    Before founding convolve, he developed systematic trading strategies
-                    and built infrastructure for algorithmic trading systems. He holds
-                    degrees in mathematics and computer science.
-                  </p>
-                  <p>
-                    Alexander believes that visual representations of market data contain
-                    structure that traditional quantitative methods fail to capture, and
-                    that convolutional neural networks are uniquely suited to extract
-                    this information.
+                    What began as a technical experiment has grown into a long-term entrepreneurial initiative aimed at enabling others to build and scale visual-based AI systems using structured training data. In parallel, I founded and lead my high school's startup club, bringing together ambitious students to collaborate on real projects, develop products, and gain hands-on experience in technology and entrepreneurship.
                   </p>
                 </div>
               </div>
