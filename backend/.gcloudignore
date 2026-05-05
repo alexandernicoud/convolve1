@@ -1,0 +1,57 @@
+# =============================================================================
+# gcloud builds submit — files matching these patterns are NOT uploaded.
+# Docker still installs Python deps via requirements.txt inside the image.
+# =============================================================================
+
+# This file itself
+.gcloudignore
+
+# Version control (not needed for build context)
+.git
+.gitignore
+
+# --- Virtual environments (reinstalled in Docker via pip; ~2GB+) ---
+.venv/
+venv/
+
+# --- Python bytecode / caches ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Secrets & local-only env (set in Cloud Run / Secret Manager) ---
+.env
+.env.local
+
+# --- Local databases ---
+*.db
+app.db
+
+# --- Local dev & tool run outputs (not shipped to Cloud Run; ~2.4GB) ---
+runs/
+
+# --- Runtime data dirs (populated via BOT_DATA_DIR / API in prod; ~512MB local) ---
+bot_data/
+
+# --- Uploaded / extracted datasets (dev; API accepts uploads at runtime; ~131MB) ---
+datasets/
+
+# --- Local .keras / model upload dir (dev registry; not source code; ~1.6GB) ---
+models/
+
+# --- OS / editor noise ---
+.DS_Store
+.idea/
+.vscode/
+
+# --- Logs & temp ---
+*.log
+logs/
+tmp/
+temp/

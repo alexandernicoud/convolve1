@@ -1,0 +1,17 @@
+# Build context hygiene (docker build from this directory)
+.venv
+venv
+__pycache__
+*.py[cod]
+*.db
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+*.md
+.pytest_cache
+.mypy_cache
+.ruff_cache
+alembic.ini.bak
+*_scratch*.db

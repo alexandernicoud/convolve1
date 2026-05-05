@@ -3,9 +3,9 @@ import { ArrowLeft } from "lucide-react";
 
 export default function LiveBots() {
   return (
-    <div className="min-h-screen relative overflow-hidden">
-      <div className="relative pt-32 pb-24">
-        <div className="container-aligned">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden pb-4 pt-2">
+        <div className="container-aligned flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Back link */}
           <Link
             to="/"
@@ -37,7 +37,7 @@ export default function LiveBots() {
               >
                 <button
                   disabled
-                  className="btn-primary opacity-50 cursor-not-allowed inline-flex items-center gap-2"
+                  className="px-6 py-2.5 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 opacity-50 cursor-not-allowed inline-flex items-center gap-2"
                 >
                   Coming soon
                 </button>

@@ -1,73 +1,132 @@
-# Welcome to your Lovable project
+# Convolve Insights
 
-## Project info
+A full-stack platform for visual AI trading research, featuring CNN training, analysis, and interactive visualizations.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## 🚀 Quick Start
 
-## How can I edit this code?
-
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+### Single Command Setup
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+This will show you the commands to run both frontend and backend servers.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Manual Setup (Two Terminals)
 
-**Use GitHub Codespaces**
+**Terminal 1 - Frontend:**
+```bash
+npm run dev
+```
+Frontend will be available at: `http://localhost:5173`
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+**Terminal 2 - Backend:**
+```bash
+npm run dev:backend
+```
+Backend API will be available at: `http://127.0.0.1:8000`
 
-## What technologies are used for this project?
+## 📁 Project Structure
 
-This project is built with:
+```
+convolve-insights/
+├── src/                    # Frontend React/Vite app
+├── backend/               # FastAPI backend
+│   ├── app/
+│   └── runners/          # Training and analysis scripts
+├── datasets/             # Uploaded dataset storage
+├── runs/                 # Training run outputs
+└── package.json          # Root scripts
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## 🎯 Features
 
-## How can I deploy this project?
+### Dataset Management
+- **Drag & Drop Upload**: ZIP files containing labeled chart images
+- **Automatic Processing**: Extracts and validates image datasets
+- **Label Analysis**: Counts and categorizes training labels
+- **Persistent Storage**: Reusable datasets across training runs
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+### CNN Training
+- **Live Progress**: Real-time epoch-by-epoch metrics
+- **Flexible Configuration**: Standard or custom training parameters
+- **Early Stopping**: Automatic training optimization
+- **Model Export**: Keras model downloads
 
-## Can I connect a custom domain to my Lovable project?
+### Visual Analysis
+- **CNN Interpretability**: Filter, activation, and saliency maps
+- **Grad-CAM**: Gradient-based feature attribution
+- **Advanced Visualizations**: Professional research-grade outputs
+- **ZIP Downloads**: Complete analysis result packages
 
-Yes, you can!
+## 🛠️ Development
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+### Environment Variables
+Create `.env.local` in the root directory:
+```
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+### API Endpoints
+
+**Dataset Management:**
+- `POST /datasets/upload` - Upload and extract dataset ZIP
+- `GET /datasets/{dataset_id}` - Get dataset information
+
+**Training:**
+- `POST /trainer/runs` - Start CNN training
+- `GET /trainer/runs/{run_id}` - Get training progress
+- `GET /trainer/runs/{run_id}/download/model` - Download trained model
+
+**Analysis:**
+- `POST /trainer/runs/{run_id}/analysis` - Start CNN analysis
+- `GET /trainer/runs/{run_id}/analysis/{analysis_id}` - Get analysis status
+- `GET /trainer/runs/{run_id}/analysis/{analysis_id}/download` - Download results
+
+## 🎨 Design System
+
+- **Colors**: Deep black backgrounds, purple/blue/pink accents
+- **Typography**: Clean, high-contrast text hierarchy
+- **No Green**: Candlesticks are the only green elements
+- **Responsive**: Mobile-first design approach
+
+## 🔧 Troubleshooting
+
+### Backend Not Starting
+If matplotlib cache issues occur:
+```bash
+cd backend
+MPLCONFIGDIR=/tmp/matplotlib MPLBACKEND=Agg python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+### Upload Errors
+- Ensure both frontend and backend are running
+- Check browser Network tab for detailed error information
+- Verify ZIP contains valid image files with proper naming
+
+### Port Conflicts
+- Frontend: `http://localhost:5173` (Vite dev server)
+- Backend: `http://127.0.0.1:8000` (FastAPI server)
+
+## 📊 Tech Stack
+
+**Frontend:**
+- React 18 + TypeScript
+- Vite (build tool)
+- Tailwind CSS (styling)
+- Framer Motion (animations)
+
+**Backend:**
+- FastAPI (Python web framework)
+- TensorFlow/Keras (ML framework)
+- PIL, OpenCV (image processing)
+- Matplotlib (visualizations)
+
+**Data Processing:**
+- PNG/JPG/WEBP image support
+- Label extraction from filenames
+- Automatic dataset validation
+- ZIP file handling
+
+---
+
+Built for quantitative researchers exploring visual AI in financial markets.

@@ -37,7 +37,7 @@ export default function TrainBot() {
               >
                 <Link
                   to="/tools/trainer"
-                  className="btn-primary inline-flex items-center gap-2"
+                  className="px-6 py-2.5 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 inline-flex items-center gap-2"
                 >
                   Try now
                   <ArrowRight className="w-4 h-4" />

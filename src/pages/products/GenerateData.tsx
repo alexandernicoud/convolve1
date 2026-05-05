@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import trainingChart from "@/assets/trainingchart.png";
 
 export default function GenerateData() {
   return (
@@ -36,7 +37,7 @@ export default function GenerateData() {
               >
                 <Link
                   to="/tools/generator"
-                  className="btn-primary inline-flex items-center gap-2"
+                  className="px-6 py-2.5 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 inline-flex items-center gap-2"
                 >
                   Try now
                   <ArrowRight className="w-4 h-4" />
@@ -44,8 +45,16 @@ export default function GenerateData() {
               </div>
             </div>
 
-            {/* Right side - 2x2 grid */}
-            <div className="lg:w-1/2 flex flex-col justify-center">
+            {/* Right side - preview + 2x2 grid */}
+            <div className="lg:w-1/2 flex flex-col justify-center gap-6">
+              <div className="rounded-2xl border border-border bg-card/40 p-4 shadow-[0_20px_60px_rgba(15,23,42,0.35)]">
+                <img
+                  src={trainingChart}
+                  alt="Training chart preview"
+                  className="w-full rounded-xl border border-border/60"
+                  loading="lazy"
+                />
+              </div>
               <div
                 className="grid grid-cols-2 gap-4 opacity-0 animate-fade-up"
                 style={{ animationDelay: "300ms" }}

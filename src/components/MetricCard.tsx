@@ -9,7 +9,7 @@ export default function MetricCard({ label, value, subtext, trend }: MetricCardP
   const getTrendColor = () => {
     switch (trend) {
       case 'up':
-        return 'text-green-500';
+        return 'text-[#e5e5e5]';
       case 'down':
         return 'text-red-500';
       default:

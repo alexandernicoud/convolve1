@@ -51,7 +51,7 @@ export default function Optimizer() {
     <div className="space-y-6">
       <div>
         <Link 
-          to="/products/optimize-labeling" 
+          to="/products/labeling-optimizer/technical" 
           className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -152,7 +152,7 @@ export default function Optimizer() {
       <button
         onClick={handleRunOptimization}
         disabled={status === 'running'}
-        className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full px-6 py-2.5 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {status === 'running' ? 'Optimizing...' : 'Run optimization'}
       </button>
@@ -168,11 +168,13 @@ export default function Optimizer() {
   );
 
   return (
-    <ToolLayout
-      title="Labeling Optimizer"
-      description="Search for optimal labeling parameters"
-      inputPanel={inputPanel}
-      outputPanel={outputPanel}
-    />
+    <div className="h-full min-h-0 overflow-hidden">
+      <ToolLayout
+        title="Labeling Optimizer"
+        description="Search for optimal labeling parameters"
+        inputPanel={inputPanel}
+        outputPanel={outputPanel}
+      />
+    </div>
   );
 }

@@ -1,80 +1,81 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700&family=Sora:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
 @layer base {
   :root {
-    /* Dark premium theme with green accent */
-    --background: 220 15% 5%;
-    --foreground: 210 20% 98%;
+    /* Monochrome dark UI (no purple / pink accents) */
+    --background: 0 0% 2%;
+    --foreground: 0 0% 98%;
 
-    --card: 220 15% 8%;
-    --card-foreground: 210 20% 98%;
+    --card: 0 0% 5%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 220 15% 8%;
-    --popover-foreground: 210 20% 98%;
+    --popover: 0 0% 4%;
+    --popover-foreground: 0 0% 98%;
 
-    /* Premium green accent */
-    --primary: 152 60% 52%;
-    --primary-foreground: 220 15% 5%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 4%;
 
-    --secondary: 220 15% 12%;
-    --secondary-foreground: 210 20% 85%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 96%;
 
-    --muted: 220 15% 15%;
-    --muted-foreground: 210 15% 55%;
+    --muted: 0 0% 18%;
+    --muted-foreground: 0 0% 65%;
 
-    --accent: 152 60% 52%;
-    --accent-foreground: 220 15% 5%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 0 0% 98%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 210 20% 98%;
 
-    --border: 220 15% 18%;
-    --input: 220 15% 15%;
-    --ring: 152 60% 52%;
+    --border: 0 0% 18%;
+    --input: 0 0% 12%;
+    --ring: 0 0% 100%;
 
     --radius: 0.5rem;
 
     /* Custom tokens */
-    --surface-elevated: 220 15% 10%;
-    --text-primary: 210 20% 98%;
-    --text-secondary: 210 15% 70%;
-    --text-muted: 210 15% 55%;
-    --accent-glow: 152 60% 52%;
+    --surface-elevated: 0 0% 8%;
+    --text-primary: 0 0% 98%;
+    --text-secondary: 0 0% 70%;
+    --text-muted: 0 0% 55%;
+    --accent-glow: 0 0% 100%;
 
-    --sidebar-background: 220 15% 5%;
-    --sidebar-foreground: 210 20% 98%;
-    --sidebar-primary: 152 60% 52%;
-    --sidebar-primary-foreground: 220 15% 5%;
-    --sidebar-accent: 220 15% 12%;
-    --sidebar-accent-foreground: 210 20% 98%;
-    --sidebar-border: 220 15% 18%;
-    --sidebar-ring: 152 60% 52%;
+    --sidebar-background: 0 0% 3%;
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 0 0% 4%;
+    --sidebar-accent: 0 0% 12%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 18%;
+    --sidebar-ring: 0 0% 100%;
   }
 
   .dark {
-    --background: 220 15% 5%;
-    --foreground: 210 20% 98%;
-    --card: 220 15% 8%;
-    --card-foreground: 210 20% 98%;
-    --popover: 220 15% 8%;
-    --popover-foreground: 210 20% 98%;
-    --primary: 152 60% 52%;
-    --primary-foreground: 220 15% 5%;
-    --secondary: 220 15% 12%;
-    --secondary-foreground: 210 20% 85%;
-    --muted: 220 15% 15%;
-    --muted-foreground: 210 15% 55%;
-    --accent: 152 60% 52%;
-    --accent-foreground: 220 15% 5%;
+    --background: 0 0% 3%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 6%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 5%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 4%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 0 0% 98%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 210 20% 98%;
-    --border: 220 15% 18%;
-    --input: 220 15% 15%;
-    --ring: 152 60% 52%;
+    --border: 0 0% 18%;
+    --input: 0 0% 12%;
+    --ring: 0 0% 100%;
   }
 }
 
@@ -85,6 +86,8 @@
 
   html {
     @apply dark;
+    margin: 0;
+    padding: 0;
   }
 
   body {
@@ -93,23 +96,246 @@
     background: hsl(var(--background));
     min-height: 100vh;
     position: relative;
+    margin: 0;
+    padding: 0;
   }
 
-  /* Global blue-green glow background */
-  body::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: 
-      radial-gradient(ellipse 80% 60% at 20% 30%, hsl(200, 60%, 20%, 0.15) 0%, transparent 60%),
-      radial-gradient(ellipse 60% 50% at 80% 70%, hsl(152, 60%, 30%, 0.12) 0%, transparent 50%),
-      radial-gradient(ellipse 100% 80% at 50% 100%, hsl(180, 50%, 15%, 0.1) 0%, transparent 60%);
-    pointer-events: none;
-    z-index: -1;
+  /* Vision landing: smooth scrolling (native); no scroll-snap — free scroll with smooth programmatic jumps */
+  body.vision-landing-scroll {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
   }
+
+  /* Vision: full-viewport wave lines — clearly visible, slow drift */
+  @keyframes vision-wave-drift-a {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    50% {
+      transform: translateX(-3.5%);
+    }
+  }
+
+  @keyframes vision-wave-drift-b {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-5%);
+    }
+  }
+
+  .vision-wave-group--a {
+    animation: vision-wave-drift-a 38s ease-in-out infinite;
+  }
+
+  .vision-wave-group--b {
+    animation: vision-wave-drift-b 52s linear infinite alternate;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vision-wave-group--a,
+    .vision-wave-group--b {
+      animation: none;
+    }
+  }
+
+  /* Vision section 6: diagonal wave bands — slow oscillation */
+  @keyframes vision-s6-wave-oscillate {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0);
+    }
+    50% {
+      transform: translate3d(0.9%, -0.75%, 0);
+    }
+  }
+
+  .vision-s6-wave-arm {
+    transform-origin: 50% 50%;
+    transform-box: fill-box;
+    animation-name: vision-s6-wave-oscillate;
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vision-s6-wave-arm {
+      animation: none;
+      will-change: auto;
+    }
+  }
+
+  /* Vision landing: print-style body (hyphenation + justified blocks where applied) */
+  .vision-print-adjust {
+    hyphens: auto;
+    -webkit-hyphens: auto;
+    hyphenate-limit-chars: 6 3 3;
+    text-wrap: pretty;
+  }
+
+  .vision-print-adjust--justify {
+    text-align: justify;
+    text-justify: inter-word;
+  }
+
+  /* Vision: high-contrast section enter (IntersectionObserver adds .vision-section-reveal--in) */
+  .vision-section-reveal {
+    opacity: 0;
+    transform: translate3d(0, 2.75rem, 0) scale(0.985);
+    will-change: opacity, transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vision-section-reveal {
+      opacity: 1;
+      transform: none;
+      will-change: auto;
+    }
+  }
+
+  .vision-section-reveal.vision-section-reveal--in {
+    animation: vision-section-reveal 2.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vision-section-reveal.vision-section-reveal--in {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes vision-section-reveal {
+    0% {
+      opacity: 0;
+      transform: translate3d(0, 2.75rem, 0) scale(0.985);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+
+  /* Vision: chevron “hop” to invite scroll */
+  @keyframes vision-chevron-hop {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0);
+    }
+    45% {
+      transform: translate3d(0, 6px, 0);
+    }
+    55% {
+      transform: translate3d(0, -3px, 0);
+    }
+  }
+
+  .vision-chevron-hop {
+    animation: vision-chevron-hop 2.4s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vision-chevron-hop {
+      animation: none;
+    }
+  }
+
+  /* Vision: layered depth between sections (scroll-linked feel) */
+  @keyframes vision-section-reveal-strong {
+    0% {
+      opacity: 0;
+      transform: translate3d(0, 3.25rem, 0) scale(0.97);
+      filter: blur(6px);
+    }
+    62% {
+      filter: blur(0);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  .vision-section-reveal-strong {
+    opacity: 0;
+    transform: translate3d(0, 3.25rem, 0) scale(0.97);
+    will-change: opacity, transform, filter;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vision-section-reveal-strong {
+      opacity: 1;
+      transform: none;
+      filter: none;
+      will-change: auto;
+    }
+  }
+
+  .vision-section-reveal-strong.vision-section-reveal--in {
+    animation: vision-section-reveal-strong 1.9s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vision-section-reveal-strong.vision-section-reveal--in {
+      animation: none;
+      opacity: 1;
+      transform: none;
+      filter: none;
+    }
+  }
+
+  /* Vision: stagger children after section shell animates */
+  .vision-reveal-stagger > * {
+    opacity: 0;
+    transform: translate3d(0, 1.25rem, 0);
+    transition:
+      opacity 1.35s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 1.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .vision-reveal-stagger.vision-reveal-stagger--in > *:nth-child(1) {
+    transition-delay: 0.14s;
+  }
+  .vision-reveal-stagger.vision-reveal-stagger--in > *:nth-child(2) {
+    transition-delay: 0.28s;
+  }
+  .vision-reveal-stagger.vision-reveal-stagger--in > *:nth-child(3) {
+    transition-delay: 0.42s;
+  }
+  .vision-reveal-stagger.vision-reveal-stagger--in > *:nth-child(4) {
+    transition-delay: 0.56s;
+  }
+  .vision-reveal-stagger.vision-reveal-stagger--in > *:nth-child(5) {
+    transition-delay: 0.7s;
+  }
+  .vision-reveal-stagger.vision-reveal-stagger--in > *:nth-child(n + 6) {
+    transition-delay: 0.84s;
+  }
+
+  .vision-reveal-stagger.vision-reveal-stagger--in > * {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vision-reveal-stagger > * {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body.vision-landing-scroll {
+      scroll-behavior: auto;
+      scroll-snap-type: none;
+    }
+  }
+
 
   /* Typography scale */
   h1 {
@@ -149,9 +375,25 @@
 
   /* Left-aligned content matching header logo position */
   .container-aligned {
-    @apply max-w-7xl mx-auto;
-    padding-left: 2.5rem;
-    padding-right: 2.5rem;
+    @apply max-w-screen-2xl mx-auto;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  @media (min-width: 1280px) {
+    .container-aligned {
+      max-width: 90rem;
+      padding-left: 2rem;
+      padding-right: 2rem;
+    }
+  }
+
+  @media (min-width: 1536px) {
+    .container-aligned {
+      max-width: 100rem;
+      padding-left: 2.5rem;
+      padding-right: 2.5rem;
+    }
   }
 
   .text-gradient {
@@ -187,6 +429,20 @@
 
   .card-hover {
     @apply transition-all duration-300 hover:border-muted hover:translate-y-[-2px];
+  }
+
+  /** Vision home — section kicker (Pipeline, Problem, …) */
+  .marketing-section-label {
+    @apply text-[11px] font-medium uppercase tracking-[0.24em] text-white/70;
+  }
+
+  /** Technical / tool pages — glass card (ToolLayout, deploy, etc.) */
+  .tech-surface {
+    @apply rounded-2xl border border-white/[0.1] bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-md;
+  }
+
+  .tech-surface-muted {
+    @apply rounded-2xl border border-white/[0.08] bg-black/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm;
   }
 }
 
@@ -299,6 +555,15 @@
     100% { transform: translate(0, 0) rotate(0deg); }
   }
 
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   .animate-float {
     animation: float 6s ease-in-out infinite;
   }
@@ -308,17 +573,26 @@
   }
 
   .animate-page-enter {
-    animation: pageEnter 0.4s ease-out forwards;
+    animation: pageEnter 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
 
   @keyframes pageEnter {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      transform: translateY(18px);
     }
     to {
       opacity: 1;
-      transform: translateY(0);
+      transform: none;
     }
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-page-enter {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
+
 }
