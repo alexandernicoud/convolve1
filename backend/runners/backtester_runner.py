@@ -98,8 +98,14 @@ def run_backtester(config: Dict[str, Any], run_dir: Path, progress_cb: Callable)
     output_dir = run_dir / "backtest_output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+<<<<<<< HEAD
     # Find the backtester script
     script_path = Path(__file__).parent.parent.parent / "3.2_Tester_Pro_v2.py"
+=======
+    # Find the backtester script (bundled under backend/scripts for container builds)
+    backend_root = Path(__file__).resolve().parent.parent
+    script_path = backend_root / "scripts" / "3.2_Tester_Pro_v2.py"
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
     if not script_path.exists():
         raise FileNotFoundError(f"Backtester script not found at {script_path}")
 
@@ -122,7 +128,11 @@ def run_backtester(config: Dict[str, Any], run_dir: Path, progress_cb: Callable)
     progress_cb("running", 0.2, {"message": "Running backtest analysis..."})
 
     print(f"Running backtester command: {' '.join(cmd)}")
+<<<<<<< HEAD
     print(f"Working directory: {script_path.parent}")
+=======
+    print(f"Working directory: {backend_root}")
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
     print(f"Model path: {model_path}")
     print(f"Dataset path: {dataset_path}")
 
@@ -130,7 +140,11 @@ def run_backtester(config: Dict[str, Any], run_dir: Path, progress_cb: Callable)
         # Run the backtester script
         result = subprocess.run(
             cmd,
+<<<<<<< HEAD
             cwd=str(script_path.parent),
+=======
+            cwd=str(backend_root),
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
             capture_output=True,
             text=True,
             timeout=1800  # 30 minutes timeout

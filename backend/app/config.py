@@ -98,6 +98,13 @@ APP_MODE = os.getenv("APP_MODE", "api").strip().lower()
 # --- API startup: do not run bot batches unless explicitly enabled ---
 RUN_BOTS_ON_API_STARTUP = _env_bool("RUN_BOTS_ON_API_STARTUP", False)
 
+<<<<<<< HEAD
+=======
+# --- Live / scheduled bot execution (disable on first Cloud Run for pipeline-only testing) ---
+LIVE_DEPLOY_ENABLED = _env_bool("LIVE_DEPLOY_ENABLED", False)
+SCHEDULED_BOTS_ENABLED = _env_bool("SCHEDULED_BOTS_ENABLED", False)
+
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 # --- Logging ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").strip().upper()
 

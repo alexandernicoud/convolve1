@@ -4,7 +4,16 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+<<<<<<< HEAD
 from app.config import BOT_SCHEDULE_TIME, BOT_SCHEDULE_TZ
+=======
+from app.config import (
+    BOT_SCHEDULE_TIME,
+    BOT_SCHEDULE_TZ,
+    LIVE_DEPLOY_ENABLED,
+    SCHEDULED_BOTS_ENABLED,
+)
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 from app.db import init_db
 from app.jobs.run_due_bots import run_due_bots_once
 
@@ -27,6 +36,17 @@ def run_daily_jobs() -> None:
 
 
 def main() -> None:
+<<<<<<< HEAD
+=======
+    if not LIVE_DEPLOY_ENABLED or not SCHEDULED_BOTS_ENABLED:
+        logger.info(
+            "APScheduler disabled (LIVE_DEPLOY_ENABLED=%s, SCHEDULED_BOTS_ENABLED=%s)",
+            LIVE_DEPLOY_ENABLED,
+            SCHEDULED_BOTS_ENABLED,
+        )
+        return
+
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
     init_db()
     hour, minute = _parse_time(BOT_SCHEDULE_TIME)
     tz = ZoneInfo(BOT_SCHEDULE_TZ)

@@ -11,7 +11,17 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.bot_runner import fetch_market_data
+<<<<<<< HEAD
 from app.config import BOT_DATA_DIR, BOT_SCHEDULE_TIME, BOT_SCHEDULE_TZ, USER_ID
+=======
+from app.config import (
+    BOT_DATA_DIR,
+    BOT_SCHEDULE_TIME,
+    BOT_SCHEDULE_TZ,
+    LIVE_DEPLOY_ENABLED,
+    USER_ID,
+)
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 from app.db import get_db
 from app.jobs.run_due_bots import run_due_bots_once
 from app.models import Bot, BotRun
@@ -33,6 +43,19 @@ from app.storage import save_bot_keras_upload
 
 router = APIRouter(prefix="/api/bots", tags=["bots"])
 
+<<<<<<< HEAD
+=======
+LIVE_DEPLOY_DISABLED_DETAIL = (
+    "Live bot deployment/execution is disabled in this environment. "
+    "Training, analysis and backtesting are available."
+)
+
+
+def _require_live_deploy() -> None:
+    if not LIVE_DEPLOY_ENABLED:
+        raise HTTPException(status_code=403, detail=LIVE_DEPLOY_DISABLED_DETAIL)
+
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 
 def _normalize_run_time_hhmm(raw: str) -> str:
     """
@@ -173,8 +196,14 @@ async def create_bot(
     db.add(bot)
     db.commit()
     db.refresh(bot)
+<<<<<<< HEAD
     execute_bot_run(db, bot)
     db.refresh(bot)
+=======
+    if LIVE_DEPLOY_ENABLED:
+        execute_bot_run(db, bot)
+        db.refresh(bot)
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 
     return _enrich_bot_out(db, bot)
 
@@ -229,6 +258,10 @@ def pause_bot(bot_id: str, db: Session = Depends(get_db)):
 
 @router.post("/{bot_id}/resume", response_model=BotOut)
 def resume_bot(bot_id: str, db: Session = Depends(get_db)):
+<<<<<<< HEAD
+=======
+    _require_live_deploy()
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
     bot = _get_bot(db, bot_id)
     if bot.lifecycle_state != "paused":
         raise HTTPException(status_code=400, detail="Bot is not paused")
@@ -244,6 +277,10 @@ def resume_bot(bot_id: str, db: Session = Depends(get_db)):
 
 @router.post("/{bot_id}/close", response_model=BotTradingDetailFullOut)
 def close_bot_lifecycle(bot_id: str, db: Session = Depends(get_db)):
+<<<<<<< HEAD
+=======
+    _require_live_deploy()
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
     bot = _get_bot(db, bot_id)
     market_data = fetch_market_data(bot.symbol)
     if market_data is None or market_data.empty:
@@ -292,6 +329,10 @@ def toggle_bot(bot_id: str, db: Session = Depends(get_db)):
         bot.lifecycle_state = "paused"
         bot.is_active = False
     elif ls == "paused":
+<<<<<<< HEAD
+=======
+        _require_live_deploy()
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
         if is_runtime_expired(bot, datetime.now(timezone.utc)):
             raise HTTPException(status_code=400, detail="Runtime expired; cannot resume")
         bot.lifecycle_state = "active"
@@ -308,6 +349,10 @@ def toggle_bot(bot_id: str, db: Session = Depends(get_db)):
 
 
 def _manual_run_response(bot_id: str, db: Session) -> BotRunOut:
+<<<<<<< HEAD
+=======
+    _require_live_deploy()
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
     bot = _get_bot(db, bot_id)
     _assert_bot_runnable(bot)
     try:

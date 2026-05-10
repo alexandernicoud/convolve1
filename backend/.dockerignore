@@ -1,4 +1,13 @@
 # Build context hygiene (docker build from this directory)
+<<<<<<< HEAD
+=======
+runs
+datasets
+models
+bot_data
+node_modules
+dist
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 .venv
 venv
 __pycache__

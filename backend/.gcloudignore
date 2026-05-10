@@ -33,6 +33,13 @@ htmlcov/
 *.db
 app.db
 
+<<<<<<< HEAD
+=======
+# --- Frontend / build artifacts (if present under backend/) ---
+node_modules/
+dist/
+
+>>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 # --- Local dev & tool run outputs (not shipped to Cloud Run; ~2.4GB) ---
 runs/
 
