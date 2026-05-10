@@ -21,9 +21,6 @@ from threading import Thread
 
 from app.bots_api import router as bots_router, run_active_bots_once
 from app.dashboard_api import router as dashboard_router
-<<<<<<< HEAD
-from app.config import APP_MODE, CORS_ORIGINS, MODEL_STORAGE_ROOT, RUN_BOTS_ON_API_STARTUP, configure_logging
-=======
 from app.config import (
     APP_MODE,
     CORS_ORIGINS,
@@ -33,7 +30,6 @@ from app.config import (
     SCHEDULED_BOTS_ENABLED,
     configure_logging,
 )
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 from app.db import init_db
 from app.routers.models_upload import router as models_upload_router
 from app.services.model_paths import require_existing_model_file
@@ -55,8 +51,6 @@ app.include_router(models_upload_router)
 
 logger = logging.getLogger("app.main")
 
-<<<<<<< HEAD
-=======
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPTS_DIR = _BACKEND_ROOT / "scripts"
 
@@ -67,7 +61,6 @@ def _resolve_pipeline_script(filename: str) -> Path:
         raise FileNotFoundError(f"Pipeline script not found (expected in backend/scripts): {path}")
     return path
 
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 
 @app.on_event("startup")
 def startup() -> None:
@@ -79,13 +72,6 @@ def startup() -> None:
         )
     init_db()
     logger.info("Startup complete: database initialized.")
-<<<<<<< HEAD
-    if RUN_BOTS_ON_API_STARTUP:
-        logger.info("RUN_BOTS_ON_API_STARTUP=true: starting due-bot batch in background thread")
-        Thread(target=run_active_bots_once, daemon=True).start()
-    else:
-        logger.info("RUN_BOTS_ON_API_STARTUP=false: not running bot batch on API startup")
-=======
     if RUN_BOTS_ON_API_STARTUP and SCHEDULED_BOTS_ENABLED and LIVE_DEPLOY_ENABLED:
         logger.info(
             "Starting due-bot batch in background (RUN_BOTS_ON_API_STARTUP, "
@@ -101,7 +87,6 @@ def startup() -> None:
             SCHEDULED_BOTS_ENABLED,
             LIVE_DEPLOY_ENABLED,
         )
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 
 # Pydantic models
 class RunRequest(BaseModel):
@@ -456,28 +441,12 @@ def run_labeling_optimizer(request: RunRequest, run_id: str):
     update_run_progress(run_id, 0.0, "starting", "Initializing labeling optimizer...")
 
     try:
-<<<<<<< HEAD
-        # Find the Python script - use the local path
-        script_path = "/Users/alexandernicoud/Desktop/convolve-broken frontend/7.2.py"
-
-        if not os.path.exists(script_path):
-            # Fallback to relative path from backend directory
-            script_path = os.path.join(os.path.dirname(__file__), "..", "7.2.py")
-
-        if not os.path.exists(script_path):
-            raise FileNotFoundError(f"Python script not found at {script_path}")
-=======
         script_path = _resolve_pipeline_script("7.2.py")
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 
         # Run the script
         cmd = [
             sys.executable,  # Use the same Python that's running this FastAPI app
-<<<<<<< HEAD
-            script_path,
-=======
             str(script_path),
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
             "--symbol", symbol,
             "--start", start,
             "--end", end,
@@ -487,11 +456,7 @@ def run_labeling_optimizer(request: RunRequest, run_id: str):
 
         result = subprocess.run(
             cmd,
-<<<<<<< HEAD
-            cwd=os.path.dirname(script_path),
-=======
             cwd=str(_SCRIPTS_DIR),
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
             capture_output=True,
             text=True,
             timeout=3600  # 1 hour timeout
@@ -586,19 +551,7 @@ def run_training_chart_generator(config: Dict[str, Any], run_id: str):
         json.dump(initial_progress, f)
 
     try:
-<<<<<<< HEAD
-        # Find the Python script
-        script_path = "/Users/alexandernicoud/Desktop/convolve-broken frontend/1.3_Adj_TrL.py"
-
-        if not os.path.exists(script_path):
-            # Fallback to relative path from backend directory
-            script_path = os.path.join(os.path.dirname(__file__), "..", "1.3_Adj_TrL.py")
-
-        if not os.path.exists(script_path):
-            raise FileNotFoundError(f"Python script not found at {script_path}")
-=======
         script_path = _resolve_pipeline_script("1.3_Adj_TrL.py")
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 
         # Prepare script arguments from config
         symbols = config['symbols']
@@ -645,11 +598,7 @@ def run_training_chart_generator(config: Dict[str, Any], run_id: str):
         # Run the script with command line arguments (like labeling optimizer)
         cmd = [
             sys.executable,
-<<<<<<< HEAD
-            script_path,
-=======
             str(script_path),
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
             "--symbols", symbols,
             "--x", str(x),
             "--out_dir", temp_out_dir,
@@ -666,24 +615,15 @@ def run_training_chart_generator(config: Dict[str, Any], run_id: str):
             "--progress_dir", run_dir
         ]
         print(f"About to execute: {' '.join(cmd)}")
-<<<<<<< HEAD
-        print(f"Working directory: {os.path.dirname(script_path)}")
-        print(f"Script exists: {os.path.exists(script_path)}")
-=======
         print(f"Working directory: {_SCRIPTS_DIR}")
         print(f"Script exists: {script_path.is_file()}")
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
         print(f"Starting training chart generator: {' '.join(cmd)}")
 
         # Run the script directly (progress is updated by the script itself)
         try:
             result = subprocess.run(
                 cmd,
-<<<<<<< HEAD
-                cwd=os.path.dirname(script_path),
-=======
                 cwd=str(_SCRIPTS_DIR),
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
                 timeout=3600  # 1 hour timeout
             )
 
@@ -1164,20 +1104,12 @@ def run_testdata_generator(config: Dict[str, Any], run_dir: Path, progress_cb: C
 
         # Change to the backend directory to run the script
         original_cwd = os.getcwd()
-<<<<<<< HEAD
-        os.chdir(run_dir.parent.parent)  # Go to backend directory
-=======
         os.chdir(_BACKEND_ROOT)
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 
         progress_cb("loading", 0.1, {"message": "Loading dependencies and data..."})
 
         # Import and run the script
-<<<<<<< HEAD
-        sys.path.insert(0, str(run_dir.parent.parent))
-=======
         sys.path.insert(0, str(_BACKEND_ROOT))
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
         import subprocess
 
         # Create output directory
@@ -1185,25 +1117,14 @@ def run_testdata_generator(config: Dict[str, Any], run_dir: Path, progress_cb: C
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # Run the script
-<<<<<<< HEAD
-        cmd = [
-            sys.executable,
-            str(run_dir.parent.parent.parent / "1.4_Adj_testL.py")
-        ]
-=======
         script_path = _resolve_pipeline_script("1.4_Adj_testL.py")
         cmd = [sys.executable, str(script_path)]
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 
         progress_cb("generating", 0.3, {"message": "Generating labeled chart images..."})
 
         result = subprocess.run(
             cmd,
-<<<<<<< HEAD
-            cwd=str(run_dir.parent.parent),
-=======
             cwd=str(_BACKEND_ROOT),
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
             capture_output=True,
             text=True,
             timeout=1800  # 30 minutes timeout

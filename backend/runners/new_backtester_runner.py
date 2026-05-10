@@ -120,16 +120,6 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
     }
     save_run_info(run_id, run_info)
 
-<<<<<<< HEAD
-    # Build command
-    # Get the path to the backtester script in the root directory
-    root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    script_path = os.path.join(root_dir, "3.2_Tester_Pro_v2.py")
-
-    cmd = [
-        sys.executable,
-        script_path,
-=======
     # Build command (script lives under backend/scripts/ for Docker builds from backend/)
     backend_root = Path(__file__).resolve().parents[1]
     script_path = backend_root / "scripts" / "3.2_Tester_Pro_v2.py"
@@ -137,7 +127,6 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
     cmd = [
         sys.executable,
         str(script_path),
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
         "--model_path", config["model_path"],
         "--dataset_path", config["dataset_path"],
         "--sample_size", str(config["sample_size"]),
@@ -163,11 +152,7 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
-<<<<<<< HEAD
-            cwd=root_dir
-=======
             cwd=str(backend_root),
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
         )
 
         # Make stdout/stderr non-blocking

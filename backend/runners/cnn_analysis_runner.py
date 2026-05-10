@@ -19,7 +19,7 @@ import tensorflow as tf
 from matplotlib.colors import LinearSegmentedColormap
 from tensorflow.keras import Model
 
-# ========= UNIFIED COLORMAP (fallback PNG + frontend reference) =========
+# --- UNIFIED COLORMAP (fallback PNG + frontend reference) ---
 CONVOLVE_CMAP = LinearSegmentedColormap.from_list(
     "convolve_cmap",
     [
@@ -43,7 +43,7 @@ JSON_MAX_DIM = 256
 MAX_JSON_ACTIVATION_MAPS_FIRST_LAYER = 32
 MAX_JSON_ACTIVATION_MAPS_OTHER = 8
 
-# ========= STYLING (matplotlib fallbacks only) =========
+# --- STYLING (matplotlib fallbacks only) ---
 PALETTE = {
     "fg": "#E7E9FF",
     "muted": "#9AA3C7",
@@ -85,7 +85,7 @@ def save_fig_png(path_png: str, fig=None) -> None:
     fig.savefig(path_png, format="png", transparent=True, bbox_inches="tight", pad_inches=0.02, dpi=200)
 
 
-# ========= SERIALIZATION HELPERS =========
+# --- SERIALIZATION HELPERS ---
 
 
 def to_serializable_float_matrix(arr: np.ndarray, decimals: int = 5) -> List[List[float]]:

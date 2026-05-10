@@ -44,11 +44,8 @@ No uvicorn, no FastAPI process. Ensure the same `DATABASE_URL`, `BOT_DATA_DIR`, 
 | `MODEL_STORAGE_ROOT` | Recommended | Defaults to `{BOT_DATA_DIR}/models/keras` if unset |
 | `DEFAULT_TIMEZONE` | Optional | `America/New_York` (IANA); used for scheduling fallbacks |
 | `RUN_BOTS_ON_API_STARTUP` | Optional | **`false`** (default) — do **not** set `true` on the API service unless you intend a batch on every instance start |
-<<<<<<< HEAD
-=======
 | `LIVE_DEPLOY_ENABLED` | Optional | **`false`** (default) — when `false`, live bot execution and deployment side effects are **off** (manual training/backtest/analysis still work) |
 | `SCHEDULED_BOTS_ENABLED` | Optional | **`false`** (default) — when `false`, scheduled batches (`run_due_bots`, worker APScheduler) **no-op** |
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 | `APP_MODE` | Optional | `api` for HTTP service; informational only |
 | `LOG_LEVEL` | Optional | `INFO` or `DEBUG` — logging goes to **stdout/stderr** (Cloud Logging) |
 
@@ -74,10 +71,6 @@ Optional (see `app/config.py`):
 
 ## Health and jobs
 
-<<<<<<< HEAD
-- **`RUN_BOTS_ON_API_STARTUP`** defaults to **`false`** in code — API instances do not run the due-bot batch on startup unless you explicitly enable it.
-- Scheduled execution should use a **Cloud Run Job** with `python -m app.jobs.run_due_bots`, not the API service.
-=======
 - **`RUN_BOTS_ON_API_STARTUP`**, **`SCHEDULED_BOTS_ENABLED`**, and **`LIVE_DEPLOY_ENABLED`** all default to **`false`**. The API runs a due-bot batch on startup only when **all three** are `true`.
 - With **`LIVE_DEPLOY_ENABLED=false`** or **`SCHEDULED_BOTS_ENABLED=false`**, `python -m app.jobs.run_due_bots` returns a **no-op** summary (no bots executed), and the **worker** process does not start **APScheduler**.
 - Scheduled execution should use a **Cloud Run Job** with `python -m app.jobs.run_due_bots`, not the API service, when you intentionally enable the flags above.
@@ -87,7 +80,6 @@ Optional (see `app/config.py`):
 - **Run state** for long-running tools (trainer, generators, etc.) is partly **in-memory** and partly **local files** under `runs/`, `datasets/`, etc. Assume **no coordination** across Cloud Run instances.
 - For the first deployment, use **`--concurrency=1`** and **`--max-instances=1`** so a single container serves requests and file-based runs stay consistent.
 - If the service is **unauthenticated**, every HTTP route (including expensive ML endpoints) is reachable by anyone who has the URL — treat this as **early manual testing**, not public scale production.
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 
 ## Local filesystem
 

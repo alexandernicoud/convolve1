@@ -20,11 +20,8 @@ from sqlalchemy import or_
 from app.config import (
     BOT_SCHEDULE_TIME,
     BOT_SCHEDULE_TZ,
-<<<<<<< HEAD
-=======
     LIVE_DEPLOY_ENABLED,
     SCHEDULED_BOTS_ENABLED,
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
     STALE_RUNNING_RUN_MINUTES,
     USER_ID,
     configure_logging,
@@ -77,8 +74,6 @@ def run_due_bots_once() -> dict[str, int]:
 
     Returns count dict for tests / Cloud Run exit metrics.
     """
-<<<<<<< HEAD
-=======
     if not LIVE_DEPLOY_ENABLED or not SCHEDULED_BOTS_ENABLED:
         summary = {
             "candidates": 0,
@@ -97,7 +92,6 @@ def run_due_bots_once() -> dict[str, int]:
         )
         return summary
 
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
     init_db()
     now_utc = datetime.now(timezone.utc)
     summary = {

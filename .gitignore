@@ -1,22 +1,14 @@
-<<<<<<< HEAD
 # -----------------------------
 # Dependencies / build outputs
 # -----------------------------
-=======
-# Dependencies / build outputs
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 node_modules/
 dist/
 dist-ssr/
 *.tsbuildinfo
 
-<<<<<<< HEAD
 # -----------------------------
 # Logs
 # -----------------------------
-=======
-# Logs
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 logs/
 *.log
 npm-debug.log*
@@ -25,13 +17,9 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-<<<<<<< HEAD
 # -----------------------------
 # Secrets / local env files
 # -----------------------------
-=======
-# Secrets / local env files
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 .env
 .env.local
 .env.*.local
@@ -43,16 +31,11 @@ backend/.env.local
 !backend/.env.example
 !deploy/env.example
 
-<<<<<<< HEAD
 # -----------------------------
 # Python cache / temp
 # -----------------------------
-__pycache__/
-=======
-# Python cache / temp
 __pycache__/
 **/__pycache__/
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 *.py[cod]
 *.pyo
 *.pyd
@@ -61,28 +44,19 @@ __pycache__/
 .ruff_cache/
 .ipynb_checkpoints/
 
-<<<<<<< HEAD
 # -----------------------------
 # Local virtual environments
 # -----------------------------
-=======
-# Local virtual environments
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 .venv/
 venv/
 backend/.venv/
 backend/venv/
-<<<<<<< HEAD
-
-# -----------------------------
-# Backend runtime/generated data
-# -----------------------------
-=======
 **/.venv/
 **/venv/
 
+# -----------------------------
 # Backend runtime/generated data
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
+# -----------------------------
 backend/runs/
 backend/datasets/
 backend/models/
@@ -93,13 +67,9 @@ backend/app.db
 backend/backend/runs/
 backend/backend/models/
 
-<<<<<<< HEAD
 # -----------------------------
 # OS / Editor
 # -----------------------------
-=======
-# OS / Editor
->>>>>>> 1a47ef7 (Prepare backend for manual pipeline deployment)
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
