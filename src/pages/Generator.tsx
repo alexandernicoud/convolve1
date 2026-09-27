@@ -959,7 +959,7 @@ export default function Generator() {
   );
 
   return (
-    <div className="h-full min-h-0 overflow-hidden">
+    <div className="min-h-0">
       <ToolLayout
         title="Generator"
         description="Create labeled candlestick chart datasets at scale for training visual market models."

@@ -39,9 +39,15 @@ export default function ToolLayout({
     "flex min-h-0 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0a0a0a]/95 p-3 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.85)] backdrop-blur-md opacity-0 animate-fade-up md:p-4";
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden pb-2">
+    <div
+      className={
+        hasOutput
+          ? "flex h-full min-h-0 flex-col overflow-hidden pb-2"
+          : "min-h-0 pb-2"
+      }
+    >
       <div
-        className={`mx-auto flex min-h-0 w-full flex-1 flex-col overflow-hidden ${contentMaxWidthClass}`}
+        className={`mx-auto w-full min-h-0 ${hasOutput ? "flex flex-1 flex-col overflow-hidden" : ""} ${contentMaxWidthClass}`}
       >
         {/* Title comes from pipeline top bar; description kept for screen readers only */}
         <p className="sr-only">
@@ -49,12 +55,15 @@ export default function ToolLayout({
         </p>
 
         {!hasOutput ? (
-          <div className={`${inputShellClass} min-h-0 min-w-0 flex-1`} style={{ animationDelay: "100ms" }}>
+          <div
+            className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/8 bg-[#0a0a0a]/60 p-4 backdrop-blur-sm opacity-0 animate-fade-up md:p-5"
+            style={{ animationDelay: "100ms" }}
+          >
             <h2 className="mb-2 flex shrink-0 items-center gap-2 text-base font-medium text-[#F5F5F5]">
               <div className="h-2 w-2 shrink-0 rounded-full bg-white" />
               Configuration
             </h2>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{inputPanel}</div>
+            <div className="min-h-0">{inputPanel}</div>
           </div>
         ) : outputPlacement === "integrated" ? (
           <div
