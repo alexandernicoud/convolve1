@@ -19,7 +19,6 @@ import {
 } from "recharts";
 import { realtimeBacktesterApi, apiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { dashboardCard } from "@/components/dashboard/dashboardCard";
 
 /* —— Monochrome tokens (white / black / gray) —— */
 const C = {
@@ -609,18 +608,39 @@ type ConfidenceScatterPoint = {
 function Ambient() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute -left-24 top-0 h-[480px] w-[480px] rounded-full bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05),transparent_70%)] blur-3xl" />
-      <div className="absolute right-0 top-1/3 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.04),transparent_68%)] blur-3xl" />
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-black/30 to-black" />
+      <div className="absolute -left-24 top-0 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05),transparent_70%)] blur-3xl" />
+      <div className="absolute right-0 top-1/3 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_68%)] blur-3xl" />
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#0a0a0a]/45 to-[#0a0a0a]" />
     </div>
   );
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">{children}</p>
+    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">{children}</p>
   );
 }
+
+function SectionHead({
+  eyebrow,
+  title,
+  subtitle,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <div className="mb-3">
+      <SectionLabel>{eyebrow}</SectionLabel>
+      <h2 className="mt-0.5 text-base font-semibold tracking-tight text-white sm:text-lg">{title}</h2>
+      {subtitle ? <p className="mt-0.5 text-xs text-white/45">{subtitle}</p> : null}
+    </div>
+  );
+}
+
+const resultsCardClass =
+  "rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-white/[0.015] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
 
 function ChartShell({
   title,
@@ -635,24 +655,47 @@ function ChartShell({
   className?: string;
   density?: "default" | "compact";
 }) {
-  const pad = density === "compact" ? "p-3 md:p-3.5" : "p-4 md:p-5";
+  const pad = density === "compact" ? "p-3 sm:p-3.5" : "p-3.5 sm:p-4";
   const headMb = density === "compact" ? "mb-1.5" : "mb-2";
-  const subCls =
-    density === "compact" ?
-      "mt-0.5 text-[10px] leading-snug text-white/40"
-    : "mt-1 text-xs leading-snug text-white/45";
+  const subCls = "mt-0.5 text-[10px] leading-snug text-white/40";
   const titleCls =
-    density === "compact" ?
-      "mt-0.5 text-[13px] font-semibold tracking-tight text-white"
-    : "mt-1 text-sm font-semibold tracking-tight text-white";
+    density === "compact"
+      ? "text-[13px] font-semibold tracking-tight text-white"
+      : "text-[14px] font-semibold tracking-tight text-white sm:text-[15px]";
   return (
-    <div className={cn("flex flex-col", dashboardCard, pad, className)}>
+    <div className={cn("flex h-full min-h-0 flex-col", resultsCardClass, pad, className)}>
       <div className={`${headMb} shrink-0`}>
-        <SectionLabel>Chart</SectionLabel>
         <h3 className={titleCls}>{title}</h3>
         {subtitle ? <p className={subCls}>{subtitle}</p> : null}
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden rounded-lg">{children}</div>
+      <div className="min-h-0 flex-1 overflow-hidden rounded-xl">{children}</div>
+    </div>
+  );
+}
+
+function KPICard({
+  title,
+  value,
+  hint,
+  tone = "neutral",
+}: {
+  title: string;
+  value: string;
+  hint?: string;
+  tone?: "neutral" | "pos" | "neg";
+}) {
+  return (
+    <div className="flex h-full min-h-[4.5rem] flex-col justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] px-2.5 py-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-white/40">{title}</div>
+      <div
+        className={cn(
+          "mt-1 text-base font-semibold tabular-nums tracking-tight sm:text-lg",
+          tone === "neg" ? "text-zinc-400" : "text-white",
+        )}
+      >
+        {value}
+      </div>
+      {hint ? <p className="mt-0.5 text-[9px] leading-tight text-white/35">{hint}</p> : null}
     </div>
   );
 }
@@ -700,9 +743,7 @@ const lineStrokeRounded = { strokeLinecap: "round" as const, strokeLinejoin: "ro
 
 /** Recharts ResponsiveContainer needs a definite pixel height; % inside flex often resolves to 0. */
 /** Plot height only; legend sits below in the card (does not reduce this). */
-const EQUITY_CHART_PX = 228;
-
-const kpiLabelClass = "text-[9px] font-medium uppercase tracking-[0.12em] text-white/40";
+const EQUITY_CHART_PX = 300;
 
 export default function BacktesterResults() {
   const { runId } = useParams<{ runId: string }>();
@@ -726,6 +767,7 @@ export default function BacktesterResults() {
   const [confidenceFilter, setConfidenceFilter] = useState<number>(0);
   const [expandedTrade, setExpandedTrade] = useState<number | null>(null);
   const [ledgerExpanded, setLedgerExpanded] = useState(false);
+  const [metricsOpen, setMetricsOpen] = useState(false);
 
   useEffect(() => {
     setLedgerExpanded(false);
@@ -1242,7 +1284,7 @@ export default function BacktesterResults() {
 
   if (error || status?.status === "failed") {
     return (
-      <div className="relative min-h-screen overflow-hidden bg-black text-white">
+      <div className="relative min-h-screen overflow-hidden bg-[#0a0a0a] text-white">
         <Ambient />
         <div className="relative mx-auto max-w-2xl px-6 pb-20 pt-4">
           <Link
@@ -1264,7 +1306,7 @@ export default function BacktesterResults() {
   if (showProgress) {
     const isFinalizing = status!.status === "succeeded" && !result;
     return (
-      <div className="relative min-h-screen overflow-hidden bg-black text-white">
+      <div className="relative min-h-screen overflow-hidden bg-[#0a0a0a] text-white">
         <Ambient />
         <div className="relative mx-auto max-w-lg px-6 pt-28 pb-20">
           <Link
@@ -1290,7 +1332,7 @@ export default function BacktesterResults() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-black text-[rgba(255,255,255,0.55)]">
+      <div className="flex min-h-screen items-center justify-center bg-[#0a0a0a] text-[rgba(255,255,255,0.55)]">
         <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/20 border-t-white" />
       </div>
     );
@@ -1298,7 +1340,7 @@ export default function BacktesterResults() {
 
   if (!result || !processedData) {
     return (
-      <div className="relative min-h-screen overflow-hidden bg-black text-white">
+      <div className="relative min-h-screen overflow-hidden bg-[#0a0a0a] text-white">
         <Ambient />
         <div className="relative mx-auto max-w-2xl px-6 pt-4">
           <p className="text-sm text-zinc-400">{error || "No results"}</p>
@@ -1380,22 +1422,41 @@ export default function BacktesterResults() {
   };
 
   return (
-    <div className="relative min-h-screen shrink-0 overflow-x-hidden bg-black font-sans text-white">
+    <div className="relative min-h-screen shrink-0 overflow-x-hidden bg-[#0a0a0a] font-sans text-white">
       <Ambient />
 
-      <div className="relative mx-auto max-w-[1400px] px-3 pb-16 pt-2 sm:px-4 md:px-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="relative mx-auto max-w-[1280px] space-y-8 px-4 pb-16 pt-4 sm:px-6 lg:px-8">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <SectionLabel>Backtester</SectionLabel>
+            <h1 className="mt-1 text-xl font-semibold tracking-tight text-white sm:text-2xl">Results</h1>
+            <p className="mt-1 text-sm text-white/50">
+              {symbolTicker && symbolTicker !== "—" ? (
+                <span className="font-medium text-white/80">{symbolTicker}</span>
+              ) : null}
+              {symbolTicker && symbolTicker !== "—" && (modelName !== "—" || testingStart) ? " · " : null}
+              {modelName !== "—" ? <span>{modelName}</span> : null}
+              {testingStart || testingEnd ? (
+                <>
+                  {" · "}
+                  {testingStart || "—"} → {testingEnd || "—"}
+                </>
+              ) : null}
+              {runId ? (
+                <>
+                  {" · "}
+                  <span className="font-mono text-xs text-white/35">{runId.slice(-8)}</span>
+                </>
+              ) : null}
+            </p>
+          </div>
           <Link
             to={backHref}
-            className="text-[11px] font-medium text-white/50 transition hover:text-white/85"
+            className="inline-flex shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-white/85 transition hover:border-white/25 hover:bg-white/[0.08]"
           >
-            Back to run log
+            Back
           </Link>
-          <p className="text-[10px] text-white/40">
-            <span className="font-mono text-white/55">{runId}</span>
-            {result.timestamp ? ` · ${new Date(result.timestamp).toLocaleString()}` : ""}
-          </p>
-        </div>
+        </header>
 
         {!hasEquityData ? (
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] p-10 text-center">
@@ -1408,68 +1469,57 @@ export default function BacktesterResults() {
         ) : (
           <>
             {hasTrades ? null : result.chart_events?.length ? (
-              <div className="mb-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-[rgba(255,255,255,0.55)] sm:mb-4 sm:text-sm">
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-[rgba(255,255,255,0.55)] sm:text-sm">
                 No executed long trades in this run (all steps are no-trade or below entry threshold). The full timeline is still in the ledger and charts.
               </div>
             ) : (
-              <div className="mb-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-[rgba(255,255,255,0.55)] sm:mb-4 sm:text-sm">
+              <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-[rgba(255,255,255,0.55)] sm:text-sm">
                 No long entries in this run — the model predicted short (no trade) on every chart step, so equity is flat.
               </div>
             )}
 
-            {/* 6 headline KPIs — above equity */}
-            <div className="mb-3">
-              <div className={cn("grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-6 sm:gap-2", dashboardCard, "p-2 sm:p-2.5")}>
-                <div className="flex min-h-0 min-w-0 flex-col gap-0.5 rounded-md border border-white/[0.07] bg-white/[0.025] px-2.5 py-2">
-                  <p className={`${kpiLabelClass} shrink-0`}>Total return</p>
-                  <p
-                    className={`w-full min-w-0 break-words text-base font-semibold tabular-nums leading-tight sm:text-lg ${returnPct >= 0 ? "text-violet-400" : "text-zinc-400"}`}
-                  >
-                    {returnPct >= 0 ? "+" : ""}
-                    {returnPct.toFixed(2)}%
-                  </p>
-                </div>
-                <div className="flex min-h-0 min-w-0 flex-col gap-0.5 rounded-md border border-white/[0.07] bg-white/[0.025] px-2.5 py-2 text-right">
-                  <p className={`${kpiLabelClass} shrink-0`}>Net P&amp;L</p>
-                  <p
-                    className={`w-full min-w-0 break-words text-base font-semibold tabular-nums leading-tight sm:text-lg ${kpis.pnl >= 0 ? "text-violet-400/95" : "text-zinc-400"}`}
-                    title={formatUsd(kpis.pnl)}
-                  >
-                    {formatUsdCompact(kpis.pnl)}
-                  </p>
-                </div>
-                <div className="flex min-h-0 min-w-0 flex-col gap-0.5 rounded-md border border-white/[0.07] bg-white/[0.025] px-2.5 py-2">
-                  <p className={`${kpiLabelClass} shrink-0`}>Trades</p>
-                  <p className="w-full min-w-0 break-words text-base font-semibold tabular-nums leading-tight text-white sm:text-lg">
-                    {kpis.trades}
-                  </p>
-                </div>
-                <div className="flex min-h-0 min-w-0 flex-col gap-0.5 rounded-md border border-white/[0.07] bg-white/[0.025] px-2.5 py-2 text-right">
-                  <p className={`${kpiLabelClass} shrink-0`}>Label 1 hit rate</p>
-                  <p className="w-full min-w-0 break-words text-base font-semibold tabular-nums leading-tight text-white sm:text-lg">
-                    {label1WinRateKpi !== null ? `${label1WinRateKpi.toFixed(1)}%` : "—"}
-                  </p>
-                  <p className="text-[8px] leading-tight text-[rgba(255,255,255,0.32)]">When pred = long</p>
-                </div>
-                <div className="flex min-h-0 min-w-0 flex-col gap-0.5 rounded-md border border-white/[0.07] bg-white/[0.025] px-2.5 py-2">
-                  <p className={`${kpiLabelClass} shrink-0`}>Charts analyzed</p>
-                  <p className="w-full min-w-0 break-words text-base font-semibold tabular-nums leading-tight text-white sm:text-lg">
-                    {chartsAnalyzedCount}
-                  </p>
-                </div>
-                <div className="flex min-h-0 min-w-0 flex-col gap-0.5 rounded-md border border-white/[0.07] bg-white/[0.025] px-2.5 py-2 text-right">
-                  <p className={`${kpiLabelClass} shrink-0`}>{hasNoTradeRate ? "No-trade rate" : "Max drawdown"}</p>
-                  <p
-                    className={`w-full min-w-0 break-words text-base font-semibold tabular-nums leading-tight sm:text-lg ${hasNoTradeRate ? "text-white" : "text-zinc-400"}`}
-                  >
-                    {hasNoTradeRate ? formatRatePercent(kpis.no_trade_rate) : ddPct !== null ? `${ddPct.toFixed(2)}%` : "—"}
-                  </p>
-                </div>
+            <section>
+              <SectionHead eyebrow="Overview" title="Headline metrics" />
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+                <KPICard
+                  title="Total return"
+                  value={`${returnPct >= 0 ? "+" : ""}${returnPct.toFixed(2)}%`}
+                  tone={returnPct >= 0 ? "pos" : "neg"}
+                />
+                <KPICard
+                  title="Net P&L"
+                  value={formatUsdCompact(kpis.pnl)}
+                  tone={kpis.pnl >= 0 ? "pos" : "neg"}
+                />
+                <KPICard title="Trades" value={String(kpis.trades)} />
+                <KPICard
+                  title="Label 1 hit rate"
+                  value={label1WinRateKpi !== null ? `${label1WinRateKpi.toFixed(1)}%` : "—"}
+                  hint="When pred = long"
+                />
+                <KPICard title="Charts analyzed" value={String(chartsAnalyzedCount)} />
+                <KPICard
+                  title={hasNoTradeRate ? "No-trade rate" : "Max drawdown"}
+                  value={
+                    hasNoTradeRate
+                      ? formatRatePercent(kpis.no_trade_rate)
+                      : ddPct !== null
+                        ? `${ddPct.toFixed(2)}%`
+                        : "—"
+                  }
+                  tone={hasNoTradeRate ? "neutral" : "neg"}
+                />
               </div>
-            </div>
+            </section>
 
+            <section>
+              <SectionHead
+                eyebrow="Performance"
+                title="Equity & entry threshold"
+                subtitle="Strategy path versus benchmarks, and how return changes with the confidence gate."
+              />
             {/* Equity curve + optional entry threshold (side by side on large screens) */}
-            <div className="mb-3 grid grid-cols-1 items-start gap-3 lg:grid-cols-12 lg:gap-4">
+            <div className="grid grid-cols-1 items-stretch gap-3 lg:grid-cols-12 lg:gap-4">
               <div className={cn("min-h-0", hasThresholdSweep ? "lg:col-span-8" : "lg:col-span-12")}>
                 <ChartShell
                   title="Equity curve"
@@ -1511,7 +1561,7 @@ export default function BacktesterResults() {
                             <YAxis
                               yAxisId="left"
                               domain={equityReturnPctDomain}
-                              tick={{ fill: "rgba(192,132,252,0.95)", fontSize: 9 }}
+                              tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 9 }}
                               tickLine={false}
                               axisLine={{ stroke: EQ_STRATEGY, strokeOpacity: 0.45 }}
                               width={56}
@@ -1583,7 +1633,7 @@ export default function BacktesterResults() {
                           </ComposedChart>
                         </ResponsiveContainer>
                         <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-white/[0.06] px-1 pb-1 pt-2 text-[11px] text-[rgba(255,255,255,0.78)]">
-                          <span className="inline-flex items-center gap-2 font-medium text-violet-400/95">
+                          <span className="inline-flex items-center gap-2 font-medium text-white/90">
                             <span className="h-[3px] w-6 rounded-full bg-violet-500" aria-hidden />
                             Strategy performance
                           </span>
@@ -1615,11 +1665,11 @@ export default function BacktesterResults() {
                   <ChartShell
                     title="Entry threshold sensitivity"
                     density="compact"
-                    subtitle="Return % vs start at each minimum P(long). Right axis: label-1 hit rate — correct long predictions ÷ all long predictions (with P(long) ≥ threshold)."
+                    subtitle="Return % vs start at each min P(long). Right axis: label-1 hit rate."
                     className="h-full w-full min-w-0"
                   >
                     <div className="w-full min-w-0">
-                      <div className="h-[200px] sm:h-52">
+                      <div style={{ height: EQUITY_CHART_PX }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <ComposedChart
                         data={thresholdSweepDisplay}
@@ -1696,7 +1746,7 @@ export default function BacktesterResults() {
                     </ResponsiveContainer>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 border-t border-white/[0.06] pt-2.5 text-[11px] text-[rgba(255,255,255,0.78)]">
-                    <span className="inline-flex items-center gap-2 text-violet-400/95">
+                    <span className="inline-flex items-center gap-2 text-white/90">
                       <span className="h-[3px] w-6 rounded-full bg-violet-500" aria-hidden />
                       Total return %
                     </span>
@@ -1710,8 +1760,15 @@ export default function BacktesterResults() {
                 </div>
               ) : null}
             </div>
+            </section>
 
-            <div className="mb-5 grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
+            <section>
+              <SectionHead
+                eyebrow="Analytics"
+                title="Trade diagnostics"
+                subtitle="Daily P&L, confidence scatter, drawdown, and outcome mix."
+              />
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
               <ChartShell
                 title="Profit per day"
                 subtitle="Net P&amp;L summed by calendar day (steps or trades attributed to each day)."
@@ -1893,14 +1950,30 @@ export default function BacktesterResults() {
                 </div>
               </ChartShell>
             </div>
+            </section>
 
-            {/* Full metric list from backtest JSON — below chart grid */}
-            <section className={cn("mb-8 px-4 py-4 sm:px-5 sm:py-5", dashboardCard)}>
-              <SectionLabel>Details</SectionLabel>
-              <h3 className="mt-1 text-sm font-semibold tracking-tight text-white">Run metrics</h3>
-              <p className="mt-0.5 text-[11px] text-[rgba(255,255,255,0.4)]">
-                Values from the backtest output (KPIs, summary, and config).
-              </p>
+            {/* Full metric list from backtest JSON — collapsed by default */}
+            <section className={cn("px-4 py-4 sm:px-5 sm:py-5", resultsCardClass)}>
+              <button
+                type="button"
+                onClick={() => setMetricsOpen((o) => !o)}
+                className="flex w-full items-center justify-between gap-3 text-left"
+              >
+                <div>
+                  <SectionLabel>Details</SectionLabel>
+                  <h3 className="mt-1 text-sm font-semibold tracking-tight text-white">Run metrics</h3>
+                  <p className="mt-0.5 text-[11px] text-[rgba(255,255,255,0.4)]">
+                    Full KPI / summary / config dump from the backtest output.
+                  </p>
+                </div>
+                {metricsOpen ? (
+                  <ChevronDown className="h-4 w-4 shrink-0 text-white/45" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 shrink-0 text-white/45" />
+                )}
+              </button>
+              {metricsOpen ? (
+                <>
               {classification_metrics?.description ? (
                 <p className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[11px] leading-relaxed text-[rgba(255,255,255,0.48)]">
                   {classification_metrics.description}
@@ -2131,17 +2204,22 @@ export default function BacktesterResults() {
                   Few trades — Sharpe and related ratios may be unreliable.
                 </p>
               ) : null}
+                </>
+              ) : null}
             </section>
           </>
         )}
 
         {/* Full timeline ledger (chart_events when present; else executed trades only) */}
         {hasLedgerRows && (
-          <section className="overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02]">
+          <section className={cn("overflow-hidden", resultsCardClass)}>
             <div className="flex flex-col gap-4 border-b border-white/[0.06] p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2">
-                <BarChart3 className="h-4 w-4 text-white/45" />
-                <h2 className="text-base font-semibold text-white">Chart ledger</h2>
+              <div>
+                <SectionLabel>Ledger</SectionLabel>
+                <div className="mt-1 flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-white/45" />
+                  <h2 className="text-base font-semibold text-white">Chart ledger</h2>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <select
@@ -2216,7 +2294,7 @@ export default function BacktesterResults() {
                         <td className="px-4 py-3">
                           <span
                             className={
-                              row.outcome === "TP" ? "text-violet-400/90"
+                              row.outcome === "TP" ? "text-emerald-300/90"
                               : row.outcome === "SL" ? "text-zinc-400"
                               : "text-white/75"
                             }
@@ -2224,7 +2302,7 @@ export default function BacktesterResults() {
                             {row.outcome === "NO_TRADE" ? "No trade" : row.outcome}
                           </span>
                         </td>
-                        <td className={`px-4 py-3 font-medium ${row.pnl_net >= 0 ? "text-violet-400" : "text-zinc-400"}`}>
+                        <td className={`px-4 py-3 font-medium ${row.pnl_net >= 0 ? "text-white" : "text-zinc-400"}`}>
                           {formatUsd(row.pnl_net)}
                         </td>
                         <td className="px-4 py-3 text-[rgba(255,255,255,0.65)]">{formatUsd(row.capital_after)}</td>
@@ -2240,7 +2318,7 @@ export default function BacktesterResults() {
                       </tr>
                       {expandedTrade === row.key && (
                         <tr>
-                          <td colSpan={8} className="bg-[#080a12] px-4 py-4">
+                          <td colSpan={8} className="bg-white/[0.02] px-4 py-4">
                             <div className="grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
                               <div>
                                 <span className="text-[rgba(255,255,255,0.4)]">Entry</span>{" "}
@@ -2268,7 +2346,7 @@ export default function BacktesterResults() {
                               if (!chartSrc) return null;
                               return (
                                 <a href={chartSrc} target="_blank" rel="noreferrer" className="mt-4 block">
-                                  <div className="rounded-xl border border-white/[0.08] bg-[#05060d] p-3">
+                                  <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0a] p-3">
                                     <img src={chartSrc} alt="" className="mx-auto max-h-64 w-full max-w-2xl rounded object-contain" />
                                   </div>
                                 </a>

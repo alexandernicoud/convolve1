@@ -19,6 +19,10 @@ export default defineConfig(() => ({
       "/models": { target: API_TARGET, changeOrigin: true },
       "/api": { target: API_TARGET, changeOrigin: true },
     },
+    // Optimizer / trainer writes under backend/runs — don't full-reload the SPA on each artifact.
+    watch: {
+      ignored: ["**/backend/runs/**", "**/backend/datasets/**", "**/backend/models/**", "**/.venv/**"],
+    },
   },
   plugins: [react()],
   resolve: {

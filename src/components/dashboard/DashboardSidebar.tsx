@@ -14,6 +14,15 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useCreditsStore, RUN_COST, CREDIT_BAR_CAP } from "@/state/creditsStore";
+
+const formatCreditsCompact = (n: number): string => {
+  if (n >= 1000) {
+    const k = n / 1000;
+    return `${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}k`;
+  }
+  return n.toLocaleString();
+};
 
 const nav = [
   { to: "/dashboard", label: "Overview", tag: "Manage", icon: LayoutDashboard },
@@ -28,6 +37,9 @@ const nav = [
 
 export function DashboardSidebar() {
   const { pathname } = useLocation();
+  const credits = useCreditsStore((s) => s.credits);
+  const creditsLabel = formatCreditsCompact(credits);
+  const creditsBarPct = Math.max(4, Math.min(100, (credits / CREDIT_BAR_CAP) * 100));
 
   const linkActive = (to: string) => {
     if (to === "/dashboard") return pathname === "/dashboard";
@@ -91,18 +103,29 @@ export function DashboardSidebar() {
       <div className="flex flex-col items-center gap-1 border-t border-white/[0.07] px-1.5 py-3">
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
-            <div className="w-full cursor-default px-1 py-1">
-              <p className="text-center font-digits text-[11px] font-bold tabular-nums text-white">12k</p>
+            <Link to="/credits" className="w-full px-1 py-1 transition-colors hover:opacity-90">
+              <p
+                className={`text-center font-digits text-[11px] font-bold tabular-nums ${
+                  credits < RUN_COST ? "text-red-300" : "text-white"
+                }`}
+              >
+                {creditsLabel}
+              </p>
               <p className="mb-1 text-center text-[7px] font-semibold uppercase leading-tight tracking-wide text-white/45">
                 Credits
               </p>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
-                <div className="h-full w-[60%] rounded-full bg-white/80 shadow-[0_0_12px_rgba(255,255,255,0.25)]" />
+                <div
+                  className={`h-full rounded-full shadow-[0_0_12px_rgba(255,255,255,0.25)] ${
+                    credits < RUN_COST ? "bg-red-400/80" : "bg-white/80"
+                  }`}
+                  style={{ width: `${creditsBarPct}%` }}
+                />
               </div>
-            </div>
+            </Link>
           </TooltipTrigger>
           <TooltipContent side="right" className="border-white/10 bg-black text-white">
-            Credits balance (60% of monthly allocation)
+            {credits.toLocaleString()} credits · {RUN_COST} per run — click to refill
           </TooltipContent>
         </Tooltip>
         <Tooltip delayDuration={200}>

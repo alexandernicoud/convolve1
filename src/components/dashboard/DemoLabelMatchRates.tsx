@@ -51,14 +51,27 @@ function Ring({ label, pct, stroke }: { label: string; pct: number; stroke: stri
   );
 }
 
-export function DemoLabelMatchRates() {
+export function DemoLabelMatchRates({
+  correctL1,
+  wrongL1,
+  correctL0,
+}: {
+  correctL1?: number | null;
+  wrongL1?: number | null;
+  correctL0?: number | null;
+} = {}) {
+  const rings = [
+    { id: "l1c", label: "Correct L1", pct: correctL1 ?? RINGS[0].pct, stroke: DEMO_ACCENT.purple },
+    { id: "l1w", label: "Wrong L1", pct: wrongL1 ?? RINGS[1].pct, stroke: DEMO_ACCENT.pink },
+    { id: "l0c", label: "Correct L0", pct: correctL0 ?? RINGS[2].pct, stroke: DEMO_ACCENT.whiteLine },
+  ] as const;
   return (
     <div className="flex h-full min-h-0 w-full flex-col justify-center">
       <p className="mb-1 w-full shrink-0 text-center text-[9px] font-semibold uppercase leading-tight tracking-[0.16em] text-white">
         Label match
       </p>
       <div className="flex w-full flex-col items-center gap-1.5">
-        {RINGS.map((row) => (
+        {rings.map((row) => (
           <Ring key={row.id} label={row.label} pct={row.pct} stroke={row.stroke} />
         ))}
       </div>

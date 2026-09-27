@@ -49,23 +49,11 @@ def _parse_hhmm(raw: str) -> tuple[int, int]:
 
 def is_bot_due_now(bot: Bot, now_utc: datetime) -> bool:
     """
-    True if local time in the bot's timezone has reached today's run_time slot.
+    Continuous paper-test: every active bot is due every scheduler tick.
+    Daily HH:MM is ignored so we can prove uninterrupted 60s analysis.
     """
-    tz_name = bot.timezone or BOT_SCHEDULE_TZ
-    time_str = bot.run_time or BOT_SCHEDULE_TIME
-    try:
-        tz = ZoneInfo(tz_name)
-    except Exception:
-        logger.warning("Invalid timezone %r for bot %s; using %s", tz_name, bot.id, BOT_SCHEDULE_TZ)
-        tz = ZoneInfo(BOT_SCHEDULE_TZ)
-    try:
-        h, m = _parse_hhmm(time_str)
-    except ValueError:
-        h, m = _parse_hhmm(BOT_SCHEDULE_TIME)
-
-    now_local = now_utc.astimezone(tz)
-    scheduled_today = now_local.replace(hour=h, minute=m, second=0, microsecond=0)
-    return now_local >= scheduled_today
+    _ = bot, now_utc
+    return True
 
 
 def run_due_bots_once() -> dict[str, int]:

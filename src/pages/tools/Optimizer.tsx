@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import ToolLayout from "@/components/ToolLayout";
 import StatusPanel, { Status } from "@/components/StatusPanel";
+import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
 
 export default function Optimizer() {
   const [status, setStatus] = useState<Status>('idle');
@@ -18,6 +19,8 @@ export default function Optimizer() {
   const [objective, setObjective] = useState("accuracy");
 
   const handleRunOptimization = () => {
+    if (!requestRunCredits("optimizer")) return;
+    chargeRunCredits("optimizer");
     setStatus('running');
     setProgress(0);
     setLogs([]);
@@ -172,6 +175,7 @@ export default function Optimizer() {
       <ToolLayout
         title="Labeling Optimizer"
         description="Search for optimal labeling parameters"
+        outputPlacement="integrated"
         inputPanel={inputPanel}
         outputPanel={outputPanel}
       />

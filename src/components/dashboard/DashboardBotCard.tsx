@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronRight, Loader2, MoreVertical } from "lucide-react";
 import { botsApi, type Bot, type DashboardEquitySeries } from "@/lib/api";
 import { MiniSparkline } from "@/components/dashboard/MiniSparkline";
-import { formatShortDateTime, sparklineFromEquityPoints } from "@/components/dashboard/dashboardMetrics";
+import { formatConfidence, formatShortDateTime, formatSignal, sparklineFromEquityPoints } from "@/components/dashboard/dashboardMetrics";
 import { botStatusBadgeClass } from "@/components/dashboard/botStatusStyles";
 import {
   DropdownMenu,
@@ -62,6 +62,15 @@ export function DashboardBotCard({ bot, series, onDashboardRefresh }: Props) {
             <span className={botStatusBadgeClass(derived)}>{(derived ?? "active").toUpperCase()}</span>
           </div>
           <p className="truncate text-[13px] font-semibold text-white">{bot.name || bot.symbol}</p>
+          {bot.last_signal || bot.latest_run?.signal || bot.latest_run?.label ? (
+            <p className="mt-0.5 font-digits text-[10px] text-white/75">
+              Last signal{" "}
+              {formatSignal(bot.last_signal || bot.latest_run?.signal || bot.latest_run?.label)}{" "}
+              {formatConfidence(bot.last_confidence ?? bot.latest_run?.confidence)}
+            </p>
+          ) : bot.last_error ? (
+            <p className="mt-0.5 truncate font-digits text-[10px] text-rose-300/80">{bot.last_error}</p>
+          ) : null}
           {totalRetPct != null ? (
             <p className="mt-0.5 font-digits text-[10px] font-semibold tabular-nums text-white">
               {totalRetPct >= 0 ? "+" : ""}
@@ -101,6 +110,18 @@ export function DashboardBotCard({ bot, series, onDashboardRefresh }: Props) {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52 border-white/10 bg-black text-white">
+            {ls === "active" ? (
+              <DropdownMenuItem
+                disabled={!!busy}
+                className="cursor-pointer focus:bg-white/10"
+                onClick={(e) => {
+                  e.preventDefault();
+                  void run("run", () => botsApi.runNow(bot.id));
+                }}
+              >
+                Run now
+              </DropdownMenuItem>
+            ) : null}
             {canPause && (
               <DropdownMenuItem
                 disabled={!!busy}

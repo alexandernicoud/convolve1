@@ -591,6 +591,7 @@ export default function TrainerTechnicalPage() {
     <ToolLayout
       title="Trainer"
       description="Train convolutional neural networks on labeled candlestick chart datasets."
+      outputPlacement="integrated"
       inputPanel={InputPanel}
       outputPanel={OutputPanel}
     />

@@ -14,6 +14,11 @@ interface UploadedModel {
   filename: string;
   size: number;
   uploaded_at: string;
+  /** Set when original_filename matched a Convolve trainer model name. */
+  metadata_matched?: boolean;
+  matched_training_run_id?: string | null;
+  matched_model_name?: string | null;
+  matched_metadata?: Record<string, unknown> | null;
 }
 
 interface ModelUploaderProps {
@@ -115,6 +120,10 @@ export default function ModelUploader({
         byte_size: number;
         content_type: string;
         saved_at: string;
+        metadata_matched?: boolean;
+        matched_training_run_id?: string | null;
+        matched_model_name?: string | null;
+        matched_metadata?: Record<string, unknown> | null;
       }>((resolve, reject) => {
         xhr.addEventListener('load', () => {
           if (xhr.status >= 200 && xhr.status < 300) {
@@ -155,6 +164,10 @@ export default function ModelUploader({
         filename: file.name,
         size: file.size,
         uploaded_at: new Date().toISOString(),
+        metadata_matched: Boolean(response.metadata_matched),
+        matched_training_run_id: response.matched_training_run_id ?? null,
+        matched_model_name: response.matched_model_name ?? null,
+        matched_metadata: response.matched_metadata ?? null,
       };
 
       onModelUploaded(uploadedModel);
@@ -257,6 +270,17 @@ export default function ModelUploader({
                 <p className={`text-[rgba(255,255,255,0.65)] ${compact ? "text-[10px]" : "text-sm"}`}>
                   {formatFileSize(uploadedModel.size)} • {new Date(uploadedModel.uploaded_at).toLocaleDateString()}
                 </p>
+                {uploadedModel.metadata_matched ? (
+                  <p className={`mt-1 text-emerald-200/85 ${compact ? "text-[10px]" : "text-xs"}`}>
+                    Linked to training metadata
+                    {uploadedModel.matched_model_name
+                      ? ` · ${uploadedModel.matched_model_name}`
+                      : ""}
+                    {uploadedModel.matched_training_run_id
+                      ? ` · run ${uploadedModel.matched_training_run_id.slice(-8)}`
+                      : ""}
+                  </p>
+                ) : null}
               </div>
             </div>
             <button

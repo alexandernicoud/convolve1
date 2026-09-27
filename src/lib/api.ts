@@ -114,6 +114,52 @@ export interface TrainingChartGeneratorConfig {
   stopLossFraction: number;
   imageDimension: number;
   endOffset: number;
+  /**
+   * How to handle the natural label imbalance (label 1 is usually rarer):
+   *  - `match_minority`: trim the majority class down to the minority count (balanced 50/50)
+   *  - `keep_all`: keep every generated chart (more images, imbalanced)
+   */
+  balanceMode?: 'match_minority' | 'keep_all';
+  /** Saved for results UI only */
+  volumeMode?: string | null;
+  referenceEndIso?: string | null;
+  trainingStartIso?: string | null;
+}
+
+export interface ChartPreviewRequest {
+  symbols: string;
+  useCandles: boolean;
+  timeframe: '1d' | '1wk' | '1mo';
+  timespanUnit: string;
+  timespanCount: number;
+  horizonBars: number;
+  takeProfitFraction: number;
+  stopLossFraction: number;
+  /** Square PNG size — must match generation `imageDimension`. */
+  imageDimension: number;
+  volumeMode?: string | null;
+  trainingStartIso?: string | null;
+  referenceEndIso?: string | null;
+}
+
+export interface ChartPreviewResult {
+  ok: boolean;
+  message?: string;
+  symbol?: string;
+  timeframe?: string;
+  image?: string; // data:image/png;base64,...
+  window_start?: string;
+  window_end?: string;
+  horizon_bars?: number;
+  horizon_end?: string;
+  entry_price?: number | null;
+  tp_price?: number | null;
+  sl_price?: number | null;
+  take_profit_pct?: number;
+  stop_loss_pct?: number;
+  label?: 0 | 1 | null;
+  hit?: 'TP' | 'SL' | null;
+  hit_date?: string | null;
 }
 
 export interface DatasetStats {
@@ -121,6 +167,11 @@ export interface DatasetStats {
   symbols_count?: number;
   timeframe?: string;
   chart_type?: string;
+  label_counts?: Record<string, number>;
+  charts_per_label_requested?: number;
+  balance_mode?: string;
+  balanced?: boolean;
+  removed_for_balance?: number;
 }
 
 export interface TrainerRunRequest {
@@ -134,6 +185,8 @@ export interface TrainerRunRequest {
   epochs?: number;
   val_split?: number;
   random_seed?: number;
+  /** Chart-generator run the dataset came from (enables model→training metadata linkage). */
+  generator_run_id?: string;
 }
 
 /** One row from `backend/runs/.../history.json` (per epoch). Older runs may omit label_1_recall fields. */
@@ -251,6 +304,8 @@ export interface BacktesterStartRequest {
 export interface BacktestRunRequest {
   model_path?: string;
   model_id?: string;
+  /** Internal trained model: the trainer run that produced it (no upload needed). */
+  trainer_run_id?: string;
   dataset_path: string;
   sample_size: string | number;
   confidence_threshold: number;
@@ -313,7 +368,10 @@ export interface GlobalRun {
   created_at: number;
   updated_at: number;
   route?: string;
-  parent_run_id?: string;
+  parent_run_id?: string | null;
+  trainer_run_id?: string | null;
+  analysis_id?: string | null;
+  download_zip_url?: string | null;
 }
 
 export interface RunsState {
@@ -450,7 +508,20 @@ export const labelingOptimizerApi = {
   async getArtifact(runId: string, name: string): Promise<any> {
     return apiRequest<any>(`/api/labeling-optimizer/artifacts/${runId}/${name}`);
   },
+
+  async cancel(runId: string): Promise<{ status: string; run_id: string }> {
+    return apiRequest<{ status: string; run_id: string }>(`/api/labeling-optimizer/cancel/${runId}`, {
+      method: 'POST',
+    });
+  },
 };
+
+/** Cancel any active tool run (kills subprocess when registered). */
+export async function cancelAnyRun(runId: string): Promise<{ status: string; run_id: string }> {
+  return apiRequest<{ status: string; run_id: string }>(`/api/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: 'POST',
+  });
+}
 
 export const trainerApi = {
   // Start a new trainer run
@@ -491,9 +562,10 @@ export const trainerApi = {
     return apiRequest<{ analysis_ids: string[] }>(`/trainer/runs/${runId}/analyses`);
   },
 
-  /** Standalone analysis: uploaded .keras + dataset ZIP (uses first image as sample). */
+  /** Standalone analysis: uploaded .keras (model_id) or internal trained model (trainer_run_id) + dataset. */
   async startStandaloneAnalysis(body: {
-    model_id: string;
+    model_id?: string;
+    trainer_run_id?: string;
     dataset_id: string;
   }): Promise<{ run_id: string; analysis_id: string }> {
     return apiRequest<{ run_id: string; analysis_id: string }>(`/trainer/analysis/standalone`, {
@@ -531,6 +603,11 @@ export const runsApi = {
 
   getRun(runId: string): Promise<GlobalRun> {
     return apiRequest<GlobalRun>(`/runs/${runId}`);
+  },
+
+  /** Merged in-memory + disk-backed runs (manifest, progress, realtime backtests). */
+  listRuns(limit = 200): Promise<{ runs: GlobalRun[] }> {
+    return apiRequest<{ runs: GlobalRun[] }>(`/runs?limit=${encodeURIComponent(String(limit))}`);
   },
 };
 
@@ -602,6 +679,41 @@ export interface TestDataGeneratorRequest {
   training_period_end?: string;
   test_period_start?: string;
   test_period_end?: string;
+  /** Linkage when this is a "fitting" test set for a model / training run. */
+  model_id?: string;
+  training_run_id?: string;
+  generator_run_id?: string;
+}
+
+/**
+ * Model/training metadata (trainer `model_metadata.json` or uploaded-model sidecar).
+ * Fields are only present when genuinely known — never fabricated by the backend.
+ */
+export interface ModelTrainingMetadata {
+  schema_version?: number;
+  source?: 'trained' | 'uploaded' | string;
+  model_id?: string;
+  model_name?: string;
+  training_run_id?: string;
+  dataset_id?: string;
+  generator_run_id?: string;
+  generator_config?: TrainingChartGeneratorConfig & Record<string, unknown>;
+  training_config?: Record<string, unknown>;
+  symbols?: string;
+  useCandles?: boolean;
+  timeframe?: '1d' | '1wk' | '1mo' | string;
+  timespanUnit?: string;
+  timespanCount?: number;
+  chartsPerLabel?: number;
+  horizonBars?: number;
+  takeProfitFraction?: number;
+  stopLossFraction?: number;
+  imageDimension?: number;
+  training_period_start?: string;
+  training_period_end?: string;
+  created_at?: number;
+  uploaded_at?: string;
+  original_filename?: string;
 }
 
 export interface TestDataGeneratorStatusResponse {
@@ -615,6 +727,7 @@ export interface TestDataGeneratorStatusResponse {
 export interface TestDataGeneratorResultResponse {
   dataset_id: string;
   download_zip_url: string;
+  dataset_name?: string | null;
   summary: {
     total_images: number;
     label_distribution: Record<string, number>;
@@ -642,7 +755,43 @@ export const testDataGeneratorApi = {
   downloadZip(runId: string): void {
     window.open(apiUrl(`/runs/testdata/${runId}/download.zip`), '_blank');
   },
+
+  /** Saved request for a test dataset run (linkage / history). */
+  getSavedConfig(runId: string): Promise<TestDataGeneratorRequest> {
+    return apiRequest<TestDataGeneratorRequest>(`/runs/testdata/${runId}/config`);
+  },
+
+  cancel(runId: string): Promise<{ status: string; run_id: string }> {
+    return apiRequest<{ status: string; run_id: string }>(`/runs/testdata/${runId}/cancel`, {
+      method: 'POST',
+    });
+  },
 };
+
+/** Metadata for an uploaded .keras model; 404 (ApiError) when none exists. */
+export async function getUploadedModelMetadata(modelId: string): Promise<ModelTrainingMetadata> {
+  return apiRequest<ModelTrainingMetadata>(`/models/${encodeURIComponent(modelId)}/metadata`);
+}
+
+/** Metadata for a trained model (trainer run); 404 (ApiError) for runs predating metadata support. */
+export async function getTrainerModelMetadata(runId: string): Promise<ModelTrainingMetadata> {
+  return apiRequest<ModelTrainingMetadata>(`/trainer/runs/${encodeURIComponent(runId)}/model-metadata`);
+}
+
+export interface YFinanceSearchRow {
+  symbol: string;
+  name: string;
+  exchange?: string;
+  type?: string;
+}
+
+/** Yahoo-backed symbol lookup for the generator (see `GET /api/yfinance/search`). */
+export async function yfinanceSearch(q: string, maxResults = 12): Promise<YFinanceSearchRow[]> {
+  const res = await apiRequest<{ results: YFinanceSearchRow[] }>(
+    `/api/yfinance/search?q=${encodeURIComponent(q)}&max_results=${encodeURIComponent(String(maxResults))}`,
+  );
+  return res.results ?? [];
+}
 
 export const trainingChartGeneratorApi = {
   // Start a new training chart generator run
@@ -656,6 +805,19 @@ export const trainingChartGeneratorApi = {
   // Get progress for a run
   async getProgress(runId: string): Promise<ProgressResponse> {
     return apiRequest<ProgressResponse>(`/api/training-chart-generator/progress/${runId}`);
+  },
+
+  /** Render a single example chart for the current Step-3 settings (live preview). */
+  async preview(request: ChartPreviewRequest, signal?: AbortSignal): Promise<ChartPreviewResult> {
+    return apiRequest<ChartPreviewResult>('/api/training-chart-generator/preview', {
+      method: 'POST',
+      body: JSON.stringify(request),
+      signal,
+    });
+  },
+
+  async getSavedConfig(runId: string): Promise<TrainingChartGeneratorConfig> {
+    return apiRequest<TrainingChartGeneratorConfig>(`/api/training-chart-generator/config/${runId}`);
   },
 
   // List available artifacts for a run
@@ -672,13 +834,7 @@ export const trainingChartGeneratorApi = {
 
   // Download the generated dataset ZIP
   async download(runId: string): Promise<void> {
-    const response = await fetchApi(`/api/training-chart-generator/download/${runId}`);
-
-    if (!response.ok) {
-      throw new ApiError(response.status, 'Download failed');
-    }
-
-    const blob = await response.blob();
+    const blob = await trainingChartGeneratorApi.fetchDatasetZipBlob(runId);
     const downloadUrl = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = downloadUrl;
@@ -688,12 +844,23 @@ export const trainingChartGeneratorApi = {
     a.remove();
     window.URL.revokeObjectURL(downloadUrl);
   },
+
+  /** Fetch generator output as a Blob (e.g. trainer pre-upload). */
+  async fetchDatasetZipBlob(runId: string): Promise<Blob> {
+    const response = await fetchApi(`/api/training-chart-generator/download/${runId}`);
+    if (!response.ok) {
+      throw new ApiError(response.status, 'Download failed');
+    }
+    return response.blob();
+  },
 };
 
 export interface BotRun {
   id: string;
   bot_id: string;
   run_at: string;
+  run_started_at?: string | null;
+  run_finished_at?: string | null;
   label?: string | null;
   signal?: string | null;
   confidence?: number | null;
@@ -759,6 +926,43 @@ export interface DashboardOverview {
   best_bot_max_drawdown_pct?: number | null;
   best_bot_label_1_precision?: number | null;
   best_bot_label_1_sample?: number;
+  poll_interval_seconds?: number;
+  total_bots?: number;
+  paused_bots?: number;
+  error_bots?: number;
+  analyses_24h?: number;
+}
+
+export interface DashboardLastPrediction {
+  bot_id?: string | null;
+  run_id?: string | null;
+  symbol?: string | null;
+  model?: string | null;
+  signal?: string | null;
+  tp_pct?: number | null;
+  sl_pct?: number | null;
+  confidence?: number | null;
+  has_heatmap?: boolean;
+  finished_at?: string | null;
+}
+
+export interface DashboardAccuracy {
+  week_pct?: number | null;
+  month_pct?: number | null;
+  year_pct?: number | null;
+}
+
+export interface DashboardLabelMatch {
+  correct_l1_pct?: number | null;
+  wrong_l1_pct?: number | null;
+  correct_l0_pct?: number | null;
+}
+
+export interface DashboardDailyProfitRow {
+  day: string;
+  profit: number;
+  sma: number;
+  metric?: 'pnl' | 'confidence' | string;
 }
 
 export interface DashboardActivityItem {
@@ -783,6 +987,10 @@ export interface DashboardBundle {
   overview: DashboardOverview;
   equity_by_bot: DashboardEquitySeries[];
   activity_feed?: DashboardActivityItem[];
+  last_prediction?: DashboardLastPrediction | null;
+  accuracy?: DashboardAccuracy;
+  label_match?: DashboardLabelMatch;
+  daily_profit?: DashboardDailyProfitRow[];
 }
 
 export interface BotTradingSummary {
@@ -879,6 +1087,9 @@ export interface Bot {
   created_at: string;
   updated_at: string;
   latest_run?: BotRun | null;
+  last_signal?: string | null;
+  last_confidence?: number | null;
+  last_error?: string | null;
   /** active | waiting | running | error | paused | expired | closed | archived */
   derived_status?: string | null;
   /** active | paused | closed | archived */
@@ -962,12 +1173,254 @@ export const botsApi = {
     return apiRequest<{ status: string }>(`/api/bots/${botId}`, { method: 'DELETE' });
   },
 
-  getRunChartUrl(botId: string, runId: string): string {
-    return apiUrl(`/api/bots/${botId}/runs/${runId}/chart`);
+  getRunChartUrl(botId: string, runId: string, cacheBust?: string): string {
+    const q = cacheBust ? `?t=${encodeURIComponent(cacheBust)}` : "";
+    return apiUrl(`/api/bots/${botId}/runs/${runId}/chart${q}`);
   },
 
-  getRunHeatmapUrl(botId: string, runId: string): string {
-    return apiUrl(`/api/bots/${botId}/runs/${runId}/heatmap`);
+  getRunHeatmapUrl(botId: string, runId: string, cacheBust?: string): string {
+    const q = cacheBust ? `?t=${encodeURIComponent(cacheBust)}` : "";
+    return apiUrl(`/api/bots/${botId}/runs/${runId}/heatmap${q}`);
+  },
+};
+
+// ===== Review overview (asset + lineage aggregation) =====
+
+export interface ReviewSummary {
+  totalRuns: number;
+  runningRuns: number;
+  completedRuns: number;
+  failedRuns: number;
+  totalModels: number;
+  totalDatasets: number;
+  totalTrainingRuns: number;
+  totalBacktests: number;
+  totalAnalyses: number;
+  totalBots: number;
+}
+
+export interface ReviewRunLinks {
+  model_id?: string | null;
+  trainer_run_id?: string | null;
+  generator_run_id?: string | null;
+  dataset_id?: string | null;
+  analysis_id?: string | null;
+}
+
+export interface ReviewRun {
+  id: string;
+  tool: string;
+  status: string;
+  progress: number;
+  stage: string;
+  message: string;
+  created_at: number;
+  updated_at: number;
+  route?: string | null;
+  download_zip_url?: string | null;
+  links: ReviewRunLinks;
+  details: Record<string, unknown>;
+}
+
+export interface ReviewModel {
+  id: string;
+  name?: string | null;
+  source: 'trained' | 'uploaded' | 'unknown';
+  created_at?: number | null;
+  uploaded_at?: number | null;
+  training_run_id?: string | null;
+  dataset_id?: string | null;
+  generator_run_id?: string | null;
+  symbols?: string | null;
+  timeframe?: string | null;
+  take_profit_fraction?: number | null;
+  stop_loss_fraction?: number | null;
+  horizon_bars?: number | null;
+  image_dimension?: number | null;
+  training_period_start?: string | null;
+  training_period_end?: string | null;
+  metrics?: Record<string, number> | null;
+  byte_size?: number | null;
+  download_url?: string | null;
+  metadata_available: boolean;
+  status?: string | null;
+  display_name?: string | null;
+  auto_name?: string | null;
+  tags?: string[];
+  favorite?: boolean;
+  archived?: boolean;
+  notes?: string | null;
+}
+
+export interface ReviewDataset {
+  id: string;
+  dataset_id?: string | null;
+  name?: string | null;
+  kind: 'training' | 'test' | 'unknown';
+  source: 'generated' | 'uploaded' | 'unknown';
+  created_at?: number | null;
+  generator_run_id?: string | null;
+  testdata_run_id?: string | null;
+  model_id?: string | null;
+  training_run_id?: string | null;
+  symbols?: string | null;
+  timeframe?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  timespan_unit?: string | null;
+  timespan_count?: number | null;
+  take_profit_fraction?: number | null;
+  stop_loss_fraction?: number | null;
+  horizon_bars?: number | null;
+  total_images?: number | null;
+  label_distribution?: Record<string, number> | null;
+  download_url?: string | null;
+  extracted?: boolean;
+  used_by_training_runs?: string[];
+  display_name?: string | null;
+  auto_name?: string | null;
+  tags?: string[];
+  favorite?: boolean;
+  archived?: boolean;
+  notes?: string | null;
+}
+
+export interface ReviewLineageRef {
+  key?: string;
+  label?: string | null;
+  generator_run_id?: string | null;
+  dataset_id?: string | null;
+  symbols?: string | null;
+}
+
+export interface ReviewLineage {
+  key: string;
+  training_dataset: ReviewLineageRef | null;
+  training_run: { id: string; status?: string | null } | null;
+  model: { id: string; name?: string | null; source: string; metadata_available: boolean } | null;
+  test_datasets: { run_id: string; dataset_id?: string | null; name?: string | null; status?: string | null }[];
+  analyses: { run_id: string; trainer_run_id?: string | null; analysis_id?: string | null; status?: string | null }[];
+  backtests: { run_id: string; status?: string | null }[];
+  bot: unknown | null;
+  updated_at: number;
+}
+
+export interface ReviewBot {
+  id: string;
+  name?: string | null;
+  symbol: string;
+  model_filename?: string | null;
+  is_active: boolean;
+  lifecycle_state?: string | null;
+}
+
+export interface ReviewOverviewResponse {
+  summary: ReviewSummary;
+  runs: ReviewRun[];
+  models: ReviewModel[];
+  datasets: ReviewDataset[];
+  lineages: ReviewLineage[];
+  bots: ReviewBot[];
+}
+
+export const reviewApi = {
+  getOverview(): Promise<ReviewOverviewResponse> {
+    return apiRequest<ReviewOverviewResponse>('/api/review/overview');
+  },
+};
+
+// ===== Internal model registry (trained + uploaded, selectable without reupload) =====
+
+export interface InternalModel {
+  model_id: string;
+  kind: 'trained' | 'uploaded';
+  name?: string | null;
+  model_path?: string | null;
+  training_run_id?: string | null;
+  dataset_id?: string | null;
+  generator_run_id?: string | null;
+  symbols?: string | null;
+  timeframe?: string | null;
+  timespan_unit?: string | null;
+  timespan_count?: number | null;
+  horizon_bars?: number | null;
+  take_profit_fraction?: number | null;
+  stop_loss_fraction?: number | null;
+  image_dimension?: number | null;
+  metrics?: Record<string, number> | null;
+  created_at?: number | string | null;
+  metadata_available: boolean;
+  download_url?: string | null;
+  // User-editable library organization overlay:
+  display_name?: string | null;
+  auto_name?: string | null;
+  tags?: string[];
+  favorite?: boolean;
+  archived?: boolean;
+  notes?: string | null;
+}
+
+/** Partial update to an asset's user label (rename / tags / favorite / archive / notes). */
+export interface LibraryLabelPatch {
+  display_name?: string | null;
+  tags?: string[];
+  favorite?: boolean;
+  archived?: boolean;
+  notes?: string | null;
+}
+
+export interface LibraryLabelOverlay {
+  display_name?: string | null;
+  tags?: string[];
+  favorite?: boolean;
+  archived?: boolean;
+  notes?: string | null;
+}
+
+export const internalModelsApi = {
+  list(): Promise<{ models: InternalModel[] }> {
+    return apiRequest<{ models: InternalModel[] }>('/api/models');
+  },
+  updateLabel(modelId: string, patch: LibraryLabelPatch): Promise<LibraryLabelOverlay & { model_id: string }> {
+    return apiRequest<LibraryLabelOverlay & { model_id: string }>(
+      `/api/models/${encodeURIComponent(modelId)}/label`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    );
+  },
+};
+
+// ===== Extracted datasets registry (selectable folders for training / testing) =====
+
+export interface DatasetListItem {
+  dataset_id: string;
+  name: string;
+  kind: 'training' | 'test' | 'unknown';
+  total_images?: number | null;
+  symbols?: string | null;
+  timeframe?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  generator_run_id?: string | null;
+  created_at?: number | null;
+  example_filenames?: string[];
+  // User-editable library organization overlay:
+  display_name?: string | null;
+  auto_name?: string | null;
+  tags?: string[];
+  favorite?: boolean;
+  archived?: boolean;
+  notes?: string | null;
+}
+
+export const datasetsApi = {
+  list(): Promise<{ datasets: DatasetListItem[] }> {
+    return apiRequest<{ datasets: DatasetListItem[] }>('/api/datasets');
+  },
+  updateLabel(datasetId: string, patch: LibraryLabelPatch): Promise<LibraryLabelOverlay & { dataset_id: string }> {
+    return apiRequest<LibraryLabelOverlay & { dataset_id: string }>(
+      `/api/datasets/${encodeURIComponent(datasetId)}/label`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    );
   },
 };
 

@@ -37,7 +37,14 @@ function Sector({ model, line }: { model: string; line: string }) {
   );
 }
 
-export function DemoModelPredictionsMarquee({ className }: { className?: string }) {
+export function DemoModelPredictionsMarquee({
+  className,
+  sectors,
+}: {
+  className?: string;
+  sectors?: { model: string; line: string }[];
+}) {
+  const cells = sectors && sectors.length ? sectors : [...SECTORS];
   return (
     <div
       className={cn(
@@ -55,12 +62,12 @@ export function DemoModelPredictionsMarquee({ className }: { className?: string 
         )}
       >
         <div className="flex shrink-0">
-          {SECTORS.map((s, i) => (
+          {cells.map((s, i) => (
             <Sector key={`a-${i}`} model={s.model} line={s.line} />
           ))}
         </div>
         <div className="flex shrink-0" aria-hidden>
-          {SECTORS.map((s, i) => (
+          {cells.map((s, i) => (
             <Sector key={`b-${i}`} model={s.model} line={s.line} />
           ))}
         </div>

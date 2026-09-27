@@ -1,6 +1,16 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Download, RotateCcw, ArrowRight, Play, Eye, XCircle, Activity, Terminal } from "lucide-react";
-import { Link } from "react-router-dom";
+import {
+  Download,
+  RotateCcw,
+  ArrowRight,
+  Play,
+  Eye,
+  XCircle,
+  Activity,
+  Terminal,
+  Loader2,
+} from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   LineChart,
   Line,
@@ -13,7 +23,8 @@ import {
 } from "recharts";
 import ToolLayout from "@/components/ToolLayout";
 import DatasetUploader from "@/components/DatasetUploader";
-import { trainerApi, ApiError, TrainerProgressResponse } from "@/lib/api";
+import { trainerApi, ApiError, TrainerProgressResponse, trainingChartGeneratorApi, apiUrl, datasetsApi, type GlobalRun, type DatasetListItem } from "@/lib/api";
+import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
 import { useRunsStore } from "@/state/runsStore";
 
 interface TrainerConfig {
@@ -75,7 +86,7 @@ const chartTip = {
 const defaultConfig: TrainerConfig = {
   use_standard_config: true,
   folder_name: "",
-  model_name: "trained_model.keras",
+  model_name: "",
   image_height: 224,
   image_width: 224,
   batch_size: 16,
@@ -85,17 +96,29 @@ const defaultConfig: TrainerConfig = {
 };
 
 export default function Trainer() {
+  const [searchParams] = useSearchParams();
   const [config, setConfig] = useState<TrainerConfig>(defaultConfig);
   const [trainerProgress, setTrainerProgress] = useState<TrainerProgressResponse | null>(null);
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus | null>(null);
   const [runId, setRunId] = useState<string | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
-  const [uploadedDataset, setUploadedDataset] = useState<UploadedDataset | null>(null);
+  /** Dataset registered from a completed chart-generator ZIP (background default). */
+  const [generatorDataset, setGeneratorDataset] = useState<UploadedDataset | null>(null);
+  /** Optional override from the upload dropzone only (UI stays empty until user drops a file here). */
+  const [manualUploadedDataset, setManualUploadedDataset] = useState<UploadedDataset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
   const [tick, setTick] = useState(0);
   const [activityFeed, setActivityFeed] = useState<string[]>([]);
+  const [ingestingGenZip, setIngestingGenZip] = useState(false);
+  /** Generator run the currently loaded `generatorDataset` came from (survives ref resets; used for lineage). */
+  const [generatorDatasetRunId, setGeneratorDatasetRunId] = useState<string | null>(null);
+  /** Last chart-generator run id we successfully registered as `generatorDataset` (avoids re-download loops). */
+  const loadedGeneratorRunIdRef = useRef<string | null>(null);
+  /** null = follow “latest completed” in the store; otherwise load that run’s ZIP. */
+  const [preferredGeneratorRunId, setPreferredGeneratorRunId] = useState<string | null>(null);
+  const lastSeenLatestGenIdRef = useRef<string | null>(null);
 
   const pollingTokenRef = useRef(0);
   const analysisPollingTokenRef = useRef(0);
@@ -105,6 +128,139 @@ export default function Trainer() {
   const lastProgressKeyRef = useRef<string>("");
   const logRef = useRef<HTMLDivElement>(null);
   const stickLogBottomRef = useRef(true);
+  /** Synchronous lock so rapid double-clicks / re-renders can't launch multiple trainings. */
+  const startInFlightRef = useRef(false);
+
+  const runsById = useRunsStore((s) => s.runsById);
+
+  /** Friendly dataset info keyed by the generator run that produced it (for the run dropdown labels). */
+  const [datasetsByGenRun, setDatasetsByGenRun] = useState<Record<string, DatasetListItem>>({});
+  const [datasetsById, setDatasetsById] = useState<Record<string, DatasetListItem>>({});
+  useEffect(() => {
+    let active = true;
+    datasetsApi
+      .list()
+      .then(({ datasets }) => {
+        if (!active) return;
+        const map: Record<string, DatasetListItem> = {};
+        const byId: Record<string, DatasetListItem> = {};
+        for (const d of datasets) {
+          if (d.generator_run_id) map[d.generator_run_id] = d;
+          byId[d.dataset_id] = d;
+        }
+        setDatasetsByGenRun(map);
+        setDatasetsById(byId);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const genRunLabel = useCallback(
+    (r: GlobalRun): string => {
+      const dateStr = new Date(
+        (r.updated_at ?? 0) > 1e12 ? (r.updated_at as number) : (r.updated_at ?? 0) * 1000,
+      ).toLocaleDateString();
+      const ds = datasetsByGenRun[r.id];
+      return ds ? `${ds.name} · ${dateStr}` : `${r.id} · ${dateStr}`;
+    },
+    [datasetsByGenRun],
+  );
+
+  const latestCompletedChartGen = useMemo((): GlobalRun | null => {
+    const rows = Object.values(runsById).filter(
+      (r) => r.tool === "training-chart-generator" && r.status === "succeeded" && r.download_zip_url,
+    );
+    rows.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
+    return rows[0] ?? null;
+  }, [runsById]);
+
+  const chartGenRunsWithZip = useMemo(() => {
+    return Object.values(runsById)
+      .filter((r) => r.tool === "training-chart-generator" && r.status === "succeeded" && r.download_zip_url)
+      .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
+  }, [runsById]);
+
+  const effectiveGeneratorRun = useMemo((): GlobalRun | null => {
+    if (preferredGeneratorRunId) {
+      const pick = runsById[preferredGeneratorRunId];
+      if (
+        pick &&
+        pick.tool === "training-chart-generator" &&
+        pick.status === "succeeded" &&
+        pick.download_zip_url
+      ) {
+        return pick;
+      }
+    }
+    return latestCompletedChartGen;
+  }, [runsById, preferredGeneratorRunId, latestCompletedChartGen]);
+
+  const trainingDataset = useMemo(
+    () => manualUploadedDataset ?? generatorDataset,
+    [manualUploadedDataset, generatorDataset],
+  );
+
+  /** When “latest” in the store advances and we are not pinned to an older run, allow re-import of the new latest. */
+  useEffect(() => {
+    const lid = latestCompletedChartGen?.id ?? null;
+    if (preferredGeneratorRunId != null) return;
+    if (lid == null) return;
+    if (lastSeenLatestGenIdRef.current !== lid) {
+      lastSeenLatestGenIdRef.current = lid;
+      loadedGeneratorRunIdRef.current = null;
+    }
+  }, [latestCompletedChartGen?.id, preferredGeneratorRunId]);
+
+  useEffect(() => {
+    if (!preferredGeneratorRunId) return;
+    const r = runsById[preferredGeneratorRunId];
+    if (!r || r.tool !== "training-chart-generator" || r.status !== "succeeded" || !r.download_zip_url) {
+      setPreferredGeneratorRunId(null);
+    }
+  }, [preferredGeneratorRunId, runsById]);
+
+  useEffect(() => {
+    const run = effectiveGeneratorRun;
+    if (!run?.id || manualUploadedDataset) return;
+    if (loadedGeneratorRunIdRef.current === run.id && generatorDataset?.dataset_id) return;
+
+    let cancelled = false;
+    (async () => {
+      setIngestingGenZip(true);
+      try {
+        const blob = await trainingChartGeneratorApi.fetchDatasetZipBlob(run.id);
+        if (cancelled) return;
+        const file = new File([blob], `training-dataset-${run.id}.zip`, { type: "application/zip" });
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("source", "generator");
+        fd.append("generator_run_id", run.id);
+        const res = await fetch(apiUrl("/datasets/upload"), { method: "POST", body: fd });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || `Dataset upload failed (${res.status})`);
+        }
+        const data = (await res.json()) as UploadedDataset;
+        if (cancelled) return;
+        setGeneratorDataset(data);
+        setGeneratorDatasetRunId(run.id);
+        setError(null);
+        loadedGeneratorRunIdRef.current = run.id;
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to load the generator dataset ZIP");
+          loadedGeneratorRunIdRef.current = null;
+        }
+      } finally {
+        if (!cancelled) setIngestingGenZip(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveGeneratorRun?.id, manualUploadedDataset, generatorDataset?.dataset_id]);
 
   const chartData = useMemo(() => {
     const h = trainerProgress?.history_preview;
@@ -119,8 +275,9 @@ export default function Trainer() {
   }, [trainerProgress?.history_preview]);
 
   const validateConfig = (): string | null => {
-    if (!uploadedDataset && (!config.folder_name || !config.folder_name.trim())) {
-      return "Either upload a dataset or provide a training folder path";
+    if (ingestingGenZip) return "Still importing the training dataset from your latest chart generator run…";
+    if (!trainingDataset && (!config.folder_name || !config.folder_name.trim())) {
+      return "No training dataset yet—finish a chart generator run (ZIP is loaded automatically) or upload a ZIP / enter a folder path";
     }
     if (!config.model_name.trim()) return "Model name is required";
     if (!config.model_name.endsWith(".keras")) return "Model name must end with .keras";
@@ -179,33 +336,47 @@ export default function Trainer() {
   );
 
   const handleStartTraining = async () => {
+    // Guard against double-submits: a synchronous ref lock plus the already-running check
+    // (the button's disabled state only updates after the request resolves, which is too late).
+    if (startInFlightRef.current || trainerProgress?.status === "running") return;
+
     const validationError = validateConfig();
     if (validationError) {
       setError(validationError);
       return;
     }
 
+    if (!requestRunCredits("trainer")) return;
+
+    startInFlightRef.current = true;
     setError(null);
     wallStartRef.current = performance.now();
     epochMarkRef.current = [];
     lastEpochRef.current = 0;
     lastProgressKeyRef.current = "";
     setActivityFeed([]);
+    // Optimistically mark running immediately so the button disables before the await resolves.
+    setTrainerProgress({
+      status: "running",
+      progress: { phase: "starting", percent: 0, message: "Initializing..." },
+    });
 
     try {
       const requestConfig = {
         ...config,
-        dataset_id: uploadedDataset?.dataset_id,
-        folder_name: uploadedDataset ? undefined : config.folder_name,
+        dataset_id: trainingDataset?.dataset_id,
+        folder_name: trainingDataset ? undefined : config.folder_name,
+        // Link the trained model back to the chart-generator run when the dataset came from one
+        generator_run_id:
+          !manualUploadedDataset && generatorDataset
+            ? generatorDatasetRunId ?? loadedGeneratorRunIdRef.current ?? undefined
+            : undefined,
       };
 
       const response = await trainerApi.run(requestConfig);
+      chargeRunCredits("trainer");
       setRunId(response.run_id);
       pushActivity(`run · ${response.run_id.slice(-12)} · polling`);
-      setTrainerProgress({
-        status: "running",
-        progress: { phase: "starting", percent: 0, message: "Initializing..." },
-      });
 
       useRunsStore.getState().registerRun({
         id: response.run_id,
@@ -221,6 +392,9 @@ export default function Trainer() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start training");
       wallStartRef.current = null;
+      setTrainerProgress(null);
+    } finally {
+      startInFlightRef.current = false;
     }
   };
 
@@ -258,14 +432,16 @@ export default function Trainer() {
 
   const handleStartAnalysis = async () => {
     if (!runId) return;
+    if (!requestRunCredits("analysis")) return;
 
     try {
       let imgPath: string | undefined;
-      if (uploadedDataset && uploadedDataset.summary.example_filenames.length > 0) {
-        imgPath = `${uploadedDataset.extracted_path}/${uploadedDataset.summary.example_filenames[0]}`;
+      if (trainingDataset && trainingDataset.summary.example_filenames.length > 0) {
+        imgPath = `${trainingDataset.extracted_path}/${trainingDataset.summary.example_filenames[0]}`;
       }
 
       const data = await trainerApi.startAnalysis(runId, imgPath);
+      chargeRunCredits("analysis");
       setAnalysisId(data.analysis_id);
       setAnalysisStatus({
         status: "running",
@@ -283,6 +459,8 @@ export default function Trainer() {
         message: "Starting CNN analysis...",
         route: `/tools/trainer/runs/${runId}/analysis`,
         parent_run_id: runId,
+        trainer_run_id: runId,
+        analysis_id: data.analysis_id,
       });
 
       startAnalysisPolling(runId, data.analysis_id);
@@ -396,17 +574,32 @@ export default function Trainer() {
   };
 
   useEffect(() => {
+    void useRunsStore.getState().mergeRunsFromBackendList(200);
+  }, []);
+
+  useEffect(() => {
+    const rid = searchParams.get("runId");
+    if (!rid) return;
+    const run = useRunsStore.getState().runsById[rid];
+    if (run?.tool !== "trainer") return;
+    if (run.status === "running" || run.status === "queued") {
+      setRunId(rid);
+      startPolling(rid);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     const checkExistingRuns = () => {
       const activeRuns = useRunsStore.getState().activeRunIds;
-      const runsById = useRunsStore.getState().runsById;
+      const byId = useRunsStore.getState().runsById;
 
-      const activeTrainerRun = activeRuns.find((rid) => {
-        const run = runsById[rid];
+      const activeTrainerRun = activeRuns.find((id) => {
+        const run = byId[id];
         return run && run.tool === "trainer";
       });
 
-      if (activeTrainerRun && runsById[activeTrainerRun]) {
-        const run = runsById[activeTrainerRun];
+      if (activeTrainerRun && byId[activeTrainerRun]) {
+        const run = byId[activeTrainerRun];
         setRunId(run.id);
 
         if (run.status === "running" && !pollingInterval) {
@@ -477,19 +670,92 @@ export default function Trainer() {
   const fmtMetric = (v: number | undefined, decimals: number) =>
     v != null && Number.isFinite(v) ? v.toFixed(decimals) : "—";
 
+  const fieldClass =
+    "w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] placeholder-[#F5F5F5]/40 focus:border-white/30 focus:ring-1 focus:ring-white/50";
+
   const InputPanel = (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm text-[#F5F5F5]/62 mb-3">
-          Dataset Upload <span className="text-[#e5e5e5]">*</span>
+        <label className="block text-sm text-[#F5F5F5]/62 mb-2">
+          Training dataset <span className="text-[#e5e5e5]">*</span>
         </label>
+        <p className="mb-3 text-xs leading-relaxed text-[#F5F5F5]/52">
+          The <strong className="text-white/75">latest completed</strong> chart generator ZIP is registered as your
+          default training set automatically. Use the dropdown to switch runs, or drop a ZIP in the upload area
+          below—only that field shows a manual file; it overrides the generator dataset for this session when present.
+        </p>
+        {chartGenRunsWithZip.length > 0 ? (
+          <div className="mb-3 space-y-2">
+            <label className="block text-xs font-medium text-white/55">Load dataset from generator run</label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <select
+                value={preferredGeneratorRunId ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value.trim();
+                  loadedGeneratorRunIdRef.current = null;
+                  setPreferredGeneratorRunId(v === "" ? null : v);
+                }}
+                className={`${fieldClass} min-w-0 flex-1`}
+              >
+                <option value="">
+                  Latest completed
+                  {latestCompletedChartGen ? ` (${genRunLabel(latestCompletedChartGen)})` : ""}
+                </option>
+                {chartGenRunsWithZip.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {genRunLabel(r)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-xs font-medium text-white/85 hover:bg-white/15"
+                onClick={() => {
+                  loadedGeneratorRunIdRef.current = null;
+                  setPreferredGeneratorRunId(null);
+                }}
+              >
+                Use latest
+              </button>
+              <Link
+                to="/tools/run-log"
+                className="text-xs text-sky-300/90 underline-offset-2 hover:text-sky-200 hover:underline"
+              >
+                Run log
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <p className="mb-3 text-xs text-amber-200/85">
+            No completed chart generator run with a ZIP in this workspace yet—generate one first, or upload a ZIP
+            below.
+          </p>
+        )}
+        {effectiveGeneratorRun ? (
+          <p className="mb-2 font-mono text-[11px] text-white/55">
+            Default ZIP run: {effectiveGeneratorRun.id}
+            {generatorDataset && !ingestingGenZip ? (
+              <span className="ml-2 text-white/40">
+                · {generatorDataset.summary.total_images} images on server
+                {manualUploadedDataset ? " (manual ZIP overrides for training)" : ""}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
+        {ingestingGenZip ? (
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-3 text-sm text-white/70">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+            Importing generator ZIP…
+          </div>
+        ) : null}
+        <label className="mb-2 block text-xs font-medium text-white/55">Upload your own ZIP (optional)</label>
         <DatasetUploader
           onDatasetUploaded={(dataset) => {
-            setUploadedDataset(dataset);
+            setManualUploadedDataset(dataset);
             setError(null);
           }}
-          onDatasetRemoved={() => setUploadedDataset(null)}
-          uploadedDataset={uploadedDataset}
+          onDatasetRemoved={() => setManualUploadedDataset(null)}
+          uploadedDataset={manualUploadedDataset}
         />
       </div>
 
@@ -511,25 +777,27 @@ export default function Trainer() {
         <div>
           <label className="block text-sm text-[#F5F5F5]/62 mb-2">
             Training Folder{" "}
-            {uploadedDataset ? (
-              <span className="text-[#F5F5F5]/40">(auto-filled from upload)</span>
+            {trainingDataset ? (
+              <span className="text-[#F5F5F5]/40">(dataset id from active training set)</span>
             ) : (
               <span className="text-[#e5e5e5]">*</span>
             )}
           </label>
           <input
             type="text"
-            value={uploadedDataset ? `Dataset: ${uploadedDataset.dataset_id}` : config.folder_name}
+            value={
+              trainingDataset
+                ? datasetsById[trainingDataset.dataset_id]?.name || `Dataset ${trainingDataset.dataset_id.slice(-8)}`
+                : config.folder_name
+            }
             onChange={(e) => setConfig({ ...config, folder_name: e.target.value })}
-            disabled={!!uploadedDataset}
-            placeholder={uploadedDataset ? "" : "e.g., /path/to/training/images"}
-            className={`w-full px-3 py-2 bg-[#0a0a0a]/60 border border-white/8 rounded-lg text-[#F5F5F5] placeholder-[#F5F5F5]/40 focus:border-white/30 focus:ring-1 focus:ring-white/50 ${
-              uploadedDataset ? "opacity-60 cursor-not-allowed" : ""
-            }`}
+            disabled={!!trainingDataset}
+            placeholder={trainingDataset ? "" : "e.g., /path/to/training/images"}
+            className={`${fieldClass} ${trainingDataset ? "opacity-60 cursor-not-allowed" : ""}`}
           />
           <p className="text-xs text-[#F5F5F5]/50 mt-1">
-            {uploadedDataset
-              ? `${uploadedDataset.summary.total_images} images uploaded`
+            {trainingDataset
+              ? `${trainingDataset.summary.total_images} images in the active training set`
               : "Path to folder containing labeled PNG images"}
           </p>
         </div>
@@ -538,14 +806,22 @@ export default function Trainer() {
           <label className="block text-sm text-[#F5F5F5]/62 mb-2">
             Model Name <span className="text-[#e5e5e5]">*</span>
           </label>
-          <input
-            type="text"
-            value={config.model_name}
-            onChange={(e) => setConfig({ ...config, model_name: e.target.value })}
-            placeholder="trained_model.keras"
-            className="w-full px-3 py-2 bg-[#0a0a0a]/60 border border-white/8 rounded-lg text-[#F5F5F5] placeholder-[#F5F5F5]/40 focus:border-white/30 focus:ring-1 focus:ring-white/50"
-          />
-          <p className="text-xs text-[#F5F5F5]/50 mt-1">Must end with .keras</p>
+          <div className="relative">
+            <input
+              type="text"
+              value={config.model_name.replace(/\.keras$/i, "")}
+              onChange={(e) => {
+                const base = e.target.value.replace(/\.keras$/i, "").trim();
+                setConfig({ ...config, model_name: base ? `${base}.keras` : "" });
+              }}
+              placeholder="e.g. aapl_daily_cnn"
+              className={`${fieldClass} pr-20`}
+            />
+            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md bg-white/10 px-2 py-0.5 font-mono text-sm text-white/55">
+              .keras
+            </span>
+          </div>
+          <p className="text-xs text-[#F5F5F5]/50 mt-1">The .keras extension is added automatically.</p>
         </div>
       </div>
 
@@ -554,7 +830,7 @@ export default function Trainer() {
           <h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#F5F5F5]/50">
             Hyperparameters
           </h3>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
               <label className="text-[11px] text-[#F5F5F5]/45">Image height</label>
               <input
@@ -563,7 +839,7 @@ export default function Trainer() {
                 max="1024"
                 value={config.image_height}
                 onChange={(e) => setConfig({ ...config, image_height: parseInt(e.target.value, 10) || 224 })}
-                className="mt-1 w-full px-2 py-2 bg-[#0a0a0a]/70 border border-white/10 rounded-lg text-sm text-[#F5F5F5] font-mono"
+                className={`mt-1 ${fieldClass} font-mono text-sm`}
               />
             </div>
             <div>
@@ -574,7 +850,7 @@ export default function Trainer() {
                 max="1024"
                 value={config.image_width}
                 onChange={(e) => setConfig({ ...config, image_width: parseInt(e.target.value, 10) || 224 })}
-                className="mt-1 w-full px-2 py-2 bg-[#0a0a0a]/70 border border-white/10 rounded-lg text-sm text-[#F5F5F5] font-mono"
+                className={`mt-1 ${fieldClass} font-mono text-sm`}
               />
             </div>
             <div>
@@ -584,7 +860,7 @@ export default function Trainer() {
                 min="1"
                 value={config.batch_size}
                 onChange={(e) => setConfig({ ...config, batch_size: parseInt(e.target.value, 10) || 16 })}
-                className="mt-1 w-full px-2 py-2 bg-[#0a0a0a]/70 border border-white/10 rounded-lg text-sm text-[#F5F5F5] font-mono"
+                className={`mt-1 ${fieldClass} font-mono text-sm`}
               />
             </div>
             <div>
@@ -594,7 +870,7 @@ export default function Trainer() {
                 min="1"
                 value={config.epochs}
                 onChange={(e) => setConfig({ ...config, epochs: parseInt(e.target.value, 10) || 30 })}
-                className="mt-1 w-full px-2 py-2 bg-[#0a0a0a]/70 border border-white/10 rounded-lg text-sm text-[#F5F5F5] font-mono"
+                className={`mt-1 ${fieldClass} font-mono text-sm`}
               />
             </div>
             <div>
@@ -606,7 +882,7 @@ export default function Trainer() {
                 max="0.45"
                 value={config.val_split}
                 onChange={(e) => setConfig({ ...config, val_split: parseFloat(e.target.value) || 0.2 })}
-                className="mt-1 w-full px-2 py-2 bg-[#0a0a0a]/70 border border-white/10 rounded-lg text-sm text-[#F5F5F5] font-mono"
+                className={`mt-1 ${fieldClass} font-mono text-sm`}
               />
             </div>
             <div>
@@ -615,7 +891,7 @@ export default function Trainer() {
                 type="number"
                 value={config.random_seed}
                 onChange={(e) => setConfig({ ...config, random_seed: parseInt(e.target.value, 10) || 7 })}
-                className="mt-1 w-full px-2 py-2 bg-[#0a0a0a]/70 border border-white/10 rounded-lg text-sm text-[#F5F5F5] font-mono"
+                className={`mt-1 ${fieldClass} font-mono text-sm`}
               />
             </div>
           </div>
@@ -973,6 +1249,9 @@ export default function Trainer() {
       <ToolLayout
         title="Trainer"
         description="CNN training console — live curves and activity from the existing status stream."
+        contentMaxWidthClass="w-full max-w-none"
+        outputPlacement="integrated"
+        integratedOutputWide
         inputPanel={InputPanel}
         outputPanel={OutputPanel}
       />

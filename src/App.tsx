@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useParams, Navigate } from "react-router-dom";
 import { useEffect } from "react";
 import { useRunsStore } from "@/state/runsStore";
 import { HeaderRevealProvider, useHeaderReveal, isCompactHeaderPathname } from "@/context/HeaderRevealContext";
@@ -21,6 +21,8 @@ import NotFound from "./pages/NotFound";
 import Founders from "./pages/Founders";
 import RunLog from "./pages/RunLog";
 import Account from "./pages/Account";
+import Credits from "./pages/Credits";
+import CreditGuardModal from "@/components/CreditGuardModal";
 
 // Product / optimizer (technical UIs under /products; landings removed — use Navigate below)
 import LabelingOptimizerTechnical from "./pages/products/LabelingOptimizerTechnical";
@@ -31,6 +33,7 @@ import ProductsHub from "./pages/products/ProductsHub";
 
 // Tool pages
 import Generator from "./pages/Generator";
+import GeneratorResults from "./pages/GeneratorResults";
 import Trainer from "./pages/Trainer";
 import AnalysisTechnical from "./pages/AnalysisTechnical";
 import Backtester from "./pages/Backtester";
@@ -58,9 +61,25 @@ function ScrollToTop() {
   return null;
 }
 
+/** Older clients stored `/products/labeling-optimizer/runs/:id` (plural) which has no route. */
+function LegacyLabelingOptimizerRunsRedirect() {
+  const { runId } = useParams<{ runId: string }>();
+  if (!runId) return <Navigate to="/products/labeling-optimizer/technical" replace />;
+  return <Navigate to={`/products/labeling-optimizer/run/${encodeURIComponent(runId)}`} replace />;
+}
+
 function PageWrapper({ children }: { children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  const compact = isCompactHeaderPathname(pathname);
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col animate-page-enter">
+    <div
+      className={cn(
+        "flex min-h-0 w-full flex-1 flex-col",
+        // Compact tool shell uses position:fixed TechnicalLayout — never put a
+        // transform/filter animation on this ancestor (it becomes the fixed CB).
+        compact ? "relative h-full min-h-0" : "animate-page-enter",
+      )}
+    >
       {children}
     </div>
   );
@@ -82,6 +101,7 @@ function AppShell() {
 
     const reconcile = async () => {
       if (!isActive) return;
+      await useRunsStore.getState().mergeRunsFromBackendList(200);
       await useRunsStore.getState().reconcileRunsWithBackend({ concurrency: 4 });
     };
 
@@ -149,7 +169,6 @@ function AppShell() {
           <Route path="/home3" element={<PageWrapper><VisionHome3 /></PageWrapper>} />
           <Route path="/founder" element={<Navigate to="/about" replace />} />
           <Route path="/about" element={<PageWrapper><Founders /></PageWrapper>} />
-          <Route path="/account" element={<PageWrapper><Account /></PageWrapper>} />
           <Route path="/contact" element={<PageWrapper><Contact /></PageWrapper>} />
           <Route path="/docs" element={<PageWrapper><Docs /></PageWrapper>} />
 
@@ -172,6 +191,11 @@ function AppShell() {
                 </TechnicalLayout>
               </PageWrapper>
             }
+          />
+          {/* Legacy plural /runs/ 404'd — rewrite to singular /run/ */}
+          <Route
+            path="/products/labeling-optimizer/runs/:runId"
+            element={<LegacyLabelingOptimizerRunsRedirect />}
           />
           <Route
             path="/products/labeling-optimizer/run/:runId"
@@ -211,6 +235,16 @@ function AppShell() {
               <PageWrapper>
                 <TechnicalLayout>
                   <Generator />
+                </TechnicalLayout>
+              </PageWrapper>
+            }
+          />
+          <Route
+            path="/tools/generator/runs/:runId"
+            element={
+              <PageWrapper>
+                <TechnicalLayout>
+                  <GeneratorResults />
                 </TechnicalLayout>
               </PageWrapper>
             }
@@ -357,11 +391,34 @@ function AppShell() {
             }
           />
 
+          {/* Account + Credits / refill (dashboard shell so the sidebar balance stays live) */}
+          <Route
+            path="/account"
+            element={
+              <PageWrapper>
+                <TechnicalLayout variant="dashboard">
+                  <Account />
+                </TechnicalLayout>
+              </PageWrapper>
+            }
+          />
+          <Route
+            path="/credits"
+            element={
+              <PageWrapper>
+                <TechnicalLayout variant="dashboard">
+                  <Credits />
+                </TechnicalLayout>
+              </PageWrapper>
+            }
+          />
+
           {/* Fallback */}
           <Route path="*" element={<PageWrapper><NotFound /></PageWrapper>} />
         </Routes>
       </main>
       {showFooter ? <Footer /> : null}
+      <CreditGuardModal />
     </div>
   );
 }

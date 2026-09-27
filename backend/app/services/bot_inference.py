@@ -82,6 +82,7 @@ def run_bot_inference(
     tp_pct: Optional[float],
     sl_pct: Optional[float],
     market_data: Optional[pd.DataFrame] = None,
+    artifact_key: Optional[str] = None,
 ) -> BotInferenceResult:
     """
     Run one full inference pass. Caller must pass an existing resolved .keras path.
@@ -122,7 +123,8 @@ def run_bot_inference(
 
     last_timestamp = data.index[-1].to_pydatetime()
     date_str = last_timestamp.strftime("%Y-%m-%d")
-    run_dir = Path(data_dir) / "runs" / bot_id / date_str
+    token = (artifact_key or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")).replace("/", "-")
+    run_dir = Path(data_dir) / "runs" / bot_id / date_str / token
     run_dir.mkdir(parents=True, exist_ok=True)
 
     chart_path = str(run_dir / "chart.png")

@@ -16,7 +16,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.bot_runner import fetch_market_data
-from app.config import BOT_DATA_DIR
+from app.config import BOT_DATA_DIR, BOT_POLL_INTERVAL_SECONDS
 from app.models import Bot, BotRun
 from app.services.bot_inference import run_bot_inference
 from app.services.model_paths import require_bot_model_file
@@ -108,12 +108,29 @@ def execute_bot_run(db: Session, bot: Bot) -> tuple[BotRun, BotRunOutcome]:
         db.refresh(bot)
         return run, BotRunOutcome.CREATED_ERROR
 
-    idx = market_data.index[-1]
-    last_market_date = idx.date() if hasattr(idx, "date") else pd.Timestamp(idx).date()
-
-    succ = _latest_success_run(db, bot.id)
-    if succ and _run_chart_bar_date(succ) == last_market_date:
-        return succ, BotRunOutcome.SKIPPED_ALREADY_RAN
+    latest_any = _latest_run_for_bot(db, bot.id)
+    if latest_any:
+        now_check = datetime.now(timezone.utc)
+        if latest_any.status == "running":
+            running_started = latest_any.run_started_at or latest_any.run_at
+            if running_started is not None:
+                if getattr(running_started, "tzinfo", None) is None:
+                    running_started = running_started.replace(tzinfo=timezone.utc)
+                # Reloads leave a stuck "running" row; don't block the 60s loop for 30 min.
+                if now_check - running_started < timedelta(seconds=90):
+                    return latest_any, BotRunOutcome.SKIPPED_ALREADY_RAN
+                latest_any.status = "error"
+                latest_any.run_finished_at = now_check
+                latest_any.error_message = "Stale run recovery: previous analysis did not finish."
+                db.add(latest_any)
+                db.commit()
+        last_finished = latest_any.run_finished_at or latest_any.run_at
+        if last_finished is not None:
+            if getattr(last_finished, "tzinfo", None) is None:
+                last_finished = last_finished.replace(tzinfo=timezone.utc)
+            min_gap = max(10, int(BOT_POLL_INTERVAL_SECONDS) - 8)
+            if now_check - last_finished < timedelta(seconds=min_gap):
+                return latest_any, BotRunOutcome.SKIPPED_ALREADY_RAN
 
     try:
         resolved_model = require_bot_model_file(bot.model_path)
@@ -158,6 +175,7 @@ def execute_bot_run(db: Session, bot: Bot) -> tuple[BotRun, BotRunOutcome]:
         tp_pct=bot.tp_pct,
         sl_pct=bot.sl_pct,
         market_data=market_data,
+        artifact_key=run.id,
     )
 
     finished = datetime.now(timezone.utc)
@@ -167,7 +185,7 @@ def execute_bot_run(db: Session, bot: Bot) -> tuple[BotRun, BotRunOutcome]:
         if isinstance(chart_dt, datetime) and chart_dt.tzinfo is None:
             chart_dt = chart_dt.replace(tzinfo=timezone.utc)
 
-        run.run_at = chart_dt
+        # Keep run_at as wall-clock start; chart_date is the market bar.
         run.run_finished_at = finished
         run.label = result.label_legacy
         run.signal = result.signal

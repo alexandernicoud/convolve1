@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from app.config import BOT_SCHEDULE_TIME, BOT_SCHEDULE_TZ
 from app.models import Bot, BotRun
 from app.services.bot_execution import is_runtime_expired
 
@@ -59,45 +58,21 @@ def next_scheduled_run_iso(
     now_utc: datetime,
     latest_run: Optional[BotRun],
 ) -> Optional[str]:
-    """
-    Next daily run instant (UTC ISO) from run_time + timezone, strictly after max(now, last run).
-    No schedule for closed/archived bots.
-    """
+    """Next analysis instant (UTC ISO). Continuous test: last finish + poll interval."""
     ls = getattr(bot, "lifecycle_state", None) or "active"
-    if ls in ("closed", "archived"):
+    if ls in ("closed", "archived", "paused"):
         return None
 
-    try:
-        from zoneinfo import ZoneInfo
+    from app.config import BOT_POLL_INTERVAL_SECONDS
 
-        from app.jobs.run_due_bots import _parse_hhmm
-
-        tz_name = bot.timezone or BOT_SCHEDULE_TZ
-        time_str = bot.run_time or BOT_SCHEDULE_TIME
-        tz = ZoneInfo(tz_name)
-        try:
-            h, m = _parse_hhmm(time_str)
-        except ValueError:
-            h, m = _parse_hhmm(BOT_SCHEDULE_TIME)
-
-        now_local = now_utc.astimezone(tz)
-        last_ref_utc: Optional[datetime] = None
-        if latest_run:
-            ref = latest_run.chart_date or latest_run.run_finished_at or latest_run.run_at
-            if ref is not None:
-                if getattr(ref, "tzinfo", None) is None:
-                    ref = ref.replace(tzinfo=timezone.utc)
-                last_ref_utc = ref.astimezone(timezone.utc)
-
-        for offset in range(0, 14):
-            day: date = now_local.date() + timedelta(days=offset)
-            cand_local = datetime.combine(day, time(hour=h, minute=m, second=0, microsecond=0), tzinfo=tz)
-            cand_utc = cand_local.astimezone(timezone.utc)
-            if cand_utc <= now_utc:
-                continue
-            if last_ref_utc is not None and cand_utc <= last_ref_utc:
-                continue
-            return cand_utc.isoformat()
-        return None
-    except Exception:
-        return None
+    ref = None
+    if latest_run:
+        ref = latest_run.run_finished_at or latest_run.run_started_at or latest_run.run_at
+        if ref is not None and getattr(ref, "tzinfo", None) is None:
+            ref = ref.replace(tzinfo=timezone.utc)
+    if ref is None:
+        return (now_utc + timedelta(seconds=int(BOT_POLL_INTERVAL_SECONDS))).isoformat()
+    nxt = ref + timedelta(seconds=int(BOT_POLL_INTERVAL_SECONDS))
+    if nxt <= now_utc:
+        nxt = now_utc + timedelta(seconds=5)
+    return nxt.isoformat()

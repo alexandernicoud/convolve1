@@ -29,6 +29,7 @@ export type DailyProfitRow = {
   day: string;
   profit: number;
   sma: number;
+  metric?: "pnl" | "confidence" | string;
 };
 
 function buildDailyProfitData(): DailyProfitRow[] {
@@ -36,7 +37,6 @@ function buildDailyProfitData(): DailyProfitRow[] {
   const rows: { day: string; profit: number }[] = [];
   for (let i = 0; i < n; i++) {
     const t = n <= 1 ? 0 : i / (n - 1);
-    /** Crosses zero often (win/loss alternation) with mild net drift upward by end. */
     const oscillate =
       Math.sin(i * 0.75) * 2_400 +
       Math.cos(i * 0.33) * 1_500 +
@@ -50,20 +50,17 @@ function buildDailyProfitData(): DailyProfitRow[] {
     });
   }
 
-  const out: DailyProfitRow[] = rows.map((r, i) => {
+  return rows.map((r, i) => {
     const from = Math.max(0, i - 4);
     const slice = rows.slice(from, i + 1);
     const sma = slice.reduce((s, x) => s + x.profit, 0) / slice.length;
     return { ...r, sma: Number(sma.toFixed(0)) };
   });
-  return out;
 }
 
-/**
- * Demo-only: daily P&amp;L bars + SMA line — greyscale palette matches portfolio equity.
- */
-export function DemoDailyProfitBarChart() {
-  const data = useMemo(() => buildDailyProfitData(), []);
+export function DemoDailyProfitBarChart({ rows }: { rows?: DailyProfitRow[] } = {}) {
+  const fallback = useMemo(() => buildDailyProfitData(), []);
+  const data = rows !== undefined ? rows : fallback;
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col gap-1">
@@ -71,9 +68,9 @@ export function DemoDailyProfitBarChart() {
         Profit per day
       </p>
       <p className="shrink-0 text-[10px] leading-snug text-white/35">
-        Light bars = day profit, dim bars = loss. Line = SMA(5).
+        Account-wide P&amp;L. Light = profit, dim = loss. Line = SMA(5). $0 until a trade closes.
       </p>
-      <div className="w-full min-h-[132px] flex-1 overflow-hidden rounded-md border border-white/[0.1] bg-black/40">
+      <div className="h-[220px] w-full min-h-[220px] flex-1 overflow-hidden rounded-md border border-white/[0.1] bg-black/40">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 12, right: 8, left: 4, bottom: 4 }}>
             <CartesianGrid
@@ -87,7 +84,7 @@ export function DemoDailyProfitBarChart() {
               tick={{ fill: "rgba(255,255,255,0.45)", fontSize: 8 }}
               axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
               tickLine={false}
-              interval={4}
+              interval={data.length <= 12 ? 0 : 4}
               minTickGap={2}
             />
             <YAxis
@@ -95,6 +92,17 @@ export function DemoDailyProfitBarChart() {
               tick={{ fill: "rgba(255,255,255,0.45)", fontSize: 9 }}
               axisLine={false}
               tickLine={false}
+              domain={([dataMin, dataMax]: [number, number]) => {
+                const lo = Number(dataMin);
+                const hi = Number(dataMax);
+                if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [-1, 1];
+                if (Math.abs(hi - lo) < 1e-6) {
+                  const pad = Math.max(Math.abs(lo) * 0.2, 1);
+                  return [lo - pad, hi + pad];
+                }
+                const pad = (hi - lo) * 0.12;
+                return [lo - pad, hi + pad];
+              }}
               tickFormatter={(v) => {
                 const k = formatUsdAxisK(Number(v));
                 return `${Number(v) >= 0 ? "+" : ""}${k}`;
@@ -107,7 +115,7 @@ export function DemoDailyProfitBarChart() {
                 const row = payload[0]?.payload as DailyProfitRow;
                 return (
                   <div className="rounded-md border border-white/15 bg-black/95 px-2.5 py-2 text-[10px] shadow-lg">
-                    <p className="font-digits text-white/75">Day {row.day}</p>
+                    <p className="font-digits text-white/75">{row.day}</p>
                     <p className="font-digits mt-1 tabular-nums text-white">
                       Day: {row.profit >= 0 ? "+" : ""}
                       {formatUsdAxisK(row.profit)} · SMA: {row.sma >= 0 ? "+" : ""}

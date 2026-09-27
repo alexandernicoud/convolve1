@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { botsApi, dashboardApi, Bot } from "@/lib/api";
 import { getPaperWalletUsd } from "@/lib/portfolioWallet";
+import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
 
 /** IANA zones for daily run scheduling (same as backend zoneinfo). */
 const IANA_TIMEZONES = [
@@ -118,9 +119,12 @@ export default function Deploy() {
     formData.append("commission_pct", commissionPct || "0.1");
     formData.append("slippage_pct", slippagePct || "0.05");
 
+    if (!requestRunCredits("bot")) return;
+
     setIsSubmitting(true);
     try {
       const created = await botsApi.createBot(formData);
+      chargeRunCredits("bot");
       setSuccessBot(created);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Deploy failed. Please try again.");
@@ -131,7 +135,7 @@ export default function Deploy() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden pb-4">
-      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden">
+      <div className="mx-auto flex min-h-0 w-full max-w-none flex-1 flex-col overflow-hidden">
         <p className="sr-only">Upload your Keras model and configure daily runs, take profit, and stop loss.</p>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 overflow-hidden lg:grid-cols-2 lg:gap-6">
@@ -397,10 +401,10 @@ export default function Deploy() {
               <div className="space-y-3">
                 <div className="flex items-center gap-3 text-sm text-[#F5F5F5]/70">
                   <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
-                  Deploying model to the server...
+                  Saving the bot and starting the first paper run…
                 </div>
                 <p className="text-xs text-[#F5F5F5]/50">
-                  If this takes more than a few seconds, check the backend logs or API health.
+                  The first signal is generated on this machine. Open Overview after deploy to see it.
                 </p>
               </div>
             ) : error ? (
@@ -416,7 +420,8 @@ export default function Deploy() {
               <div className="space-y-4">
                 <div className="p-4 border border-emerald-400/20 bg-emerald-400/10 rounded-lg">
                   <p className="text-sm text-emerald-200">
-                    Bot deployed successfully. {successBot.name || successBot.symbol} is ready.
+                    {successBot.name || successBot.symbol} is deployed. The first paper signal is running
+                    locally — open Overview in a few seconds.
                   </p>
                 </div>
                 <Link
@@ -428,8 +433,8 @@ export default function Deploy() {
               </div>
             ) : (
               <div className="text-sm text-[#F5F5F5]/60">
-                Submit the form to deploy your model. Set take profit, stop loss, and the daily run time before
-                uploading.
+                Upload a trained .keras model. This machine will run it on a schedule (paper trading only — no
+                brokerage). After deploy, manage signals on Overview.
               </div>
             )}
           </div>

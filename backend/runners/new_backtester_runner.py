@@ -10,6 +10,8 @@ import subprocess
 import select
 import fcntl
 
+from app.process_registry import kill_managed, popen_managed, running_processes
+
 # In-memory storage for backtest runs
 backtest_runs = {}
 
@@ -145,8 +147,9 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
     print(f"Starting backtester: {' '.join(cmd)}")
 
     try:
-        # Start the process
-        process = subprocess.Popen(
+        # Start the process (registered for cancel)
+        process = popen_managed(
+            run_id,
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -165,6 +168,13 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
         last_progress_update = 0
 
         while True:
+            # Cancelled via unified cancel endpoint
+            info = get_run_info(run_id)
+            if info and str(info.get("status") or "").lower() in ("cancelled", "canceled"):
+                kill_managed(run_id)
+                update_run_status(run_id, "cancelled", 0, "Cancelled by user", "\n".join(logs[-50:]))
+                return
+
             # Check if process is still running
             if process.poll() is not None:
                 break
@@ -204,6 +214,8 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
                     update_run_status(run_id, "running", current_info["progress"], "Processing...", "\n".join(logs[-50:]))
 
             time.sleep(0.1)
+
+        running_processes.pop(run_id, None)
 
         # Process finished
         return_code = process.returncode

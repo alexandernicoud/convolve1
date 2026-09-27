@@ -53,15 +53,11 @@ export function TechnicalLayout({ children, variant = "scroll" }: Props) {
             }`}
           >
             {variant === "dashboard" ? (
-              toolPageScroll ? (
-                <div className="min-w-0 shrink-0">{children}</div>
-              ) : (
-                children
-              )
+              children
             ) : (
-              <div className="mx-auto w-full max-w-[100rem] px-5 pb-6 pt-0 md:px-8 lg:px-10 lg:pb-8">
-                {/* shrink-0 prevents flex from squashing tall tool pages; parent scrolls instead */}
-                {toolPageScroll ? <div className="min-w-0 shrink-0">{children}</div> : children}
+              <div className="mx-auto w-full min-h-full max-w-[100rem] px-5 pb-6 pt-0 md:px-8 lg:px-10 lg:pb-8">
+                {/* Content grows; this column scrolls. Do not use h-full/overflow-hidden traps here. */}
+                <div className="min-w-0">{children}</div>
               </div>
             )}
           </div>

@@ -25,10 +25,21 @@ class ProgressWriter:
         self.timeseries_path = timeseries_path
         self.start = time.time()
         self.total_steps = total_steps
+        self._last_write = 0.0
+        self._last_percent = None
 
-    def update(self, phase: str, percent: float | None = None, step: int | None = None):
+    def update(self, phase: str, percent: float | None = None, step: int | None = None, force: bool = False):
         now = time.time()
+        # Throttle high-frequency per-chart updates: skip disk writes that are both
+        # very recent (<0.4s) and barely move the bar (<0.5%). Terminal/forced states
+        # always write so the UI never misses "done"/"error".
+        if not force and percent is not None and self._last_percent is not None:
+            if (now - self._last_write) < 0.4 and abs(percent - self._last_percent) < 0.5:
+                return
         elapsed = now - self.start
+        self._last_write = now
+        if percent is not None:
+            self._last_percent = percent
         payload = {
             "phase": phase,
             "percent": percent,
@@ -334,9 +345,11 @@ def generate_and_save_labeled_charts(symbols, x, out_dir, use_candles, t, u, o, 
         print(f"Starting symbol {symbol_idx + 1}/{len(symbols)}: {symbol}")
 
         if progress:
-            # Calculate overall progress based on symbol completion
-            symbol_progress = (symbol_idx / len(symbols)) * 90 + 10  # 10-100% range
-            progress.update(f"processing_symbol_{symbol}", percent=symbol_progress)
+            # Progress tracks true completion. The generation loop for a symbol ends when
+            # min(label_counts) >= x, so completion == min(label_counts)/x. We reserve
+            # 5-95% for generation (0-5 init, 95-100 post-processing/zip in the caller).
+            overall = symbol_idx / len(symbols)
+            progress.update(f"processing_symbol_{symbol}", percent=round(5 + overall * 90, 2), force=True)
         ticker = yf.Ticker(symbol)
         # Fetch full history once per symbol to avoid repeated API calls
         max_iters = max(x * 3, 200)
@@ -441,10 +454,18 @@ def generate_and_save_labeled_charts(symbols, x, out_dir, use_candles, t, u, o, 
                     continue
                 label_counts[final_label] += 1
 
-                # Update progress after each chart
-                if progress and chart_count % 10 == 0:  # Update every 10 charts to avoid too frequent updates
-                    current_progress = min(95, (symbol_idx / len(symbols)) * 90 + 10 + (chart_count / (x * 2)) * 5)  # Conservative estimate
-                    progress.update(f"generating_charts_{symbol}", percent=current_progress)
+                # Update progress after each saved chart. Completion for this symbol is
+                # min(label_counts)/x (the loop's own stop condition), so the bar tracks
+                # real remaining work rather than a fixed per-symbol guess. Writes are
+                # throttled inside ProgressWriter, so calling every chart is cheap.
+                if progress:
+                    symbol_completion = (min(label_counts.values()) / x) if x else 1.0
+                    overall = (symbol_idx + min(symbol_completion, 1.0)) / len(symbols)
+                    progress.update(
+                        f"generating_charts_{symbol}",
+                        percent=round(5 + min(overall, 1.0) * 90, 2),
+                        step=label_counts[0] + label_counts[1],
+                    )
 
                 # For audit: base close and actual entry price
                 base = float(data['Close'].iloc[-1])
@@ -478,7 +499,7 @@ if __name__ == "__main__":
         path=os.path.join(args.progress_dir, "progress.json"),
         timeseries_path=os.path.join(args.progress_dir, "progress_timeseries.jsonl"),
     )
-    progress.update("starting", percent=0.0)
+    progress.update("starting", percent=0.0, force=True)
 
     try:
         generate_and_save_labeled_charts(
@@ -496,9 +517,9 @@ if __name__ == "__main__":
             i1=args.i1,
             progress=progress
         )
-        progress.update("done", percent=100.0)
+        progress.update("generation_complete", percent=95.0, force=True)
         print("Chart generation completed successfully!")
     except Exception as e:
         print(f"Error during chart generation: {e}")
-        progress.update("error", percent=0.0)
+        progress.update("error", percent=0.0, force=True)
         raise

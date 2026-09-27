@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ChevronRight, ChevronDown, Play, CheckCircle, XCircle, Clock, X, ExternalLink } from 'lucide-react';
 import { useRunsStore } from '@/state/runsStore';
 import { useHeaderReveal } from '@/context/HeaderRevealContext';
+import { cancelAnyRun } from '@/lib/api';
 
 const DISMISSED_RUNS_KEY = 'convolve_dismissed_runs';
 
@@ -102,9 +103,33 @@ export default function ActiveRunBanner() {
     setDismissedRunIds(prev => [...prev, ...visibleRuns.map(run => run.id)]);
   };
 
+  const [cancellingIds, setCancellingIds] = useState<string[]>([]);
+
+  const handleCancelRun = async (runId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (cancellingIds.includes(runId)) return;
+    setCancellingIds((prev) => [...prev, runId]);
+    try {
+      await cancelAnyRun(runId);
+      useRunsStore.getState().updateRun(runId, {
+        status: 'cancelled',
+        progress: 0,
+        stage: 'cancelled',
+        message: 'Cancelled by user',
+      });
+    } catch (err) {
+      console.error('Failed to cancel run', err);
+    } finally {
+      setCancellingIds((prev) => prev.filter((id) => id !== runId));
+    }
+  };
+
   const handleRunClick = (runId: string) => {
-    // Navigate to run log page with the running sessions section
-    window.location.href = `/tools/run-log?highlight=${runId}`;
+    const run = useRunsStore.getState().runsById[runId];
+    const href = run
+      ? useRunsStore.getState().getRunRoute(run)
+      : `/tools/run-log?highlight=${encodeURIComponent(runId)}`;
+    window.location.href = href;
   };
 
   // Add shimmer animation styles
@@ -156,6 +181,8 @@ export default function ActiveRunBanner() {
         return 'CNN Trainer';
       case 'analysis':
         return 'CNN Analysis';
+      case 'testdata':
+        return 'Test Dataset';
       case 'backtester':
         return 'Backtester';
       default:
@@ -243,6 +270,15 @@ export default function ActiveRunBanner() {
             <span className="text-sm font-medium min-w-[3ch]">
               {Math.round(visibleRuns[0].progress * 100)}%
             </span>
+            <button
+              type="button"
+              onClick={(e) => handleCancelRun(visibleRuns[0].id, e)}
+              disabled={cancellingIds.includes(visibleRuns[0].id)}
+              className="rounded-md border border-white/20 px-2 py-0.5 text-xs font-medium text-white/85 transition hover:bg-white/10 disabled:opacity-50"
+              title="Cancel run"
+            >
+              {cancellingIds.includes(visibleRuns[0].id) ? 'Stopping…' : 'Cancel'}
+            </button>
           </>
         )}
         <button
@@ -328,6 +364,15 @@ export default function ActiveRunBanner() {
                   <span className="text-sm font-medium min-w-[3ch] text-white/90">
                     {Math.round(run.progress * 100)}%
                   </span>
+                  <button
+                    type="button"
+                    onClick={(e) => handleCancelRun(run.id, e)}
+                    disabled={cancellingIds.includes(run.id)}
+                    className="rounded-md border border-white/20 px-2 py-0.5 text-xs font-medium text-white/85 transition hover:bg-white/10 disabled:opacity-50"
+                    title="Cancel run"
+                  >
+                    {cancellingIds.includes(run.id) ? 'Stopping…' : 'Cancel'}
+                  </button>
                 </>
               )}
               <ExternalLink className="w-4 h-4 text-white/70" />
@@ -340,7 +385,7 @@ export default function ActiveRunBanner() {
 
   return (
     <div
-      className="fixed left-0 right-0 z-40 border-b border-white/10 bg-black/90 shadow-lg backdrop-blur-md transition-[top] duration-200 ease-out hover:shadow-xl"
+      className="fixed left-0 right-0 z-[45] border-b border-white/10 bg-black/90 shadow-lg backdrop-blur-md transition-[top] duration-200 ease-out hover:shadow-xl"
       style={{ top: compactShellTopPx }}
     >
       <div className="container-aligned">

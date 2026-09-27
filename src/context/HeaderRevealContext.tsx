@@ -27,6 +27,7 @@ export function getCompactShellTopPx(revealMode: boolean, headerRevealed: boolea
  */
 export function isCompactHeaderPathname(pathname: string): boolean {
   if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) return true;
+  if (pathname === "/credits") return true;
   if (pathname.startsWith("/tools/")) return true;
   if (pathname.startsWith("/products/labeling-optimizer/")) return true;
   if (pathname.startsWith("/products/trainer/analysis/")) return true;

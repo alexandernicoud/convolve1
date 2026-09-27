@@ -1,8 +1,10 @@
+import logging
 import os
 import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Thread
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -38,6 +40,7 @@ from app.storage import save_bot_keras_upload
 
 
 router = APIRouter(prefix="/api/bots", tags=["bots"])
+logger = logging.getLogger(__name__)
 
 LIVE_DEPLOY_DISABLED_DETAIL = (
     "Live bot deployment/execution is disabled in this environment. "
@@ -112,7 +115,7 @@ def _enrich_bot_out(db: Session, bot: Bot) -> BotOut:
     latest_run = (
         db.query(BotRun)
         .filter(BotRun.bot_id == bot.id)
-        .order_by(BotRun.run_at.desc())
+        .order_by(BotRun.run_finished_at.desc(), BotRun.run_at.desc())
         .first()
     )
     bot_out = BotOut.model_validate(bot)
@@ -190,8 +193,21 @@ async def create_bot(
     db.commit()
     db.refresh(bot)
     if LIVE_DEPLOY_ENABLED:
-        execute_bot_run(db, bot)
-        db.refresh(bot)
+        def _first_run(bot_id: str) -> None:
+            from app.db import SessionLocal
+
+            session = SessionLocal()
+            try:
+                fresh = session.query(Bot).filter(Bot.id == bot_id).first()
+                if fresh is None:
+                    return
+                execute_bot_run(session, fresh)
+            except Exception:
+                logger.exception("Initial paper run failed for bot %s", bot_id)
+            finally:
+                session.close()
+
+        Thread(target=_first_run, args=(bot.id,), name=f"bot-first-run-{bot.id[:8]}", daemon=True).start()
 
     return _enrich_bot_out(db, bot)
 
@@ -380,7 +396,10 @@ def get_run_chart(bot_id: str, run_id: str, db: Session = Depends(get_db)):
     file_path = _safe_path(run.chart_path)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Chart not found")
-    return FileResponse(file_path)
+    return FileResponse(
+        file_path,
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @router.get("/{bot_id}/runs/{run_id}/heatmap")
@@ -396,4 +415,7 @@ def get_run_heatmap(bot_id: str, run_id: str, db: Session = Depends(get_db)):
     file_path = _safe_path(run.heatmap_path)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Heatmap not found")
-    return FileResponse(file_path)
+    return FileResponse(
+        file_path,
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )

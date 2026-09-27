@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { useForm } from "react-hook-form";
@@ -6,7 +6,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { labelingOptimizerApi } from "@/lib/api";
 import { useRunsStore } from "@/state/runsStore";
+import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
 import { Slider } from "@/components/ui/slider";
+import FieldTip from "@/components/generator/FieldTip";
+import StepSection from "@/components/generator/StepSection";
+import SymbolBasket from "@/components/generator/SymbolBasket";
+import TestPeriodTimeline from "@/components/generator/TestPeriodTimeline";
+import { isoDateString, parseIsoDate, startOfLocalDay } from "@/lib/generatorDates";
 
 const formSchema = z
   .object({
@@ -32,7 +38,7 @@ const formSchema = z
       const endDate = new Date(data.end);
       return startDate < endDate;
     },
-    { message: "Start date must be before end date", path: ["end"] }
+    { message: "Start date must be before end date", path: ["end"] },
   )
   .refine((data) => data.tp_min_pct < data.tp_max_pct, {
     message: "TP min must be less than TP max",
@@ -52,10 +58,23 @@ type FormData = z.infer<typeof formSchema>;
 const rangeSliderClass =
   "w-full py-1 [&_[data-orientation=horizontal]]:w-full [&_.bg-primary]:bg-white [&_[role=slider]]:border-white/40 [&_[role=slider]]:bg-[#0a0a0a]";
 
+function defaultYesterdayIso(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return isoDateString(d);
+}
+
+function defaultFiveYearsAgoIso(): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - 5);
+  return isoDateString(d);
+}
+
 export default function LabelingOptimizerTechnical() {
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSymbols, setSelectedSymbols] = useState<string[]>(["INTC"]);
 
   const {
     register,
@@ -67,8 +86,8 @@ export default function LabelingOptimizerTechnical() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       symbol: "INTC",
-      start: "2020-01-01",
-      end: "2025-01-01",
+      start: defaultFiveYearsAgoIso(),
+      end: defaultYesterdayIso(),
       timeframe: "1d",
       tp_min_pct: 1,
       tp_max_pct: 25,
@@ -88,8 +107,12 @@ export default function LabelingOptimizerTechnical() {
   const tpMax = watch("tp_max_pct");
   const slMin = watch("sl_min_pct");
   const slMax = watch("sl_max_pct");
+  const startIso = watch("start");
+  const endIso = watch("end");
+  const todayIsoMax = useMemo(() => isoDateString(startOfLocalDay(new Date())), []);
 
   const onSubmit = async (data: FormData) => {
+    if (!requestRunCredits("labeling-optimizer")) return;
     setIsSubmitting(true);
     setError(null);
 
@@ -111,6 +134,7 @@ export default function LabelingOptimizerTechnical() {
         fee_rate_pct: data.fee_rate_pct,
         objective: data.objective,
       });
+      chargeRunCredits("labeling-optimizer");
 
       useRunsStore.getState().registerRun({
         id: response.run_id,
@@ -119,7 +143,7 @@ export default function LabelingOptimizerTechnical() {
         progress: 0,
         stage: "starting",
         message: "Initializing labeling optimizer...",
-        route: `/products/labeling-optimizer/runs/${response.run_id}`,
+        route: `/products/labeling-optimizer/run/${response.run_id}`,
       });
 
       navigate(`/products/labeling-optimizer/run/${response.run_id}`);
@@ -131,64 +155,140 @@ export default function LabelingOptimizerTechnical() {
   };
 
   const inputClass =
-    "w-full rounded-lg border border-[rgba(255,255,255,0.15)] bg-[rgba(255,255,255,0.03)] px-3 py-2 text-sm text-white placeholder:text-[rgba(255,255,255,0.35)] focus:border-[rgba(255,255,255,0.06)] focus:outline-none focus:ring-1 focus:ring-[rgba(255,255,255,0.06)]";
-  const labelClass = "mb-1 block text-[11px] font-medium text-[rgba(255,255,255,0.65)]";
+    "w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-white placeholder:text-white/35 focus:border-white/30 focus:outline-none focus:ring-1 focus:ring-white/50";
+  const labelClass = "mb-2 flex items-center text-sm font-medium text-[#F5F5F5]/75";
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-white">
-      <div className="pointer-events-none absolute inset-0 opacity-25">
-        <div className="absolute left-10 top-16 h-72 w-72 rounded-full bg-[rgba(255,255,255,0.06)] blur-3xl" />
-        <div className="absolute right-16 top-24 h-64 w-64 rounded-full bg-[rgba(255,255,255,0.15)] blur-3xl" />
-      </div>
-
-      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col overflow-hidden px-0">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[rgba(255,255,255,0.15)] bg-[rgba(255,255,255,0.03)]">
-            <div className="shrink-0 border-b border-white/[0.06] px-4 py-2.5 md:px-5">
-              <p className="text-[12px] leading-snug text-[rgba(255,255,255,0.78)] md:text-[13px]">
-                Symbol &amp; dates drive the run; extra fields are saved with the run (see note below).
-              </p>
+    <div className="relative pb-8 text-white">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/70">
+              <span className="font-medium text-white">Three steps:</span> pick a symbol → set the calendar
+              window → tune the TP/SL/horizon search grid, then run.
             </div>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 md:space-y-4 md:px-6 md:py-4">
-                <div>
-                  <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#a3a3a3]">Data</h3>
-                  <div className="grid gap-2.5 md:grid-cols-2 md:gap-3">
-                    <div className="md:col-span-2">
-                      <label className={labelClass}>Symbol</label>
-                      <input {...register("symbol")} type="text" placeholder="INTC" className={inputClass} />
-                      {errors.symbol && <p className="mt-0.5 text-xs text-red-400">{errors.symbol.message}</p>}
-                    </div>
-                    <div>
-                      <label className={labelClass}>Start date</label>
-                      <input {...register("start")} type="date" className={inputClass} />
-                      {errors.start && <p className="mt-0.5 text-xs text-red-400">{errors.start.message}</p>}
-                    </div>
-                    <div>
-                      <label className={labelClass}>End date</label>
-                      <input {...register("end")} type="date" className={inputClass} />
-                      {errors.end && <p className="mt-0.5 text-xs text-red-400">{errors.end.message}</p>}
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className={labelClass}>Bar timeframe</label>
-                      <select {...register("timeframe")} className={inputClass}>
-                        <option value="1d">1 day</option>
-                        <option value="1wk">1 week</option>
-                        <option value="1mo">1 month</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
+            <StepSection
+              step={1}
+              title="Choose symbol"
+              description="Search Yahoo Finance the same way as the chart generator. This run uses a single ticker."
+            >
+              <SymbolBasket
+                selectedSymbols={selectedSymbols}
+                maxSymbols={1}
+                tipText="Search by company or ticker (e.g. Intel, INTC). Pick a suggestion or press Enter. Choosing another ticker replaces the current one."
+                onAdd={(sym) => {
+                  setSelectedSymbols([sym]);
+                  setValue("symbol", sym, { shouldValidate: true, shouldDirty: true });
+                }}
+                onRemove={() => {
+                  setSelectedSymbols([]);
+                  setValue("symbol", "", { shouldValidate: true, shouldDirty: true });
+                }}
+              />
+              {errors.symbol && <p className="mt-2 text-xs text-red-400">{errors.symbol.message}</p>}
+            </StepSection>
 
+            <StepSection
+              step={2}
+              title="Set the analysis window"
+              description="Drag the timeline handles or type dates — both stay in sync. Bars inside this range feed the labeling sweep."
+            >
+              <TestPeriodTimeline
+                testStartIso={startIso}
+                testEndIso={endIso}
+                onTestStartChange={(iso) => setValue("start", iso, { shouldValidate: true, shouldDirty: true })}
+                onTestEndChange={(iso) => setValue("end", iso, { shouldValidate: true, shouldDirty: true })}
+                heading="Analysis period — drag handles"
+                bandLabel="Analysis period"
+                helperText={
+                  <>
+                    The <span className="text-sky-200/90">blue band</span> is the calendar span the optimizer
+                    loads for{" "}
+                    <strong className="text-white/85">{selectedSymbols[0] || "your symbol"}</strong>. Drag either
+                    handle or edit the date fields below.
+                  </>
+                }
+              />
+
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/55">
-                    TP &amp; SL ranges (0–50%)
-                  </h3>
+                  <label className={labelClass}>
+                    Start date <span className="text-[#e5e5e5]">*</span>
+                    <FieldTip text="Same as the left timeline handle. Edit here or drag — both stay in sync." />
+                  </label>
+                  <input
+                    type="date"
+                    value={startIso}
+                    max={endIso}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+                      setValue("start", v, { shouldValidate: true, shouldDirty: true });
+                      const s = parseIsoDate(v);
+                      const en = parseIsoDate(endIso);
+                      if (s && en && s > en) {
+                        setValue("end", v, { shouldValidate: true, shouldDirty: true });
+                      }
+                    }}
+                    className={`${inputClass} font-mono`}
+                  />
+                  {errors.start && <p className="mt-1 text-xs text-red-400">{errors.start.message}</p>}
+                </div>
+                <div>
+                  <label className={labelClass}>
+                    End date <span className="text-[#e5e5e5]">*</span>
+                    <FieldTip text="Same as the right timeline handle. Cannot be after today." />
+                  </label>
+                  <input
+                    type="date"
+                    value={endIso}
+                    min={startIso}
+                    max={todayIsoMax}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+                      setValue("end", v, { shouldValidate: true, shouldDirty: true });
+                      const s = parseIsoDate(startIso);
+                      const en = parseIsoDate(v);
+                      if (s && en && s > en) {
+                        setValue("start", v, { shouldValidate: true, shouldDirty: true });
+                      }
+                    }}
+                    className={`${inputClass} font-mono`}
+                  />
+                  {errors.end && <p className="mt-1 text-xs text-red-400">{errors.end.message}</p>}
+                </div>
+                <div className="sm:col-span-2">
+                  <label className={labelClass}>
+                    Bar timeframe
+                    <FieldTip text="Candle size for the price series the optimizer sweeps over (daily, weekly, or monthly)." />
+                  </label>
+                  <select {...register("timeframe")} className={inputClass}>
+                    <option value="1d">1 day</option>
+                    <option value="1wk">1 week</option>
+                    <option value="1mo">1 month</option>
+                  </select>
+                </div>
+              </div>
+            </StepSection>
+
+            <StepSection
+              step={3}
+              title="Search grid & constraints"
+              description="Define the TP/SL and horizon ranges to sweep, plus filters that discard thin strategies."
+            >
+              <div className="space-y-5">
+                <div>
+                  <div className="mb-3 flex items-center text-sm font-medium text-white/80">
+                    Take-profit &amp; stop-loss ranges
+                    <FieldTip text="Percent move from entry. The optimizer samples a grid between min and max for each side." />
+                  </div>
                   <div className="space-y-4">
                     <div>
                       <div className="mb-1 flex items-center justify-between gap-2">
-                        <span className="text-[11px] text-[rgba(255,255,255,0.65)]">Take-profit sweep</span>
+                        <span className="flex items-center text-[11px] text-[rgba(255,255,255,0.65)]">
+                          Take-profit sweep
+                          <FieldTip text="Upper profit target band (%). Wider ranges explore more labeling regimes but take longer." />
+                        </span>
                         <span className="font-mono text-[11px] text-[#a3a3a3]">
                           {tpMin.toFixed(1)}% — {tpMax.toFixed(1)}%
                         </span>
@@ -206,12 +306,17 @@ export default function LabelingOptimizerTechnical() {
                         }}
                       />
                       {(errors.tp_min_pct || errors.tp_max_pct) && (
-                        <p className="mt-1 text-xs text-red-400">{errors.tp_max_pct?.message ?? errors.tp_min_pct?.message}</p>
+                        <p className="mt-1 text-xs text-red-400">
+                          {errors.tp_max_pct?.message ?? errors.tp_min_pct?.message}
+                        </p>
                       )}
                     </div>
                     <div>
                       <div className="mb-1 flex items-center justify-between gap-2">
-                        <span className="text-[11px] text-[rgba(255,255,255,0.65)]">Stop-loss sweep</span>
+                        <span className="flex items-center text-[11px] text-[rgba(255,255,255,0.65)]">
+                          Stop-loss sweep
+                          <FieldTip text="Lower loss threshold band (%). Paired with TP to score each labeling combination." />
+                        </span>
                         <span className="font-mono text-[11px] text-[#a3a3a3]">
                           {slMin.toFixed(1)}% — {slMax.toFixed(1)}%
                         </span>
@@ -229,90 +334,109 @@ export default function LabelingOptimizerTechnical() {
                         }}
                       />
                       {(errors.sl_min_pct || errors.sl_max_pct) && (
-                        <p className="mt-1 text-xs text-red-400">{errors.sl_max_pct?.message ?? errors.sl_min_pct?.message}</p>
+                        <p className="mt-1 text-xs text-red-400">
+                          {errors.sl_max_pct?.message ?? errors.sl_min_pct?.message}
+                        </p>
                       )}
                     </div>
                   </div>
                 </div>
 
-                <div>
-                  <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/55">Horizon &amp; grid</h3>
-                  <div className="grid gap-2.5 md:grid-cols-2 md:gap-3">
-                    <div>
-                      <label className={labelClass}>Horizon min (bars)</label>
-                      <input {...register("horizon_min")} type="number" className={inputClass} />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Horizon max (bars)</label>
-                      <input {...register("horizon_max")} type="number" className={inputClass} />
-                    </div>
-                    <div>
-                      <label className={labelClass}>TP grid steps</label>
-                      <input {...register("grid_tp_steps")} type="number" className={inputClass} />
-                    </div>
-                    <div>
-                      <label className={labelClass}>SL grid steps</label>
-                      <input {...register("grid_sl_steps")} type="number" className={inputClass} />
-                    </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className={labelClass}>
+                      Horizon min (bars)
+                      <FieldTip text="Shortest forward window (in bars) allowed when scoring a TP/SL pair." />
+                    </label>
+                    <input {...register("horizon_min")} type="number" className={inputClass} />
+                    {errors.horizon_min && (
+                      <p className="mt-1 text-xs text-red-400">{errors.horizon_min.message}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className={labelClass}>
+                      Horizon max (bars)
+                      <FieldTip text="Longest forward window (in bars). Larger maxs explore slower labels." />
+                    </label>
+                    <input {...register("horizon_max")} type="number" className={inputClass} />
+                    {errors.horizon_max && (
+                      <p className="mt-1 text-xs text-red-400">{errors.horizon_max.message}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className={labelClass}>
+                      TP grid steps
+                      <FieldTip text="How many evenly spaced take-profit values to evaluate between TP min and max." />
+                    </label>
+                    <input {...register("grid_tp_steps")} type="number" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>
+                      SL grid steps
+                      <FieldTip text="How many evenly spaced stop-loss values to evaluate between SL min and max." />
+                    </label>
+                    <input {...register("grid_sl_steps")} type="number" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>
+                      Minimum trades
+                      <FieldTip text="Discard labeling configs that produce fewer closed trades than this floor — reduces noisy winners." />
+                    </label>
+                    <input {...register("min_trades")} type="number" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>
+                      Fee rate (% per side)
+                      <FieldTip text="Round-trip friction applied per trade side when ranking results (e.g. 0.1 = 0.1%)." />
+                    </label>
+                    <input {...register("fee_rate_pct")} type="number" step="0.01" className={inputClass} />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className={labelClass}>
+                      Objective
+                      <FieldTip text="Primary metric used to rank labeling configs after the sweep completes." />
+                    </label>
+                    <select {...register("objective")} className={inputClass}>
+                      <option value="max_cagr">Maximize CAGR</option>
+                      <option value="max_sharpe">Maximize Sharpe</option>
+                      <option value="max_winrate">Maximize win rate</option>
+                      <option value="min_drawdown">Minimize max drawdown</option>
+                    </select>
                   </div>
                 </div>
+              </div>
+            </StepSection>
 
-                <div>
-                  <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#a3a3a3]">Constraints</h3>
-                  <div className="grid gap-2.5 md:grid-cols-2 md:gap-3">
-                    <div>
-                      <label className={labelClass}>Minimum trades</label>
-                      <input {...register("min_trades")} type="number" className={inputClass} />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Fee rate (% per side)</label>
-                      <input {...register("fee_rate_pct")} type="number" step="0.01" className={inputClass} />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className={labelClass}>Objective</label>
-                      <select {...register("objective")} className={inputClass}>
-                        <option value="max_cagr">Maximize CAGR</option>
-                        <option value="max_sharpe">Maximize Sharpe</option>
-                        <option value="max_winrate">Maximize win rate</option>
-                        <option value="min_drawdown">Minimize max drawdown</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
+            {error && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
+                <p className="text-xs text-red-300">{error}</p>
+              </div>
+            )}
 
-                {error && (
-                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
-                    <p className="text-xs text-red-300">{error}</p>
-                  </div>
+            <div className="space-y-2 rounded-2xl border border-white/[0.12] bg-white/[0.04] p-5 md:p-6">
+              <button
+                type="submit"
+                disabled={isSubmitting || selectedSymbols.length === 0}
+                className="flex w-full items-center justify-center gap-2 rounded-full border border-white/25 bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#0a0a0a]/30 border-t-[#0a0a0a]" />
+                    Starting…
+                  </>
+                ) : (
+                  <>
+                    Run labeling optimizer
+                    <ArrowRight className="h-4 w-4" />
+                  </>
                 )}
-              </div>
-
-              <div className="shrink-0 space-y-2 border-t border-white/[0.08] bg-black/50 px-4 py-4 md:px-6">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex w-full items-center justify-center gap-2 rounded-full border border-white/25 bg-white px-4 py-2.5 text-sm font-medium text-[#0a0a0a] transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                      Starting…
-                    </>
-                  ) : (
-                    <>
-                      Run labeling optimizer
-                      <ArrowRight className="h-4 w-4" />
-                    </>
-                  )}
-                </button>
-                <p className="text-[10px] leading-snug text-[rgba(255,255,255,0.42)]">
-                  Engine uses symbol + dates only; other values are stored on the run. Results view unchanged.
-                </p>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
+              </button>
+              <p className="text-center text-[10px] leading-snug text-[rgba(255,255,255,0.42)]">
+                The engine currently runs on symbol + date window; grid fields are saved with the run for the results
+                view and future wiring.
+              </p>
+            </div>
+      </form>
     </div>
   );
 }

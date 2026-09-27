@@ -184,6 +184,17 @@ export default function LiveBotDetail() {
                   {st}
                 </span>
                 <div className="flex flex-wrap gap-2">
+                  {ls === "active" ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="border border-white/15 text-[12px] text-[#E8ECFF]"
+                      disabled={!!actionLoading}
+                      onClick={() => void runAction("run", () => botsApi.runNow(botId))}
+                    >
+                      {actionLoading === "run" ? "…" : "Run now"}
+                    </Button>
+                  ) : null}
                   {canPause && (
                     <Button
                       size="sm"

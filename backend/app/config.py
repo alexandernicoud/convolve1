@@ -95,12 +95,18 @@ CORS_ORIGINS = _get_env_list(
 # "api" = HTTP server. "job" = batch worker image (optional label; job entrypoint does not require this).
 APP_MODE = os.getenv("APP_MODE", "api").strip().lower()
 
-# --- API startup: do not run bot batches unless explicitly enabled ---
+# --- API startup: one-shot due-bot batch (the in-process poller is separate) ---
 RUN_BOTS_ON_API_STARTUP = _env_bool("RUN_BOTS_ON_API_STARTUP", False)
 
-# --- Live / scheduled bot execution (disable on first Cloud Run for pipeline-only testing) ---
-LIVE_DEPLOY_ENABLED = _env_bool("LIVE_DEPLOY_ENABLED", False)
-SCHEDULED_BOTS_ENABLED = _env_bool("SCHEDULED_BOTS_ENABLED", False)
+# --- Live / scheduled bot execution ---
+# Local profile defaults ON so paper bots actually run from `npm run dev:backend`.
+# Cloud stays off unless explicitly enabled (pipeline-only Cloud Run).
+_local_live_default = APP_PROFILE != "cloud"
+LIVE_DEPLOY_ENABLED = _env_bool("LIVE_DEPLOY_ENABLED", _local_live_default)
+SCHEDULED_BOTS_ENABLED = _env_bool("SCHEDULED_BOTS_ENABLED", _local_live_default)
+
+# How often the in-process (or worker) scheduler looks for due bots.
+BOT_POLL_INTERVAL_SECONDS = max(15, _env_int("BOT_POLL_INTERVAL_SECONDS", 60))
 
 # --- Logging ---
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").strip().upper()

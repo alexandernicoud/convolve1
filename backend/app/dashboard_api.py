@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, aliased
 
-from app.config import USER_ID
+from app.config import BOT_POLL_INTERVAL_SECONDS, USER_ID
 from app.db import get_db
 from app.models import Bot, BotEquitySnapshot, BotRun, BotTrade
 from app.services.bot_status import next_scheduled_run_iso
 from app.schemas.bot import (
     BotEquityPointOut,
+    DashboardAccuracyOut,
     DashboardActivityItemOut,
     DashboardBundleOut,
+    DashboardDailyProfitOut,
+    DashboardLabelMatchOut,
+    DashboardLastPredictionOut,
     DashboardOverviewOut,
     DashboardTradeRowOut,
     EquitySeriesOut,
@@ -26,6 +30,14 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 CLOSED_STATUSES = ("won", "lost", "expired", "closed")
 LONG_LABELS = ("LONG", "1", "long")
+
+
+def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _user_scope_filter():
@@ -86,6 +98,176 @@ def _label_1_precision_for_scope(
     return wins / n, n
 
 
+def _win_rate_since(db: Session, bot_ids: List[str], since: date) -> Optional[float]:
+    if not bot_ids:
+        return None
+    wins = (
+        db.query(func.count(BotTrade.id))
+        .filter(
+            BotTrade.bot_id.in_(bot_ids),
+            BotTrade.status == "won",
+            BotTrade.exit_date.isnot(None),
+            BotTrade.exit_date >= since,
+        )
+        .scalar()
+        or 0
+    )
+    losses = (
+        db.query(func.count(BotTrade.id))
+        .filter(
+            BotTrade.bot_id.in_(bot_ids),
+            BotTrade.status == "lost",
+            BotTrade.exit_date.isnot(None),
+            BotTrade.exit_date >= since,
+        )
+        .scalar()
+        or 0
+    )
+    n = int(wins) + int(losses)
+    if n <= 0:
+        return None
+    return (int(wins) / n) * 100.0
+
+
+def _label_match(db: Session, bot_ids: List[str]) -> DashboardLabelMatchOut:
+    if not bot_ids:
+        return DashboardLabelMatchOut()
+    PredRun = aliased(BotRun)
+    l1 = (
+        db.query(BotTrade)
+        .join(PredRun, BotTrade.prediction_run_id == PredRun.id)
+        .filter(
+            BotTrade.bot_id.in_(bot_ids),
+            BotTrade.status.in_(("won", "lost")),
+            or_(
+                PredRun.label.in_(LONG_LABELS),
+                PredRun.signal.in_(("LONG", "1", "long", "BUY")),
+            ),
+        )
+        .all()
+    )
+    l1_w = sum(1 for t in l1 if t.status == "won")
+    l1_n = len(l1)
+    correct_l1 = (l1_w / l1_n) * 100.0 if l1_n else None
+    wrong_l1 = (100.0 - correct_l1) if correct_l1 is not None else None
+
+    l0 = (
+        db.query(BotTrade)
+        .join(PredRun, BotTrade.prediction_run_id == PredRun.id)
+        .filter(
+            BotTrade.bot_id.in_(bot_ids),
+            BotTrade.status.in_(("won", "lost")),
+            ~or_(
+                PredRun.label.in_(LONG_LABELS),
+                PredRun.signal.in_(("LONG", "1", "long", "BUY")),
+            ),
+        )
+        .all()
+    )
+    if l0:
+        correct_l0 = (sum(1 for t in l0 if t.status == "won") / len(l0)) * 100.0
+    else:
+        # No L0-linked trades: treat successful NO_BUY runs as correct L0 (no false long).
+        runs = (
+            db.query(BotRun)
+            .filter(BotRun.bot_id.in_(bot_ids), BotRun.status == "success")
+            .all()
+        )
+        l0_runs = [
+            r
+            for r in runs
+            if (r.signal or r.label or "").upper() not in ("BUY", "LONG", "1")
+        ]
+        correct_l0 = 100.0 if l0_runs else None
+    return DashboardLabelMatchOut(
+        correct_l1_pct=correct_l1,
+        wrong_l1_pct=wrong_l1,
+        correct_l0_pct=correct_l0,
+    )
+
+
+def _daily_profit_rows(db: Session, bot_ids: List[str]) -> List[DashboardDailyProfitOut]:
+    if not bot_ids:
+        return []
+    since = date.today() - timedelta(days=44)
+    rows = (
+        db.query(BotTrade)
+        .filter(
+            BotTrade.bot_id.in_(bot_ids),
+            BotTrade.status.in_(CLOSED_STATUSES),
+            BotTrade.exit_date.isnot(None),
+            BotTrade.exit_date >= since,
+        )
+        .all()
+    )
+    by_day: dict[date, float] = {}
+    for t in rows:
+        if t.exit_date is None:
+            continue
+        by_day[t.exit_date] = by_day.get(t.exit_date, 0.0) + float(t.pnl_amount or 0.0)
+    days = sorted(by_day.keys())
+    if days:
+        out: List[DashboardDailyProfitOut] = []
+        profits: List[float] = []
+        for i, d in enumerate(days):
+            p = by_day[d]
+            profits.append(p)
+            slice_ = profits[max(0, i - 4) : i + 1]
+            sma = sum(slice_) / len(slice_)
+            out.append(
+                DashboardDailyProfitOut(
+                    day=d.strftime("%m-%d"),
+                    profit=round(p, 2),
+                    sma=round(sma, 2),
+                )
+            )
+        return out
+
+    # No closed trades yet (60s paper test): one bar per analysis.
+    starts = {
+        bid: float(cap or 0.0)
+        for bid, cap in db.query(Bot.id, Bot.starting_capital).filter(Bot.id.in_(bot_ids)).all()
+    }
+    runs = (
+        db.query(BotRun)
+        .filter(BotRun.bot_id.in_(bot_ids), BotRun.status == "success")
+        .order_by(func.coalesce(BotRun.run_finished_at, BotRun.run_at).asc())
+        .limit(80)
+        .all()
+    )
+    if not runs:
+        return []
+    out = []
+    profits: List[float] = []
+    prev_eq: Optional[float] = None
+    for r in runs:
+        at = r.run_finished_at or r.run_started_at or r.run_at
+        eq = float(r.equity) if r.equity is not None else None
+        start = starts.get(r.bot_id, 0.0)
+        if eq is not None and prev_eq is not None:
+            p = eq - prev_eq
+        elif eq is not None:
+            p = eq - start
+        else:
+            p = float(r.pnl or 0.0)
+        if eq is not None:
+            prev_eq = eq
+        profits.append(p)
+        slice_ = profits[max(0, len(profits) - 5) :]
+        sma = sum(slice_) / len(slice_)
+        wall = _as_utc(at)
+        label = wall.strftime("%H:%M") if wall is not None else "—"
+        out.append(
+            DashboardDailyProfitOut(
+                day=label,
+                profit=round(p, 4),
+                sma=round(sma, 4),
+                metric="pnl",
+            )
+        )
+    return out
+
+
 @router.get("/bundle", response_model=DashboardBundleOut)
 def get_dashboard_bundle(db: Session = Depends(get_db)):
     now_utc = datetime.now(timezone.utc)
@@ -124,6 +306,22 @@ def get_dashboard_bundle(db: Session = Depends(get_db)):
             current_equity += float(b.starting_capital or 0.0)
 
     active_bots = sum(1 for b in bots if getattr(b, "lifecycle_state", "active") == "active")
+    paused_bots = sum(1 for b in bots if getattr(b, "lifecycle_state", "active") == "paused")
+    error_bots = sum(1 for b in bots if (b.last_error or "").strip())
+
+    analyses_24h = 0
+    if bot_ids:
+        since_24h = now_utc - timedelta(hours=24)
+        analyses_24h = int(
+            db.query(func.count(BotRun.id))
+            .filter(
+                BotRun.bot_id.in_(bot_ids),
+                BotRun.status == "success",
+                func.coalesce(BotRun.run_finished_at, BotRun.run_started_at, BotRun.run_at) >= since_24h,
+            )
+            .scalar()
+            or 0
+        )
 
     best_id = None
     best_name = None
@@ -217,9 +415,8 @@ def get_dashboard_bundle(db: Session = Depends(get_db)):
             .first()
         )
         n = next_scheduled_run_iso(b, now_utc, lr)
-        if n:
+        if n and (next_run is None or n < next_run):
             next_run = n
-            break
 
     overview = DashboardOverviewOut(
         total_realized_pnl=total_realized,
@@ -242,6 +439,11 @@ def get_dashboard_bundle(db: Session = Depends(get_db)):
         best_bot_max_drawdown_pct=best_max_dd,
         best_bot_label_1_precision=best_l1_prec,
         best_bot_label_1_sample=best_l1_n,
+        poll_interval_seconds=int(BOT_POLL_INTERVAL_SECONDS),
+        total_bots=len(bots),
+        paused_bots=paused_bots,
+        error_bots=error_bots,
+        analyses_24h=analyses_24h,
     )
 
     equity_by_bot: List[EquitySeriesOut] = []
@@ -255,13 +457,35 @@ def get_dashboard_bundle(db: Session = Depends(get_db)):
         )
         points = [
             BotEquityPointOut(
-                as_of=s.as_of,
+                as_of=_as_utc(s.as_of) or s.as_of,
                 total_equity=s.total_equity,
                 realized_pnl=s.realized_pnl,
                 unrealized_pnl=s.unrealized_pnl,
             )
             for s in snaps
         ]
+        if len(points) < 2:
+            runs = (
+                db.query(BotRun)
+                .filter(
+                    BotRun.bot_id == b.id,
+                    BotRun.equity.isnot(None),
+                    BotRun.status.in_(("success", "error")),
+                )
+                .order_by(func.coalesce(BotRun.run_finished_at, BotRun.run_started_at, BotRun.run_at).asc())
+                .limit(80)
+                .all()
+            )
+            points = [
+                BotEquityPointOut(
+                    as_of=_as_utc(r.run_finished_at or r.run_started_at or r.run_at) or datetime.now(timezone.utc),
+                    total_equity=float(r.equity),
+                    realized_pnl=0.0,
+                    unrealized_pnl=None,
+                )
+                for r in runs
+                if r.equity is not None
+            ]
         equity_by_bot.append(
             EquitySeriesOut(
                 bot_id=b.id,
@@ -277,7 +501,7 @@ def get_dashboard_bundle(db: Session = Depends(get_db)):
         recent_runs = (
             db.query(BotRun)
             .filter(BotRun.bot_id.in_(bot_ids))
-            .order_by(BotRun.run_at.desc())
+            .order_by(func.coalesce(BotRun.run_finished_at, BotRun.run_started_at, BotRun.run_at).desc())
             .limit(14)
             .all()
         )
@@ -293,9 +517,10 @@ def get_dashboard_bundle(db: Session = Depends(get_db)):
                 title = f"Prediction · {sig}"
                 conf = r.confidence
                 sub = f"Confidence {round(conf * 100)}%" if conf is not None else None
+            at = _as_utc(r.run_finished_at or r.run_started_at or r.run_at) or now_utc
             activity_feed.append(
                 DashboardActivityItemOut(
-                    at=r.run_at,
+                    at=at,
                     kind="prediction",
                     symbol=sym,
                     bot_name=nm,
@@ -340,7 +565,46 @@ def get_dashboard_bundle(db: Session = Depends(get_db)):
     activity_feed.sort(key=lambda x: x.at, reverse=True)
     activity_feed = activity_feed[:12]
 
-    return DashboardBundleOut(overview=overview, equity_by_bot=equity_by_bot, activity_feed=activity_feed)
+    last_pred = None
+    latest_ok = (
+        db.query(BotRun)
+        .filter(BotRun.bot_id.in_(bot_ids), BotRun.status == "success")
+        .order_by(func.coalesce(BotRun.run_finished_at, BotRun.run_started_at, BotRun.run_at).desc())
+        .first()
+        if bot_ids
+        else None
+    )
+    if latest_ok:
+        bb = bot_by_id.get(latest_ok.bot_id)
+        last_pred = DashboardLastPredictionOut(
+            bot_id=latest_ok.bot_id,
+            run_id=latest_ok.id,
+            symbol=bb.symbol if bb else None,
+            model=(bb.model_filename if bb else None) or None,
+            signal=latest_ok.signal or latest_ok.label,
+            tp_pct=float(bb.tp_pct) if bb and bb.tp_pct is not None else None,
+            sl_pct=float(bb.sl_pct) if bb and bb.sl_pct is not None else None,
+            confidence=latest_ok.confidence,
+            has_heatmap=bool(latest_ok.heatmap_path),
+            finished_at=_as_utc(latest_ok.run_finished_at or latest_ok.run_started_at or latest_ok.run_at),
+        )
+
+    today = date.today()
+    accuracy = DashboardAccuracyOut(
+        week_pct=_win_rate_since(db, bot_ids, today - timedelta(days=7)),
+        month_pct=_win_rate_since(db, bot_ids, today - timedelta(days=30)),
+        year_pct=_win_rate_since(db, bot_ids, today - timedelta(days=365)),
+    )
+
+    return DashboardBundleOut(
+        overview=overview,
+        equity_by_bot=equity_by_bot,
+        activity_feed=activity_feed,
+        last_prediction=last_pred,
+        accuracy=accuracy,
+        label_match=_label_match(db, bot_ids),
+        daily_profit=_daily_profit_rows(db, bot_ids),
+    )
 
 
 def _scoped_all_bots(db: Session) -> List[Bot]:

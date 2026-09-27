@@ -13,6 +13,7 @@ import {
 import type { DashboardEquitySeries } from "@/lib/api";
 import { CHART_HORIZONTAL_GRID_STROKE } from "@/components/dashboard/chartGrid";
 import { formatUsdAxisK } from "@/components/dashboard/compactMoneyFormat";
+import { parseDashboardTime } from "@/components/dashboard/dashboardMetrics";
 
 /** Aligned rows for Recharts: one row per timestamp, forward-filled per bot. */
 export function alignEquitySeriesForChart(series: DashboardEquitySeries[]) {
@@ -21,7 +22,8 @@ export function alignEquitySeriesForChart(series: DashboardEquitySeries[]) {
   const tsSet = new Set<number>();
   for (const s of series) {
     for (const p of s.points) {
-      tsSet.add(new Date(p.as_of).getTime());
+      const t = parseDashboardTime(p.as_of)?.getTime();
+      if (t != null) tsSet.add(t);
     }
   }
   const tsSorted = [...tsSet].sort((a, b) => a - b);
@@ -40,8 +42,11 @@ export function alignEquitySeriesForChart(series: DashboardEquitySeries[]) {
       const s = series[j];
       const key = keys[j];
       const atOrBefore = [...s.points]
-        .filter((p) => new Date(p.as_of).getTime() <= t)
-        .sort((a, b) => new Date(a.as_of).getTime() - new Date(b.as_of).getTime())
+        .filter((p) => (parseDashboardTime(p.as_of)?.getTime() ?? 0) <= t)
+        .sort(
+          (a, b) =>
+            (parseDashboardTime(a.as_of)?.getTime() ?? 0) - (parseDashboardTime(b.as_of)?.getTime() ?? 0)
+        )
         .pop();
       if (atOrBefore) lastKnown[key] = atOrBefore.total_equity;
       row[key] = lastKnown[key] ?? 0;
@@ -174,7 +179,7 @@ export function RunningProfitChart({
 
   /** Recharts needs a non-zero height; flex-only min-height often collapses to 0. */
   const hideHeaderChartClass = tallChart
-    ? "min-h-[min(24vh,220px)] flex-1 basis-0"
+    ? "h-[220px] min-h-[220px] flex-1 basis-0"
     : "h-[212px] shrink-0 lg:h-[220px]";
 
   return (
@@ -343,7 +348,7 @@ export function RunningProfitChart({
                   stroke={linePalette?.[idx] ?? BOT_STROKE[idx % BOT_STROKE.length]}
                   strokeWidth={hideArea ? 1.85 : 2}
                   strokeOpacity={0.98}
-                  dot={false}
+                  dot={chartRows.length <= 16 ? { r: 3, strokeWidth: 0 } : false}
                   isAnimationActive={false}
                   connectNulls
                 />
@@ -372,7 +377,17 @@ export function RunningProfitChart({
                 tickLine={{ stroke: "rgba(255,255,255,0.08)" }}
                 width={yAxisMode === "percentReturn" ? 52 : largeHeader ? 60 : 56}
                 tickFormatter={(v) => fmtMoney(Number(v))}
-                domain={["auto", "auto"]}
+                domain={([dataMin, dataMax]: [number, number]) => {
+                  const lo = Number(dataMin);
+                  const hi = Number(dataMax);
+                  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return ["auto", "auto"];
+                  if (Math.abs(hi - lo) < 1e-6) {
+                    const pad = Math.max(Math.abs(lo) * 0.004, 8);
+                    return [lo - pad, hi + pad];
+                  }
+                  const pad = (hi - lo) * 0.08;
+                  return [lo - pad, hi + pad];
+                }}
               />
               <Tooltip
                 content={({ active, payload, label }) => {

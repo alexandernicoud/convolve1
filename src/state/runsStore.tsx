@@ -6,7 +6,8 @@ import {
   trainerApi,
   labelingOptimizerApi,
   realtimeBacktesterApi,
-  backtesterApi
+  backtesterApi,
+  testDataGeneratorApi
 } from '@/lib/api';
 
 interface RunsState {
@@ -17,6 +18,7 @@ interface RunsState {
 
 interface RunsActions {
   refreshActiveRuns: () => Promise<void>;
+  mergeRunsFromBackendList: (limit?: number) => Promise<void>;
   refreshRun: (runId: string) => Promise<void>;
   registerRun: (run: Omit<GlobalRun, 'created_at' | 'updated_at'>) => void;
   updateRun: (runId: string, updates: Partial<GlobalRun>) => void;
@@ -30,12 +32,28 @@ interface RunsActions {
 
 type RunsStore = RunsState & RunsActions;
 
+/** Rewrite historical labeling-optimizer plural `/runs/` paths that 404 in the SPA. */
+function sanitizeRunRoute(run: GlobalRun): GlobalRun {
+  if (run.tool !== "labeling-optimizer") return run;
+  const route = run.route || "";
+  if (!route.includes("/labeling-optimizer/runs/")) return run;
+  const fixed =
+    run.status === "succeeded" || run.status === "failed"
+      ? `/products/labeling-optimizer/results/${run.id}`
+      : `/products/labeling-optimizer/run/${run.id}`;
+  return { ...run, route: fixed };
+}
+
 // Load persisted runs from localStorage
 const loadPersistedRuns = () => {
   try {
     const persisted = localStorage.getItem('convolve_runs');
     const parsed = persisted ? JSON.parse(persisted) : { runsById: {}, activeRunIds: [] };
-    const runsById = parsed?.runsById || {};
+    const raw = parsed?.runsById || {};
+    const runsById: Record<string, GlobalRun> = {};
+    for (const [id, run] of Object.entries(raw)) {
+      runsById[id] = sanitizeRunRoute(run as GlobalRun);
+    }
     const activeRunIds = Array.isArray(parsed?.activeRunIds) ? parsed.activeRunIds : [];
     const cleanedActiveRunIds = activeRunIds.filter((id: string) => {
       const run = runsById[id];
@@ -78,29 +96,57 @@ export const useRunsStore = create<RunsStore>((set, get) => ({
   getRunRoute: (run: GlobalRun): string => {
     switch (run.tool) {
       case 'labeling-optimizer':
-        // Always go to results page for completed runs, run page for in-progress
+        // Never use run.route here — older backends stored plural `/runs/` which 404s.
         if (run.status === 'succeeded' || run.status === 'failed') {
           return `/products/labeling-optimizer/results/${run.id}`;
-        } else if (run.status === 'running' || run.status === 'queued') {
+        }
+        if (run.status === 'running' || run.status === 'queued') {
           return `/products/labeling-optimizer/run/${run.id}`;
         }
-        // Default to results for unknown status
         return `/products/labeling-optimizer/results/${run.id}`;
       case 'training-chart-generator':
-        // Shows progress inline on main tool page
-        return '/tools/generator';
+        return run.id ? `/tools/generator/runs/${encodeURIComponent(run.id)}` : '/tools/generator';
       case 'trainer':
-        // Shows progress inline on main tool page
-        return '/tools/trainer';
-      case 'analysis':
-        return run.parent_run_id
-          ? `/tools/trainer/runs/${run.parent_run_id}/analysis`
-          : `/tools/trainer/runs/${run.id}`;
+        return `/tools/trainer${run.id ? `?runId=${encodeURIComponent(run.id)}` : ''}`;
+      case 'analysis': {
+        const tr = run.trainer_run_id ?? run.parent_run_id ?? undefined;
+        const aid = run.analysis_id ?? undefined;
+        if (run.route) return run.route;
+        if (tr && aid && !run.parent_run_id) {
+          return `/products/trainer/analysis/${tr}/${aid}`;
+        }
+        if (tr) return `/tools/trainer/runs/${tr}/analysis`;
+        return '/tools/analysis';
+      }
       case 'backtester':
         // Has dedicated run/results page
         return `/tools/backtester/runs/${run.id}`;
+      case 'testdata':
+        // No dedicated results page — the backtester page resumes/show results via runId
+        return `/tools/backtester${run.id ? `?runId=${encodeURIComponent(run.id)}` : ''}`;
       default:
         return '/';
+    }
+  },
+
+  mergeRunsFromBackendList: async (limit?: number) => {
+    try {
+      const { runs } = await runsApi.listRuns(limit ?? 200);
+      set((state) => {
+        const mergedRunsById = { ...state.runsById };
+        for (const r of runs) {
+          mergedRunsById[r.id] = sanitizeRunRoute(r);
+        }
+        const active = new Set<string>();
+        for (const r of Object.values(mergedRunsById)) {
+          if (r.status === 'running' || r.status === 'queued') active.add(r.id);
+        }
+        const activeRunIds = [...active];
+        savePersistedRuns(mergedRunsById, activeRunIds);
+        return { runsById: mergedRunsById, activeRunIds };
+      });
+    } catch (error) {
+      console.error('Failed to merge runs from backend:', error);
     }
   },
 
@@ -323,18 +369,29 @@ export const useRunsStore = create<RunsStore>((set, get) => ({
             return;
           }
           case 'analysis': {
-            if (!run.parent_run_id) {
-              failAsStale('Analysis run missing parent id');
+            const tr = run.trainer_run_id ?? run.parent_run_id;
+            const analysisId = run.analysis_id;
+            if (!tr || !analysisId) {
+              failAsStale('Analysis run missing trainer or analysis id');
               return;
             }
-            const analysisId = run.id.replace(`${run.parent_run_id}_`, '');
-            const data = await trainerApi.getAnalysisStatus(run.parent_run_id, analysisId);
+            const data = await trainerApi.getAnalysisStatus(tr, analysisId);
             const status = data.status === 'done' ? 'succeeded' : (data.status === 'failed' ? 'failed' : data.status);
             get().updateRun(run.id, {
               status,
               progress: normalizeProgress(data.progress?.percent),
               stage: data.progress?.phase || 'running',
               message: data.progress?.message || data.progress?.phase || 'Running'
+            });
+            return;
+          }
+          case 'testdata': {
+            const data = await testDataGeneratorApi.getStatus(run.id);
+            get().updateRun(run.id, {
+              status: data.status,
+              progress: normalizeProgress(data.progress),
+              stage: data.stage || 'running',
+              message: data.message || 'Running'
             });
             return;
           }

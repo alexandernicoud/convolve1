@@ -50,14 +50,27 @@ function Ring({ label, pct, stroke }: { label: string; pct: number; stroke: stri
   );
 }
 
-export function DemoAccuracyRings() {
+export function DemoAccuracyRings({
+  weekPct,
+  monthPct,
+  yearPct,
+}: {
+  weekPct?: number | null;
+  monthPct?: number | null;
+  yearPct?: number | null;
+} = {}) {
+  const rings = [
+    { id: "w", label: "Last week", pct: weekPct ?? RINGS[0].pct, stroke: DEMO_ACCENT.purple, live: weekPct != null },
+    { id: "m", label: "Last month", pct: monthPct ?? RINGS[1].pct, stroke: DEMO_ACCENT.pink, live: monthPct != null },
+    { id: "y", label: "Last year", pct: yearPct ?? RINGS[2].pct, stroke: DEMO_ACCENT.whiteLine, live: yearPct != null },
+  ] as const;
   return (
     <div className="flex h-full min-h-0 w-full flex-col justify-center">
       <p className="mb-1 w-full shrink-0 text-center text-[9px] font-semibold uppercase leading-tight tracking-[0.16em] text-white">
         Prediction accuracy
       </p>
       <div className="flex w-full flex-col items-center gap-1.5">
-        {RINGS.map((row) => (
+        {rings.map((row) => (
           <Ring key={row.id} label={row.label} pct={row.pct} stroke={row.stroke} />
         ))}
       </div>

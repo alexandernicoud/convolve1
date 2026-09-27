@@ -1,224 +1,367 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import {
+  Zap,
+  Sparkles,
+  Wallet,
+  Bot as BotIcon,
+  Boxes,
+  Database,
+  ListTree,
+  LineChart,
+  Microscope,
+  Pencil,
+  Check,
+  TrendingUp,
+  Trophy,
+  Flame,
+} from "lucide-react";
 import {
   formatReturnPct,
   formatSignedUsd,
   formatUsdPlain,
+  capitalOverview,
 } from "@/components/dashboard/dashboardMetrics";
+import {
+  reviewApi,
+  dashboardApi,
+  botsApi,
+  type ReviewSummary,
+  type DashboardOverview,
+  type Bot,
+} from "@/lib/api";
+import { useCreditsStore, RUN_COST } from "@/state/creditsStore";
+import { getPaperWalletUsd } from "@/lib/portfolioWallet";
+import {
+  getProfileName,
+  setProfileName,
+  getProfileEmail,
+  initialsFromName,
+} from "@/lib/userProfile";
 
-/** Illustrative values aligned with dashboard metric labels (not live data). */
-const ACCOUNT_SNAPSHOT = {
-  equity: 284_392.18,
-  startCapital: 248_000,
-  realizedPnl: 18_240.55,
-  realizedReturnPct: 7.35,
-  openMtm: 1_120.4,
-  openTrades: 9,
-  closedTrades: 142,
-  winRateClosed: 0.58,
-  label1Precision: 0.612,
-  label1Sample: 84,
-} as const;
+const TOOL_LABELS: Record<string, string> = {
+  "training-chart-generator": "Chart generator",
+  trainer: "Trainer",
+  analysis: "Analysis",
+  testdata: "Test data",
+  backtester: "Backtester",
+  "labeling-optimizer": "Labeling optimizer",
+  bot: "Bot deploy",
+};
 
 export default function Account() {
-  const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const credits = useCreditsStore((s) => s.credits);
+  const xp = useCreditsStore((s) => s.xp);
+  const runsPaid = useCreditsStore((s) => s.runsPaid);
+  const refills = useCreditsStore((s) => s.refills);
+  const history = useCreditsStore((s) => s.history);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Placeholder - no actual auth
-    console.log(isLogin ? "Login" : "Register", { email, password });
+  const [summary, setSummary] = useState<ReviewSummary | null>(null);
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+  const [bots, setBots] = useState<Bot[]>([]);
+
+  const [name, setName] = useState(getProfileName());
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(name);
+  const email = getProfileEmail();
+  const wallet = getPaperWalletUsd(10000);
+
+  useEffect(() => {
+    let active = true;
+    void reviewApi.getOverview().then((d) => active && setSummary(d.summary)).catch(() => {});
+    void dashboardApi.getBundle().then((b) => active && setOverview(b.overview)).catch(() => {});
+    void botsApi.listBots().then((b) => active && setBots(Array.isArray(b) ? b : [])).catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const capital = useMemo(() => capitalOverview(overview ?? undefined, bots), [overview, bots]);
+  const botProfit = capital.realizedPnl + capital.openMtm;
+
+  const favoriteTool = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const h of history) {
+      if (h.type === "spend" && h.tool) counts[h.tool] = (counts[h.tool] ?? 0) + 1;
+    }
+    let best: { tool: string; n: number } | null = null;
+    for (const [tool, n] of Object.entries(counts)) {
+      if (!best || n > best.n) best = { tool, n };
+    }
+    return best;
+  }, [history]);
+
+  const level = Math.floor(xp / 100) + 1;
+  const xpIntoLevel = xp % 100;
+
+  const commitName = () => {
+    const v = nameDraft.trim() || "Trader";
+    setProfileName(v);
+    setName(v);
+    setEditingName(false);
   };
 
-  const s = ACCOUNT_SNAPSHOT;
-
   return (
-    <div className="relative min-h-screen overflow-hidden bg-black text-white">
-      <div className="pointer-events-none absolute inset-0">
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(ellipse 75% 45% at 50% 18%, rgba(255,255,255,0.06) 0%, transparent 52%)",
-          }}
-        />
-        <div className="absolute right-1/4 top-1/4 h-[min(55vw,480px)] w-[min(55vw,480px)] rounded-full bg-[radial-gradient(circle,rgba(167,139,250,0.12)_0%,transparent_70%)] opacity-50 blur-3xl" />
-      </div>
-
-      <div className="relative pb-24 pt-28 md:pt-32">
-        <div className="container-aligned max-w-[100rem]">
-          <Link
-            to="/"
-            className="mb-12 inline-flex items-center gap-2 text-sm text-white/50 transition-colors hover:text-white/90"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to home
-          </Link>
-
-          <div className="ml-auto mr-0 max-w-md md:mr-12 lg:mr-24 xl:mr-32">
-            <p className="marketing-section-label opacity-0 animate-fade-up">Account</p>
-            <h1 className="mt-5 text-[clamp(2rem,4vw,2.85rem)] font-extralight tracking-[-0.03em] text-white opacity-0 animate-fade-up">
-              {isLogin ? "Welcome back" : "Create account"}
-            </h1>
-            <p
-              className="mb-10 mt-4 text-[clamp(1rem,1.8vw,1.15rem)] text-white/65 opacity-0 animate-fade-up"
-              style={{ animationDelay: "100ms" }}
+    <div className="h-full min-h-0 overflow-y-auto">
+      <div className="mx-auto w-full max-w-5xl px-1 py-4 pb-16 sm:px-2">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-white/[0.08] pb-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">Account</p>
+              <h1 className="mt-1 text-[clamp(1.2rem,2vw,1.5rem)] font-light tracking-tight text-white">
+                Profile &amp; activity
+              </h1>
+              <p className="mt-1 text-sm text-white/50">
+                Credits, XP, portfolio, and everything you've built in this workspace.
+              </p>
+            </div>
+            <Link
+              to="/credits"
+              className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-sm text-white/80 transition hover:bg-white/10"
             >
-              {isLogin
-                ? "Sign in to access your tools and models."
-                : "Register to start building visual intelligence."}
-            </p>
+              <Zap className="h-4 w-4 text-amber-300" />
+              Manage credits
+            </Link>
+          </div>
 
-            {/* Form */}
-            <form
-              onSubmit={handleSubmit}
-              className="space-y-6 opacity-0 animate-fade-up"
-              style={{ animationDelay: "200ms" }}
-            >
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-3 bg-secondary border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-primary transition-all"
-                  placeholder="you@example.com"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.14em] text-white/50">
-                  Password
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 bg-secondary border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-primary transition-all"
-                  placeholder="Enter your password"
-                  required
-                />
-              </div>
-
-              {!isLogin && (
-                <div>
-                  <label className="mb-2 block text-[11px] font-medium uppercase tracking-[0.14em] text-white/50">
-                    Confirm Password
-                  </label>
+          {/* Profile header */}
+          <div className="mt-5 flex flex-wrap items-center gap-5 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-white/20 to-white/[0.06] text-2xl font-semibold text-white">
+              {initialsFromName(name)}
+            </div>
+            <div className="min-w-0 flex-1">
+              {editingName ? (
+                <div className="flex items-center gap-2">
                   <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full px-4 py-3 bg-secondary border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-primary transition-all"
-                    placeholder="Confirm your password"
-                    required
+                    autoFocus
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitName();
+                      if (e.key === "Escape") setEditingName(false);
+                    }}
+                    className="w-56 rounded-lg border border-white/25 bg-[#0a0a0a] px-3 py-1.5 text-xl text-white focus:outline-none"
                   />
+                  <button type="button" onClick={commitName} className="rounded-lg bg-white p-2 text-black">
+                    <Check className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <h1 className="truncate text-[clamp(1.5rem,3vw,2rem)] font-light tracking-tight text-white">{name}</h1>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNameDraft(name);
+                      setEditingName(true);
+                    }}
+                    className="rounded-md p-1.5 text-white/40 transition hover:bg-white/10 hover:text-white"
+                    title="Edit name"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
                 </div>
               )}
-
-              <button type="submit" className="w-full px-6 py-2.5 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200">
-                {isLogin ? "Sign in" : "Create account"}
-              </button>
-            </form>
-
-            {/* Toggle */}
-            <div
-              className="mt-8 text-center opacity-0 animate-fade-up"
-              style={{ animationDelay: "300ms" }}
-            >
-              <p className="text-sm text-white/55">
-                {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
-                <button
-                  type="button"
-                  onClick={() => setIsLogin(!isLogin)}
-                  className="font-medium text-white underline-offset-4 hover:text-white hover:underline"
-                >
-                  {isLogin ? "Register" : "Sign in"}
-                </button>
-              </p>
-            </div>
-
-            {/* Illustrative dashboard-style metrics (same labels as live dashboard capital card) */}
-            <div
-              className="tech-surface mt-14 p-5 opacity-0 animate-fade-up md:p-6"
-              style={{ animationDelay: "380ms" }}
-            >
-              <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-white/55">Account snapshot</p>
-              <p className="mt-2 text-[12px] leading-snug text-white/55">
-                Illustrative figures — mirrors dashboard metrics when you are signed in.
-              </p>
-              <p className="mt-4 font-digits text-[clamp(1.65rem,4vw,2.1rem)] font-semibold tabular-nums tracking-tight text-white">
-                {formatUsdPlain(s.equity)}
-              </p>
-              <p className="mt-0.5 text-[10px] uppercase tracking-[0.1em] text-white/45">Equity</p>
-
-              <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-white/45">Start capital</p>
-                  <p className="font-digits text-[16px] font-semibold tabular-nums text-white/95 sm:text-[17px]">
-                    {formatUsdPlain(s.startCapital)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Realized PnL</p>
-                  <p className="font-digits text-[16px] font-semibold tabular-nums text-foreground/95 sm:text-[17px]">
-                    {formatSignedUsd(s.realizedPnl)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-white/45">Return</p>
-                  <p className="font-digits text-[16px] font-semibold tabular-nums text-white/95 sm:text-[17px]">
-                    {formatReturnPct(s.realizedReturnPct)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-white/45">Open MTM</p>
-                  <p className="font-digits text-[16px] font-semibold tabular-nums text-white/95 sm:text-[17px]">
-                    {formatSignedUsd(s.openMtm)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Open trades</p>
-                  <p className="font-digits text-[16px] font-semibold tabular-nums text-foreground/95 sm:text-[17px]">{s.openTrades}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-white/45">Closed trades</p>
-                  <p className="font-digits text-[16px] font-semibold tabular-nums text-white/95 sm:text-[17px]">{s.closedTrades}</p>
-                </div>
-                <div className="col-span-2 sm:col-span-3">
-                  <div className="grid grid-cols-2 gap-x-5 gap-y-1">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Win rate (closed)</p>
-                      <p className="font-digits text-[16px] font-semibold tabular-nums text-foreground/95 sm:text-[17px]">
-                        {(s.winRateClosed * 100).toFixed(1)}%
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] uppercase tracking-[0.12em] text-white/45">Label 1 precision</p>
-                      <p className="font-digits text-[16px] font-semibold tabular-nums text-white/95 sm:text-[17px]">
-                        {(s.label1Precision * 100).toFixed(1)}% (n={s.label1Sample})
-                      </p>
-                    </div>
-                  </div>
-                </div>
+              <p className="mt-0.5 text-sm text-white/50">{email}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/25 bg-amber-300/10 px-2.5 py-1 text-amber-100">
+                  <Trophy className="h-3.5 w-3.5" /> Level {level}
+                </span>
+                <span className="rounded-full border border-white/12 bg-white/[0.04] px-2.5 py-1 text-white/70">
+                  {xpIntoLevel}/100 XP to next level
+                </span>
               </div>
-
-              <Link
-                to="/dashboard/demo"
-                className="mt-5 inline-block text-[12px] font-medium text-white/80 transition hover:text-white hover:underline"
-              >
-                View dashboard demo →
-              </Link>
             </div>
           </div>
-        </div>
+
+          {/* Headline metrics */}
+          <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <HeadlineCard
+              icon={<Zap className="h-4 w-4 text-amber-300" />}
+              label="Credits"
+              value={credits.toLocaleString()}
+              sub={`${Math.floor(credits / RUN_COST)} runs left`}
+              tone={credits < RUN_COST ? "warn" : "default"}
+              cta={{ to: "/credits", label: "Refill" }}
+            />
+            <HeadlineCard
+              icon={<Sparkles className="h-4 w-4 text-white/70" />}
+              label="XP"
+              value={xp.toLocaleString()}
+              sub={`${runsPaid} runs · ${refills} refills`}
+            />
+            <HeadlineCard
+              icon={<Wallet className="h-4 w-4 text-white/70" />}
+              label="Portfolio equity"
+              value={formatUsdPlain(capital.equity || wallet)}
+              sub={`Start ${formatUsdPlain(capital.startCapital || wallet)}`}
+            />
+            <HeadlineCard
+              icon={<TrendingUp className="h-4 w-4 text-white/70" />}
+              label="Bot profit"
+              value={formatSignedUsd(botProfit)}
+              sub={`${overview?.active_bots ?? 0} active · ${formatReturnPct(capital.realizedReturnPct)}`}
+            />
+          </div>
+
+          {/* Activity stats */}
+          <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+            <h2 className="mb-4 text-sm font-semibold text-white">Your activity</h2>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+              <MiniStat icon={<ListTree className="h-4 w-4" />} label="Runs" value={summary?.totalRuns} />
+              <MiniStat icon={<Boxes className="h-4 w-4" />} label="Models" value={summary?.totalModels} />
+              <MiniStat icon={<Database className="h-4 w-4" />} label="Datasets" value={summary?.totalDatasets} />
+              <MiniStat icon={<LineChart className="h-4 w-4" />} label="Backtests" value={summary?.totalBacktests} />
+              <MiniStat icon={<Microscope className="h-4 w-4" />} label="Analyses" value={summary?.totalAnalyses} />
+              <MiniStat icon={<BotIcon className="h-4 w-4" />} label="Bots" value={summary?.totalBots} />
+            </div>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {/* Fun facts */}
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+                <Flame className="h-4 w-4 text-amber-300" /> Stats &amp; facts
+              </h2>
+              <ul className="space-y-2.5 text-sm text-white/70">
+                <li className="flex items-start gap-2">
+                  <span className="text-white/35">•</span>
+                  You've spent <span className="mx-1 font-semibold text-white">{xp.toLocaleString()} XP</span> across{" "}
+                  <span className="mx-1 font-semibold text-white">{runsPaid}</span> paid run{runsPaid === 1 ? "" : "s"}.
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-white/35">•</span>
+                  {favoriteTool ? (
+                    <>
+                      Your most-used tool is{" "}
+                      <span className="mx-1 font-semibold text-white">
+                        {TOOL_LABELS[favoriteTool.tool] ?? favoriteTool.tool}
+                      </span>
+                      ({favoriteTool.n} run{favoriteTool.n === 1 ? "" : "s"}).
+                    </>
+                  ) : (
+                    <>No runs yet — start one to build your history.</>
+                  )}
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-white/35">•</span>
+                  You've refilled credits{" "}
+                  <span className="mx-1 font-semibold text-white">{refills}</span> time{refills === 1 ? "" : "s"}.
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-white/35">•</span>
+                  {summary
+                    ? summary.runningRuns > 0
+                      ? `${summary.runningRuns} run${summary.runningRuns === 1 ? "" : "s"} in progress right now.`
+                      : `${summary.completedRuns} completed run${summary.completedRuns === 1 ? "" : "s"} on record.`
+                    : "Loading run history…"}
+                </li>
+              </ul>
+            </div>
+
+            {/* Recent credit activity */}
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-white">Recent credit activity</h2>
+                <Link to="/credits" className="text-xs text-white/50 underline-offset-2 hover:text-white hover:underline">
+                  View all →
+                </Link>
+              </div>
+              {history.length === 0 ? (
+                <p className="text-sm text-white/40">No activity yet.</p>
+              ) : (
+                <div className="divide-y divide-white/[0.06]">
+                  {history.slice(0, 6).map((h) => (
+                    <div key={h.id} className="flex items-center justify-between py-2 text-sm">
+                      <span className="text-white/75">
+                        {h.type === "refill"
+                          ? "Refill"
+                          : h.type === "grant"
+                            ? "Starter grant"
+                            : TOOL_LABELS[h.tool ?? ""] ?? "Run"}
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className={`font-mono ${h.delta >= 0 ? "text-emerald-300" : "text-white/55"}`}>
+                          {h.delta >= 0 ? "+" : ""}
+                          {h.delta}
+                        </span>
+                        <span className="font-mono text-xs text-white/40">→ {h.balanceAfter}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+            >
+              Open dashboard
+            </Link>
+            <Link
+              to="/tools/run-log"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/15 px-4 py-2.5 text-sm font-medium text-white/80 transition hover:bg-white/10"
+            >
+              Review library
+            </Link>
+          </div>
       </div>
+    </div>
+  );
+}
+
+function HeadlineCard({
+  icon,
+  label,
+  value,
+  sub,
+  tone = "default",
+  cta,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: "default" | "warn";
+  cta?: { to: string; label: string };
+}) {
+  return (
+    <div
+      className={`rounded-2xl border p-4 ${
+        tone === "warn" ? "border-red-400/30 bg-red-400/[0.06]" : "border-white/10 bg-white/[0.03]"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-white/45">
+          {icon}
+          {label}
+        </div>
+        {cta ? (
+          <Link to={cta.to} className="text-[11px] font-medium text-white/70 underline-offset-2 hover:text-white hover:underline">
+            {cta.label}
+          </Link>
+        ) : null}
+      </div>
+      <p className={`mt-2 font-digits text-2xl font-semibold tabular-nums ${tone === "warn" ? "text-red-200" : "text-white"}`}>
+        {value}
+      </p>
+      {sub ? <p className="mt-0.5 text-xs text-white/45">{sub}</p> : null}
+    </div>
+  );
+}
+
+function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value?: number | null }) {
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-white/40">
+        <span className="text-white/55">{icon}</span>
+        {label}
+      </div>
+      <p className="mt-1 font-digits text-2xl font-semibold tabular-nums text-white">
+        {value != null ? value.toLocaleString() : "—"}
+      </p>
     </div>
   );
 }

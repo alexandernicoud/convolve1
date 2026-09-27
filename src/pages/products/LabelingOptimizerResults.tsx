@@ -5,7 +5,7 @@ import type { Layout, ColorScale, Data } from "plotly.js";
 import { fetchApi, labelingOptimizerApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-/** Monochrome chart tokens (no purple / indigo accents). */
+/** Chart tokens — neutral base + violet accent (matches BacktesterResults). */
 const DA = {
   text: "#fafafa",
   tick: "rgba(255,255,255,0.62)",
@@ -13,66 +13,63 @@ const DA = {
   grid: "rgba(255,255,255,0.08)",
   gridSoft: "rgba(255,255,255,0.04)",
   border: "rgba(255,255,255,0.1)",
-  strategy: "#e5e5e5",
-  strategyLine: "#e5e5e5",
+  strategy: "#A855F7",
+  strategyLine: "#A855F7",
   price: "#a3a3a3",
-  priceLine: "#d4d4d4",
+  priceLine: "rgba(255,255,255,0.82)",
+  accent: "#A855F7",
+  accentSoft: "rgba(168,85,247,0.55)",
   accent2: "#737373",
   deep: "#525252",
   bright: "#d4d4d4",
   soft: "#a3a3a3",
 };
 
-const HEATMAP_GRAY: ColorScale = [
+/** Heatmap data marks — violet scale (UI chrome stays neutral). */
+const HEATMAP_VIOLET: ColorScale = [
   [0, "#0a0a0a"],
-  [0.35, "#404040"],
-  [0.55, "#737373"],
-  [0.75, "#a3a3a3"],
-  [1, "#fafafa"],
+  [0.25, "#2a2444"],
+  [0.5, "#5b3d8a"],
+  [0.75, "#A855F7"],
+  [1, "#f5e9ff"],
 ];
 
-const CORRELATION_GRAY: ColorScale = [
+const CORRELATION_VIOLET: ColorScale = [
   [0, "#171717"],
-  [0.35, "#404040"],
-  [0.65, "#737373"],
-  [1, "#e5e5e5"],
+  [0.35, "#3b2d55"],
+  [0.65, "#7c5cbf"],
+  [1, "#e9d5ff"],
 ];
 
-const BENCHMARK_BAR_COLORS = ["#262626", "#404040", "#525252", "#737373", "#a3a3a3"];
+const BENCHMARK_BAR_COLORS = ["#A855F7", "#6b7280", "#52525b", "#404040", "#a3a3a3"];
 
 /** Use WebGL scatter for large clouds (Plotly scattergl). */
 const SCATTERGL_THRESHOLD = 1800;
 
-const CHART_H_2UP = 240;
-const CHART_H_CORR = 280;
-const CHART_H_VOXEL = 440;
-const CHART_H_TS = 300;
-/** Extra plot height for compounded return vs buy & hold (product request). */
-const CHART_COMPOUND_EXTRA_PX = 202;
+const CHART_H = 320;
+const CHART_H_TALL = 400;
 
-/** Compounded return chart: strategy vs buy & hold (Convolve palette). */
-const TS_STRATEGY_LINE = "#e5e5e5";
-const TS_BUYHOLD_WHITE = "rgba(255,255,255,0.92)";
+const TS_STRATEGY_LINE = "#A855F7";
+const TS_BUYHOLD_WHITE = "rgba(255,255,255,0.82)";
 
-/** 3D voxel: low → high (grayscale). */
+/** 3D voxel points: dark → violet (data marks only). */
 const VOXEL_CAGR_COLORSCALE: ColorScale = [
-  [0, "#0a0a0a"],
-  [0.2, "#262626"],
-  [0.45, "#525252"],
-  [0.7, "#a3a3a3"],
-  [1, "#fafafa"],
+  [0, "#404040"],
+  [0.35, "#737373"],
+  [0.65, "#A855F7"],
+  [1, "#e9d5ff"],
 ];
 
 const SPREAD_HORIZON_LINE_COLORS = [
-  "#262626",
-  "#404040",
-  "#525252",
-  "#737373",
-  "#a3a3a3",
-  "#c4c4c4",
-  "#d4d4d4",
+  "#A855F7",
+  "#c084fc",
+  "#a78bfa",
+  "#8b5cf6",
+  "#d4d4d8",
+  "#a1a1aa",
+  "#71717a",
   "#e5e5e5",
-  "#f5f5f5",
+  "#fafafa",
 ];
 
 function SeriesLegendStrip({ items }: { items: { label: string; swatchClass: string }[] }) {
@@ -171,16 +168,34 @@ function axisPrimary(titleText: string, extras: Record<string, unknown> = {}) {
 function Ambient() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute -left-24 top-0 h-[480px] w-[480px] rounded-full bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_70%)] blur-3xl" />
-      <div className="absolute right-0 top-1/3 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),transparent_68%)] blur-3xl" />
-      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#0a0a0a]/40 to-[#0a0a0a]" />
+      <div className="absolute -left-24 top-0 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05),transparent_70%)] blur-3xl" />
+      <div className="absolute right-0 top-1/3 h-[380px] w-[380px] rounded-full bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.06),transparent_68%)] blur-3xl" />
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#0a0a0a]/45 to-[#0a0a0a]" />
     </div>
   );
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/65">{children}</p>
+    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/55">{children}</p>
+  );
+}
+
+function SectionHead({
+  eyebrow,
+  title,
+  subtitle,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <div className="mb-3">
+      <SectionLabel>{eyebrow}</SectionLabel>
+      <h2 className="mt-0.5 text-base font-semibold tracking-tight text-white sm:text-lg">{title}</h2>
+      {subtitle ? <p className="mt-0.5 text-xs text-white/45">{subtitle}</p> : null}
+    </div>
   );
 }
 
@@ -197,30 +212,28 @@ function AnalyticsChartCard({
   children: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
-  /** Tighter padding and typography for 2-up grid cells. */
   dense?: boolean;
 }) {
   return (
     <div
       className={cn(
-        "flex flex-col rounded-2xl border border-white/[0.07] bg-gradient-to-b from-white/[0.04] to-white/[0.015] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
-        dense ? "p-3 sm:p-3" : "p-3.5 sm:p-4",
-        className
+        "flex h-full min-h-0 flex-col rounded-2xl border border-white/[0.08] bg-gradient-to-b from-white/[0.04] to-white/[0.015] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+        dense ? "p-3" : "p-3.5 sm:p-4",
+        className,
       )}
       style={style}
     >
-      <div className={cn("shrink-0", dense ? "mb-1" : "mb-2")}>
-        <SectionLabel>Chart</SectionLabel>
+      <div className={cn("shrink-0", dense ? "mb-1.5" : "mb-2")}>
         <h3
           className={cn(
-            "mt-0.5 font-semibold tracking-tight text-white",
-            dense ? "text-[13px]" : "text-[15px]"
+            "font-semibold tracking-tight text-white",
+            dense ? "text-[13px]" : "text-[14px] sm:text-[15px]",
           )}
         >
           {title}
         </h3>
         {subtitle ? (
-          <p className="mt-0.5 text-[9px] leading-snug text-[rgba(255,255,255,0.4)] sm:text-[10px]">{subtitle}</p>
+          <p className="mt-0.5 text-[10px] leading-snug text-white/40">{subtitle}</p>
         ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-hidden rounded-xl">{children}</div>
@@ -423,15 +436,21 @@ type CagrSpreadPayload = {
 
 function KPICard({ title, value }: { title: string; value: string }) {
   return (
-    <div className="flex h-16 flex-col items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.02] px-2 py-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[rgba(255,255,255,0.38)]">{title}</div>
-      <div className="mt-1 text-base font-semibold tabular-nums tracking-tight text-white">{value}</div>
+    <div className="flex h-[4.5rem] flex-col items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] px-2 py-2 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-white/40">{title}</div>
+      <div className="mt-1 text-base font-semibold tabular-nums tracking-tight text-white sm:text-lg">
+        {value}
+      </div>
     </div>
   );
 }
 
 export default function LabelingOptimizerResults() {
   const { runId } = useParams<{ runId: string }>();
+  const location = useLocation();
+  const backHref =
+    (location.state as { fromRunHistory?: string } | null)?.fromRunHistory ||
+    "/products/labeling-optimizer/technical";
   const [artifacts, setArtifacts] = useState<string[]>([]);
   const [metrics, setMetrics] = useState<any>(null);
   const [timeseries, setTimeseries] = useState<any>(null);
@@ -605,497 +624,548 @@ export default function LabelingOptimizerResults() {
     );
   }
 
+  const heatmapHorizons =
+    heatmaps?.horizons && heatmaps.tp_values && heatmaps.sl_values
+      ? Object.keys(heatmaps.horizons)
+          .map(Number)
+          .sort((a, b) => a - b)
+      : [];
+  const currentHorizon = heatmapHorizons[currentHeatmapIndex] ?? heatmapHorizons[0];
+  const heatmapMatrix =
+    currentHorizon != null && heatmaps?.horizons ? heatmaps.horizons[currentHorizon] : null;
+
   return (
-    <div className="relative min-h-screen shrink-0 overflow-x-hidden bg-[#0a0a0a] text-white">
+    <div className="relative min-h-0 shrink-0 overflow-x-hidden bg-[#0a0a0a] pb-10 text-white">
       <Ambient />
-      <div className="relative mx-auto max-w-[1400px] px-5 pb-20 pt-4 sm:px-8 sm:pt-6 lg:pt-6">
-        <header className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-start sm:justify-between">
+      <div className="relative mx-auto max-w-[1280px] space-y-8 px-4 pt-4 sm:px-6 sm:pt-5 lg:px-8">
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <SectionLabel>Labeling optimizer</SectionLabel>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight text-white sm:text-2xl">Advanced Analytics Dashboard</h1>
-            {metrics && metrics.symbol && (
-              <p className="mt-1 text-xs text-[rgba(255,255,255,0.48)] sm:text-sm">
-                {metrics.symbol}: {metrics.start || metrics.start_date || "—"} → {metrics.end || metrics.end_date || "—"}
+            <h1 className="mt-1 text-xl font-semibold tracking-tight text-white sm:text-2xl">Results</h1>
+            {metrics?.symbol ? (
+              <p className="mt-1 text-sm text-white/50">
+                <span className="font-medium text-white/80">{metrics.symbol}</span>
+                {" · "}
+                {metrics.start || metrics.start_date || "—"} → {metrics.end || metrics.end_date || "—"}
+                {runId ? (
+                  <>
+                    {" · "}
+                    <span className="font-mono text-xs text-white/35">{runId.slice(-8)}</span>
+                  </>
+                ) : null}
               </p>
-            )}
+            ) : null}
           </div>
           <Link
             to={backHref}
-            className="inline-flex shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-white transition hover:border-white/25 hover:bg-white/[0.06]"
+            className="inline-flex shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-white/85 transition hover:border-white/25 hover:bg-white/[0.08]"
           >
             Back
           </Link>
         </header>
 
-        {loading && <div className="text-sm text-[rgba(255,255,255,0.5)]">Loading data…</div>}
+        {loading && <div className="text-sm text-white/50">Loading data…</div>}
 
         {error && (
-          <div className="mb-4 rounded-xl border border-rose-500/25 bg-rose-500/[0.08] p-4 text-sm text-rose-200/90">
+          <div className="rounded-xl border border-rose-500/25 bg-rose-500/[0.08] p-4 text-sm text-rose-200/90">
             Error: {error}
           </div>
         )}
 
         {!loading && !error && (
-          <div>
+          <>
             {metrics && (
-              <div className="mb-6">
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+              <section>
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
                   <KPICard
                     title="Best TP"
-                    value={metrics.best_tp ? `${(metrics.best_tp * 100).toFixed(1)}%` : "—"}
+                    value={metrics.best_tp != null ? `${(metrics.best_tp * 100).toFixed(1)}%` : "—"}
                   />
                   <KPICard
                     title="Best SL"
-                    value={metrics.best_sl ? `${(metrics.best_sl * 100).toFixed(1)}%` : "—"}
+                    value={metrics.best_sl != null ? `${(metrics.best_sl * 100).toFixed(1)}%` : "—"}
                   />
                   <KPICard
                     title="Best Horizon"
-                    value={metrics.best_h || metrics.best_horizon ? `${metrics.best_h || metrics.best_horizon}d` : "—"}
+                    value={
+                      metrics.best_h || metrics.best_horizon
+                        ? `${metrics.best_h || metrics.best_horizon}d`
+                        : "—"
+                    }
                   />
                   <KPICard
                     title="Best CAGR"
-                    value={metrics.best_cagr ? `${metrics.best_cagr.toFixed(2)}%` : "—"}
+                    value={metrics.best_cagr != null ? `${metrics.best_cagr.toFixed(2)}%` : "—"}
                   />
                   <KPICard
                     title="Best Linear P/L"
-                    value={metrics.best_linear_annual_pl || metrics.best_linear_per_year_pct ? `${(metrics.best_linear_annual_pl || metrics.best_linear_per_year_pct).toFixed(2)}%` : "—"}
+                    value={
+                      metrics.best_linear_annual_pl != null || metrics.best_linear_per_year_pct != null
+                        ? `${(metrics.best_linear_annual_pl || metrics.best_linear_per_year_pct).toFixed(2)}%`
+                        : "—"
+                    }
                   />
                 </div>
-              </div>
+              </section>
             )}
 
-            <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-5">
-              <div className="min-w-0">
-                {voxelCube ? (
-                  <AnalyticsChartCard
-                    title="TP–SL–H 3D Search Space"
-                    subtitle="Each point is one (TP, SL, horizon) grid evaluation. Color: dark → light by CAGR (%), light = highest."
-                    style={{ height: CHART_H_VOXEL }}
-                  >
-                    <Plot
-                      data={[
-                        {
-                          type: "scatter3d",
-                          mode: "markers",
-                          x: voxelCube.tp,
-                          y: voxelCube.sl,
-                          z: voxelCube.h,
-                          marker: {
-                            size: 1.6,
-                            opacity: 0.72,
-                            color: voxelCube.metric,
-                            colorscale: VOXEL_CAGR_COLORSCALE,
-                            showscale: true,
-                            colorbar: {
-                              title: { text: "CAGR (%)", font: { size: 10, color: DA.text } },
-                              thickness: 12,
-                              len: 0.55,
-                              tickfont: { color: DA.tick },
-                            },
-                          },
-                        },
-                      ]}
-                      layout={{
-                        ...plotFontLayout(),
-                        margin: { l: 0, r: 0, t: 0, b: 0 },
-                        scene: {
-                          bgcolor: "rgba(7,8,18,0.4)",
-                          xaxis: {
-                            title: { text: "Take Profit (%)", font: { size: 10, color: DA.text } },
-                            tickfont: { size: 9, color: DA.tick },
-                            gridcolor: DA.grid,
-                          },
-                          yaxis: {
-                            title: { text: "Stop Loss (%)", font: { size: 10, color: DA.text } },
-                            tickfont: { size: 9, color: DA.tick },
-                            gridcolor: DA.grid,
-                          },
-                          zaxis: {
-                            title: { text: "Horizon", font: { size: 10, color: DA.text } },
-                            tickfont: { size: 9, color: DA.tick },
-                            gridcolor: DA.grid,
-                          },
-                          camera: { eye: { x: 1.5, y: 1.5, z: 1.5 } },
-                        },
-                      }}
-                      config={{ displayModeBar: false, responsive: true }}
-                      style={{ width: "100%", height: "100%" }}
-                    />
-                  </AnalyticsChartCard>
-                ) : (
-                  <AnalyticsChartCard title="TP–SL–H 3D Search Space" style={{ height: CHART_H_VOXEL - 40 }}>
-                    <div className="flex h-full min-h-[200px] items-center justify-center text-sm text-[rgba(255,255,255,0.45)]">
-                      No voxel cube data available
-                    </div>
-                  </AnalyticsChartCard>
-                )}
-              </div>
-
-              <div className="flex min-w-0 flex-col gap-3">
-                {timeseries ? (
-                  <AnalyticsChartCard
-                    title="Compounded return vs buy & hold"
-                    subtitle="Same calendar, same axis: total return % from first bar. Strategy uses the same compounded equity path as the grid KPIs."
-                    style={{ height: CHART_H_TS + 100 + CHART_COMPOUND_EXTRA_PX }}
-                  >
-                    <SeriesLegendStrip
-                      items={[
-                        { label: "Strategy (best params)", swatchClass: "h-0.5 w-9 rounded-full bg-neutral-300" },
-                        { label: "Buy & hold (asset)", swatchClass: "h-0.5 w-9 rounded-full bg-white/90" },
-                      ]}
-                    />
-                    <div className="w-full min-h-0" style={{ height: 300 + CHART_COMPOUND_EXTRA_PX }}>
-                      <Plot
-                        data={[
-                          {
-                            type: "scatter",
-                            mode: "lines",
-                            name: "Strategy (best params)",
-                            x: timeseries.dates,
-                            y: timeseries.strategy,
-                            line: {
-                              color: TS_STRATEGY_LINE,
-                              width: 2,
-                              shape: "spline",
-                              smoothing: 1.05,
-                            },
-                          },
-                          {
-                            type: "scatter",
-                            mode: "lines",
-                            name: "Buy & hold (asset)",
-                            x: timeseries.dates,
-                            y: timeseries.price,
-                            line: {
-                              color: TS_BUYHOLD_WHITE,
-                              width: 2,
-                              shape: "spline",
-                              smoothing: 1.05,
-                            },
-                          },
-                        ]}
-                        layout={{
-                          ...plotFontLayout(),
-                          margin: { l: 44, r: 12, t: 6, b: 52 },
-                          xaxis: {
-                            ...axisPrimary("Date"),
-                            type: "date",
-                            tickformat: "%d %b %Y",
-                            tickangle: -22,
-                            showgrid: true,
-                            automargin: true,
-                          },
-                          yaxis: axisPrimary("Total return (%)"),
-                          showlegend: false,
-                        }}
-                        config={{ displayModeBar: false, responsive: true, toImageButtonOptions: { format: "svg" } }}
-                        style={{ width: "100%", height: "100%" }}
-                      />
-                    </div>
-                  </AnalyticsChartCard>
-                ) : (
-                  <AnalyticsChartCard title="Compounded return vs buy & hold" style={{ height: CHART_H_TS + 40 }}>
-                    <div className="flex h-full min-h-[120px] items-center justify-center text-sm text-[rgba(255,255,255,0.45)]">
-                      No timeseries data available
-                    </div>
-                  </AnalyticsChartCard>
-                )}
-
-                <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-5 lg:gap-4">
-                  <div className="min-w-0 lg:col-span-2">
-                    {cagrSpreadTraces && cagrSpreadTraces.length > 0 ? (
-                      <AnalyticsChartCard
-                        dense
-                        title="CAGR vs horizon (grouped by spread)"
-                        subtitle="Spread = TP − SL (fraction). ~8 quantile buckets; each line = mean compounded CAGR (%) over all grid rows in that bucket, by horizon."
-                        className="min-w-0"
-                        style={{ height: CHART_H_TS + 100 }}
-                      >
-                        <div className="h-[260px] w-full min-h-0 sm:h-[280px]">
-                          <Plot
-                            data={cagrSpreadTraces}
-                            layout={{
-                              ...plotFontLayout(),
-                              hovermode: "closest",
-                              margin: { l: 44, r: 18, t: 8, b: 44 },
-                              xaxis: axisPrimary("Horizon (days)"),
-                              yaxis: axisPrimary("CAGR (%)"),
-                              showlegend: true,
-                              legend: {
-                                orientation: "v",
-                                yanchor: "top",
-                                y: 1,
-                                xanchor: "left",
-                                x: 1.02,
-                                xref: "paper",
-                                font: { size: 8, color: "rgba(255,255,255,0.88)" },
-                                bgcolor: "rgba(7,8,18,0.75)",
-                                bordercolor: "rgba(255,255,255,0.15)",
-                                borderwidth: 1,
-                                itemwidth: 14,
-                              },
-                            }}
-                            config={{ displayModeBar: false, responsive: true, toImageButtonOptions: { format: "svg" } }}
-                            style={{ width: "100%", height: "100%" }}
-                          />
-                        </div>
-                      </AnalyticsChartCard>
-                    ) : (
-                      <AnalyticsChartCard dense title="CAGR vs horizon (grouped by spread)" style={{ height: CHART_H_TS + 40 }}>
-                        <div className="flex h-full min-h-[100px] items-center justify-center text-xs text-[rgba(255,255,255,0.45)]">
-                          No spread–horizon data
-                        </div>
-                      </AnalyticsChartCard>
-                    )}
-                  </div>
-                  <div className="min-w-0 lg:col-span-3">
-                    {yearlyReturns ? (
-                      <AnalyticsChartCard
-                        title="Yearly compounded returns"
-                        subtitle="Within each calendar year: last / first session total return % (aligned with equity path vs close)."
-                        style={{ height: CHART_H_TS + 100 }}
-                      >
-                        <SeriesLegendStrip
-                          items={[
-                            { label: "Strategy (best params)", swatchClass: "h-3 w-3 rounded-md bg-neutral-300" },
+            {(voxelCube || timeseries) && (
+              <section>
+                <SectionHead
+                  eyebrow="Performance"
+                  title="Search space & equity"
+                  subtitle="3D grid of evaluated labels beside the best-parameter equity path."
+                />
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
+                  {voxelCube ? (
+                    <AnalyticsChartCard
+                      title="TP–SL–H 3D search space"
+                      subtitle="Each point is one grid evaluation. Color: dark → violet by CAGR."
+                      style={{ minHeight: CHART_H_TALL }}
+                    >
+                      <div className="h-[340px] w-full sm:h-[360px]">
+                        <Plot
+                          data={[
                             {
-                              label: "Buy & hold (asset)",
-                              swatchClass: "h-3 w-3 rounded-md bg-white/90 ring-1 ring-white/25",
+                              type: "scatter3d",
+                              mode: "markers",
+                              x: voxelCube.tp,
+                              y: voxelCube.sl,
+                              z: voxelCube.h,
+                              marker: {
+                                size: 1.6,
+                                opacity: 0.78,
+                                color: voxelCube.metric,
+                                colorscale: VOXEL_CAGR_COLORSCALE,
+                                showscale: true,
+                                colorbar: {
+                                  title: { text: "CAGR (%)", font: { size: 10, color: DA.text } },
+                                  thickness: 12,
+                                  len: 0.55,
+                                  tickfont: { color: DA.tick },
+                                },
+                              },
                             },
                           ]}
+                          layout={{
+                            ...plotFontLayout(),
+                            margin: { l: 0, r: 0, t: 0, b: 0 },
+                            scene: {
+                              bgcolor: "rgba(10,8,18,0.55)",
+                              xaxis: {
+                                title: { text: "Take Profit (%)", font: { size: 10, color: DA.text } },
+                                tickfont: { size: 9, color: DA.tick },
+                                gridcolor: DA.grid,
+                              },
+                              yaxis: {
+                                title: { text: "Stop Loss (%)", font: { size: 10, color: DA.text } },
+                                tickfont: { size: 9, color: DA.tick },
+                                gridcolor: DA.grid,
+                              },
+                              zaxis: {
+                                title: { text: "Horizon", font: { size: 10, color: DA.text } },
+                                tickfont: { size: 9, color: DA.tick },
+                                gridcolor: DA.grid,
+                              },
+                              camera: { eye: { x: 1.5, y: 1.5, z: 1.5 } },
+                            },
+                          }}
+                          config={{ displayModeBar: false, responsive: true }}
+                          style={{ width: "100%", height: "100%" }}
                         />
-                        <div className="h-[280px] w-full min-h-0">
-                          <Plot
-                            data={[
-                              {
-                                type: "bar",
-                                name: "Strategy (best params)",
-                                x: yearlyReturns.years,
-                                y: yearlyReturns.strategy,
-                                marker: {
-                                  color: TS_STRATEGY_LINE,
-                                  line: { width: 0 },
-                                  cornerradius: 5,
-                                },
+                      </div>
+                    </AnalyticsChartCard>
+                  ) : null}
+
+                  {timeseries ? (
+                    <AnalyticsChartCard
+                      title="Compounded return vs buy & hold"
+                      subtitle="Total return % from first bar — violet strategy vs asset."
+                      style={{ minHeight: CHART_H_TALL }}
+                    >
+                      <SeriesLegendStrip
+                        items={[
+                          {
+                            label: "Strategy (best params)",
+                            swatchClass: "h-0.5 w-9 rounded-full bg-violet-500",
+                          },
+                          {
+                            label: "Buy & hold (asset)",
+                            swatchClass: "h-0.5 w-9 rounded-full bg-white/80",
+                          },
+                        ]}
+                      />
+                      <div className="h-[300px] w-full sm:h-[320px]">
+                        <Plot
+                          data={[
+                            {
+                              type: "scatter",
+                              mode: "lines",
+                              name: "Strategy (best params)",
+                              x: timeseries.dates,
+                              y: timeseries.strategy,
+                              line: {
+                                color: TS_STRATEGY_LINE,
+                                width: 2.25,
+                                shape: "spline",
+                                smoothing: 1.05,
                               },
-                              {
-                                type: "bar",
-                                name: "Buy & hold (asset)",
-                                x: yearlyReturns.years,
-                                y: yearlyReturns.price,
-                                marker: {
-                                  color: "rgba(255,255,255,0.9)",
-                                  line: { color: "rgba(255,255,255,0.35)", width: 1 },
-                                  cornerradius: 5,
-                                },
+                            },
+                            {
+                              type: "scatter",
+                              mode: "lines",
+                              name: "Buy & hold (asset)",
+                              x: timeseries.dates,
+                              y: timeseries.price,
+                              line: {
+                                color: TS_BUYHOLD_WHITE,
+                                width: 1.75,
+                                shape: "spline",
+                                smoothing: 1.05,
                               },
-                            ]}
-                            layout={{
-                              ...plotFontLayout(),
-                              margin: { l: 44, r: 12, t: 6, b: 44 },
-                              xaxis: axisPrimary("Year"),
-                              yaxis: axisPrimary("Return (%)"),
-                              barmode: "group",
-                              bargap: 0.16,
-                              showlegend: false,
-                            }}
-                            config={{ displayModeBar: false, responsive: true, toImageButtonOptions: { format: "svg" } }}
-                            style={{ width: "100%", height: "100%" }}
-                          />
-                        </div>
-                      </AnalyticsChartCard>
-                    ) : (
-                      <AnalyticsChartCard title="Yearly compounded returns" style={{ height: CHART_H_TS + 40 }}>
-                        <div className="flex h-full min-h-[120px] items-center justify-center text-sm text-[rgba(255,255,255,0.45)]">
-                          No yearly returns data available
-                        </div>
-                      </AnalyticsChartCard>
-                    )}
-                  </div>
+                            },
+                          ]}
+                          layout={{
+                            ...plotFontLayout(),
+                            margin: { l: 44, r: 12, t: 6, b: 48 },
+                            xaxis: {
+                              ...axisPrimary("Date"),
+                              type: "date",
+                              tickformat: "%d %b %Y",
+                              tickangle: -22,
+                              showgrid: true,
+                              automargin: true,
+                            },
+                            yaxis: axisPrimary("Total return (%)"),
+                            showlegend: false,
+                          }}
+                          config={{
+                            displayModeBar: false,
+                            responsive: true,
+                            toImageButtonOptions: { format: "svg" },
+                          }}
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                      </div>
+                    </AnalyticsChartCard>
+                  ) : null}
                 </div>
-              </div>
-            </div>
+              </section>
+            )}
 
-            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-x-5 lg:gap-y-5">
-              {metrics && metrics.scatter_data?.max_dd?.length > 0 && (
-                <AnalyticsChartCard
-                  dense
-                  title="CAGR vs max drawdown"
-                  subtitle={joinChartSubtitle(
-                    scatterSampleSubtitle(metrics.scatter_data),
-                    scatterGl ? "WebGL renderer" : null
+            {(yearlyReturns || (cagrSpreadTraces && cagrSpreadTraces.length > 0)) && (
+              <section>
+                <SectionHead
+                  eyebrow="Calendar"
+                  title="Yearly & horizon structure"
+                  subtitle="How the best label set behaves by year, and how CAGR varies with horizon / spread."
+                />
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
+                  {yearlyReturns ? (
+                    <AnalyticsChartCard
+                      title="Yearly compounded returns"
+                      subtitle="Within each calendar year: last / first session total return %."
+                      style={{ minHeight: CHART_H }}
+                    >
+                      <SeriesLegendStrip
+                        items={[
+                          {
+                            label: "Strategy (best params)",
+                            swatchClass: "h-3 w-3 rounded-md bg-violet-500",
+                          },
+                          {
+                            label: "Buy & hold (asset)",
+                            swatchClass: "h-3 w-3 rounded-md bg-white/85 ring-1 ring-white/25",
+                          },
+                        ]}
+                      />
+                      <div className="h-[260px] w-full">
+                        <Plot
+                          data={[
+                            {
+                              type: "bar",
+                              name: "Strategy (best params)",
+                              x: yearlyReturns.years,
+                              y: yearlyReturns.strategy,
+                              marker: {
+                                color: TS_STRATEGY_LINE,
+                                line: { width: 0 },
+                                cornerradius: 5,
+                              },
+                            },
+                            {
+                              type: "bar",
+                              name: "Buy & hold (asset)",
+                              x: yearlyReturns.years,
+                              y: yearlyReturns.price,
+                              marker: {
+                                color: "rgba(255,255,255,0.82)",
+                                line: { color: "rgba(255,255,255,0.25)", width: 1 },
+                                cornerradius: 5,
+                              },
+                            },
+                          ]}
+                          layout={{
+                            ...plotFontLayout(),
+                            margin: { l: 44, r: 12, t: 6, b: 44 },
+                            xaxis: axisPrimary("Year"),
+                            yaxis: axisPrimary("Return (%)"),
+                            barmode: "group",
+                            bargap: 0.16,
+                            showlegend: false,
+                          }}
+                          config={{
+                            displayModeBar: false,
+                            responsive: true,
+                            toImageButtonOptions: { format: "svg" },
+                          }}
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                      </div>
+                    </AnalyticsChartCard>
+                  ) : null}
+
+                  {cagrSpreadTraces && cagrSpreadTraces.length > 0 ? (
+                    <AnalyticsChartCard
+                      dense
+                      title="CAGR vs horizon (by spread)"
+                      subtitle="Spread = TP − SL. Each line = mean CAGR in that spread bucket."
+                      style={{ minHeight: CHART_H }}
+                    >
+                      <div className="h-[280px] w-full">
+                        <Plot
+                          data={cagrSpreadTraces}
+                          layout={{
+                            ...plotFontLayout(),
+                            hovermode: "closest",
+                            margin: { l: 44, r: 8, t: 8, b: 44 },
+                            xaxis: axisPrimary("Horizon (days)"),
+                            yaxis: axisPrimary("CAGR (%)"),
+                            showlegend: true,
+                            legend: {
+                              orientation: "h",
+                              yanchor: "top",
+                              y: -0.22,
+                              xanchor: "center",
+                              x: 0.5,
+                              font: { size: 9, color: "rgba(255,255,255,0.75)" },
+                              bgcolor: "rgba(10,8,18,0.55)",
+                              borderwidth: 0,
+                            },
+                          }}
+                          config={{
+                            displayModeBar: false,
+                            responsive: true,
+                            toImageButtonOptions: { format: "svg" },
+                          }}
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                      </div>
+                    </AnalyticsChartCard>
+                  ) : null}
+                </div>
+              </section>
+            )}
+
+            {(metrics?.scatter_data?.max_dd?.length > 0 ||
+              metrics?.prediction_data?.l1_rate?.length > 0 ||
+              histPlot ||
+              metrics?.benchmark_data) && (
+              <section>
+                <SectionHead
+                  eyebrow="Grid diagnostics"
+                  title="Risk, labels & benchmarks"
+                  subtitle="Scatter and distributions across the full search grid."
+                />
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {metrics?.scatter_data?.max_dd?.length > 0 && (
+                    <AnalyticsChartCard
+                      dense
+                      title="CAGR vs max drawdown"
+                      subtitle={joinChartSubtitle(
+                        scatterSampleSubtitle(metrics.scatter_data),
+                        scatterGl ? "WebGL" : null,
+                      )}
+                    >
+                      <div className="h-[240px] w-full">
+                        <Plot
+                          data={[
+                            {
+                              type: scatterGl ? "scattergl" : "scatter",
+                              mode: "markers",
+                              x: metrics.scatter_data.max_dd,
+                              y: metrics.scatter_data.cagr,
+                              marker: {
+                                size: scatterGl ? 2 : 2.75,
+                                color: "rgba(168,85,247,0.55)",
+                                line: { width: 0 },
+                                opacity: scatterGl ? 0.4 : 0.5,
+                              },
+                            },
+                          ]}
+                          layout={{
+                            ...plotFontLayout(),
+                            margin: { l: 44, r: 10, t: 4, b: 36 },
+                            xaxis: axisPrimary("Max drawdown (%)"),
+                            yaxis: axisPrimary("CAGR (%)"),
+                          }}
+                          config={{
+                            displayModeBar: false,
+                            responsive: true,
+                            toImageButtonOptions: { format: "svg" },
+                          }}
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                      </div>
+                    </AnalyticsChartCard>
                   )}
-                  className="min-w-0"
-                >
-                  <div className="h-[240px] w-full min-h-0 sm:h-[260px]">
-                    <Plot
-                      data={[
-                        {
-                          type: scatterGl ? "scattergl" : "scatter",
-                          mode: "markers",
-                          x: metrics.scatter_data.max_dd,
-                          y: metrics.scatter_data.cagr,
-                          marker: {
-                            size: scatterGl ? 2 : 2.75,
-                            color: "rgba(129,140,248,0.5)",
-                            line: { width: 0 },
-                            opacity: scatterGl ? 0.38 : 0.45,
-                          },
-                        },
-                      ]}
-                      layout={{
-                        ...plotFontLayout(),
-                        margin: { l: 44, r: 10, t: 4, b: 36 },
-                        xaxis: axisPrimary("Max drawdown (%)"),
-                        yaxis: axisPrimary("CAGR (%)"),
-                      }}
-                      config={{ displayModeBar: false, responsive: true, toImageButtonOptions: { format: "svg" } }}
-                      style={{ width: "100%", height: "100%" }}
-                    />
-                  </div>
-                </AnalyticsChartCard>
-              )}
 
-              {metrics && metrics.prediction_data?.l1_rate?.length > 0 && (
-                <AnalyticsChartCard
-                  dense
-                  title="L1 rate vs cumulative linear return"
-                  subtitle={joinChartSubtitle(
-                    scatterSampleSubtitle(metrics.prediction_data),
-                    "Y: cumulative linear return (%)",
-                    predictionGl ? "WebGL" : null
+                  {metrics?.prediction_data?.l1_rate?.length > 0 && (
+                    <AnalyticsChartCard
+                      dense
+                      title="L1 rate vs cumulative linear return"
+                      subtitle={joinChartSubtitle(
+                        scatterSampleSubtitle(metrics.prediction_data),
+                        predictionGl ? "WebGL" : null,
+                      )}
+                    >
+                      <div className="h-[240px] w-full">
+                        <Plot
+                          data={[
+                            {
+                              type: predictionGl ? "scattergl" : "scatter",
+                              mode: "markers",
+                              x: metrics.prediction_data.l1_rate,
+                              y: (metrics.prediction_data.pnl as number[]).map((p: number) =>
+                                Number.isFinite(p) ? p * 100 : NaN,
+                              ),
+                              marker: {
+                                size: predictionGl ? 2 : 2.75,
+                                color: "rgba(167,139,250,0.55)",
+                                line: { width: 0 },
+                                opacity: predictionGl ? 0.38 : 0.48,
+                              },
+                            },
+                          ]}
+                          layout={{
+                            ...plotFontLayout(),
+                            margin: { l: 48, r: 10, t: 4, b: 36 },
+                            xaxis: axisPrimary("L1 label rate (share)"),
+                            yaxis: axisPrimary("Cumulative linear return (%)"),
+                          }}
+                          config={{
+                            displayModeBar: false,
+                            responsive: true,
+                            toImageButtonOptions: { format: "svg" },
+                          }}
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                      </div>
+                    </AnalyticsChartCard>
                   )}
-                  className="min-w-0"
-                >
-                  <div className="h-[240px] w-full min-h-0 sm:h-[260px]">
-                    <Plot
-                      data={[
-                        {
-                          type: predictionGl ? "scattergl" : "scatter",
-                          mode: "markers",
-                          x: metrics.prediction_data.l1_rate,
-                          y: (metrics.prediction_data.pnl as number[]).map((p: number) =>
-                            Number.isFinite(p) ? p * 100 : NaN
-                          ),
-                          marker: {
-                            size: predictionGl ? 2 : 2.75,
-                            color: "rgba(167,139,250,0.5)",
-                            line: { width: 0 },
-                            opacity: predictionGl ? 0.36 : 0.44,
-                          },
-                        },
-                      ]}
-                      layout={{
-                        ...plotFontLayout(),
-                        margin: { l: 48, r: 10, t: 4, b: 36 },
-                        xaxis: axisPrimary("L1 label rate (share)"),
-                        yaxis: axisPrimary("Cumulative linear return (%)"),
-                      }}
-                      config={{ displayModeBar: false, responsive: true, toImageButtonOptions: { format: "svg" } }}
-                      style={{ width: "100%", height: "100%" }}
-                    />
-                  </div>
-                </AnalyticsChartCard>
-              )}
 
-              {metrics && histPlot && (
-                <AnalyticsChartCard
-                  dense
-                  title="Annual linear P/L distribution"
-                  subtitle="All grid rows; bin width via Freedman–Diaconis (clamped)."
-                  className="min-w-0"
-                >
-                  <div className="h-[240px] w-full min-h-0 sm:h-[260px]">
-                    <Plot
-                      data={[
-                        {
-                          type: "bar",
-                          x: histPlot.x,
-                          y: histPlot.y,
-                          marker: {
-                            color: "rgba(255,255,255,0.15)",
-                            line: { color: "rgba(255,255,255,0.06)", width: 0 },
-                            cornerradius: 3,
-                          },
-                          width: histPlot.barWidth,
-                        },
-                      ]}
-                      layout={{
-                        ...plotFontLayout(),
-                        margin: { l: 44, r: 10, t: 4, b: 36 },
-                        xaxis: axisPrimary("Annual linear P/L (%)"),
-                        yaxis: axisPrimary("Grid count"),
-                        bargap: 0.02,
-                      }}
-                      config={{ displayModeBar: false, responsive: true, toImageButtonOptions: { format: "svg" } }}
-                      style={{ width: "100%", height: "100%" }}
-                    />
-                  </div>
-                </AnalyticsChartCard>
-              )}
+                  {histPlot && (
+                    <AnalyticsChartCard
+                      dense
+                      title="Annual linear P/L distribution"
+                      subtitle="All grid rows; Freedman–Diaconis bins."
+                    >
+                      <div className="h-[240px] w-full">
+                        <Plot
+                          data={[
+                            {
+                              type: "bar",
+                              x: histPlot.x,
+                              y: histPlot.y,
+                              marker: {
+                                color: "rgba(168,85,247,0.35)",
+                                line: { color: "rgba(168,85,247,0.2)", width: 0 },
+                                cornerradius: 3,
+                              },
+                              width: histPlot.barWidth,
+                            },
+                          ]}
+                          layout={{
+                            ...plotFontLayout(),
+                            margin: { l: 44, r: 10, t: 4, b: 36 },
+                            xaxis: axisPrimary("Annual linear P/L (%)"),
+                            yaxis: axisPrimary("Grid count"),
+                            bargap: 0.02,
+                          }}
+                          config={{
+                            displayModeBar: false,
+                            responsive: true,
+                            toImageButtonOptions: { format: "svg" },
+                          }}
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                      </div>
+                    </AnalyticsChartCard>
+                  )}
 
-              {metrics && metrics.benchmark_data && (
-                <AnalyticsChartCard
-                  dense
-                  title="Best system vs benchmarks"
-                  subtitle="S&P / bonds / risk-free are fixed long-run reference CAGRs, not backtested on this window."
-                  className="min-w-0"
-                >
-                  <div className="h-[240px] w-full min-h-0 sm:h-[260px]">
-                    <Plot
-                      data={[
-                        {
-                          type: "bar",
-                          x: metrics.benchmark_data.names,
-                          y: metrics.benchmark_data.values,
-                          marker: {
-                            color: metrics.benchmark_data.names.map(
-                              (_: string, i: number) => BENCHMARK_BAR_COLORS[i % BENCHMARK_BAR_COLORS.length]
-                            ),
-                            line: { width: 0 },
-                            cornerradius: 5,
-                          },
-                        },
-                      ]}
-                      layout={{
-                        ...plotFontLayout(),
-                        margin: { l: 44, r: 10, t: 4, b: 72 },
-                        xaxis: {
-                          tickangle: -35,
-                          tickfont: { size: 9, color: DA.tick },
-                          gridcolor: DA.grid,
-                        },
-                        yaxis: axisPrimary("CAGR (%)"),
-                        bargap: 0.28,
-                      }}
-                      config={{ displayModeBar: false, responsive: true, toImageButtonOptions: { format: "svg" } }}
-                      style={{ width: "100%", height: "100%" }}
-                    />
-                  </div>
-                </AnalyticsChartCard>
-              )}
+                  {metrics?.benchmark_data && (
+                    <AnalyticsChartCard
+                      dense
+                      title="Best system vs benchmarks"
+                      subtitle="Reference CAGRs (not window-matched backtests)."
+                    >
+                      <div className="h-[240px] w-full">
+                        <Plot
+                          data={[
+                            {
+                              type: "bar",
+                              x: metrics.benchmark_data.names,
+                              y: metrics.benchmark_data.values,
+                              marker: {
+                                color: metrics.benchmark_data.names.map(
+                                  (_: string, i: number) =>
+                                    BENCHMARK_BAR_COLORS[i % BENCHMARK_BAR_COLORS.length],
+                                ),
+                                line: { width: 0 },
+                                cornerradius: 5,
+                              },
+                            },
+                          ]}
+                          layout={{
+                            ...plotFontLayout(),
+                            margin: { l: 44, r: 10, t: 4, b: 72 },
+                            xaxis: {
+                              tickangle: -35,
+                              tickfont: { size: 9, color: DA.tick },
+                              gridcolor: DA.grid,
+                            },
+                            yaxis: axisPrimary("CAGR (%)"),
+                            bargap: 0.28,
+                          }}
+                          config={{
+                            displayModeBar: false,
+                            responsive: true,
+                            toImageButtonOptions: { format: "svg" },
+                          }}
+                          style={{ width: "100%", height: "100%" }}
+                        />
+                      </div>
+                    </AnalyticsChartCard>
+                  )}
+                </div>
+              </section>
+            )}
 
-            </div>
-
-            {(metrics?.correlation_data ||
-              (heatmaps && heatmaps.horizons && heatmaps.tp_values && heatmaps.sl_values)) && (
-              <div className="mb-8 mt-10 min-w-0">
-                <SectionLabel>Surfaces</SectionLabel>
-                <h2 className="mt-1 text-lg font-semibold tracking-tight text-white">
-                  Correlation matrix &amp; TP–SL CAGR heatmaps
-                </h2>
-                <p className="mt-1 text-xs text-[rgba(255,255,255,0.45)]">
-                  Parameter correlations next to TP×SL CAGR slices by horizon (same grid data).
-                </p>
-                <div className="mt-5 grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
+            {(metrics?.correlation_data || heatmapMatrix) && (
+              <section>
+                <SectionHead
+                  eyebrow="Surfaces"
+                  title="Correlation & TP–SL heatmaps"
+                  subtitle="Parameter correlations beside TP×SL CAGR slices by horizon."
+                />
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-stretch">
                   {metrics?.correlation_data ? (
                     <AnalyticsChartCard
                       dense
                       title="Parameter correlation matrix"
-                      subtitle="Pearson ρ across grid rows (exported metric columns)."
-                      className="min-w-0"
+                      subtitle="Pearson ρ across grid rows."
                     >
-                      <div className="h-[280px] w-full min-h-0 sm:h-[300px]">
+                      <div className="h-[300px] w-full">
                         <Plot
                           data={[
                             {
@@ -1103,7 +1173,7 @@ export default function LabelingOptimizerResults() {
                               z: metrics.correlation_data.matrix,
                               x: metrics.correlation_data.labels,
                               y: metrics.correlation_data.labels,
-                              colorscale: CORRELATION_GRAY,
+                              colorscale: CORRELATION_VIOLET,
                               showscale: true,
                               colorbar: {
                                 title: { text: "ρ", font: { size: 11, color: DA.text } },
@@ -1128,168 +1198,149 @@ export default function LabelingOptimizerResults() {
                               gridcolor: DA.gridSoft,
                             },
                           }}
-                          config={{ displayModeBar: false, responsive: true, toImageButtonOptions: { format: "svg" } }}
+                          config={{
+                            displayModeBar: false,
+                            responsive: true,
+                            toImageButtonOptions: { format: "svg" },
+                          }}
                           style={{ width: "100%", height: "100%" }}
                         />
                       </div>
                     </AnalyticsChartCard>
-                  ) : (
-                    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-6 text-center text-sm text-[rgba(255,255,255,0.45)]">
-                      No correlation data
-                    </div>
-                  )}
+                  ) : null}
 
-                  {heatmaps && heatmaps.horizons && heatmaps.tp_values && heatmaps.sl_values ? (() => {
-                    const availableHorizons = Object.keys(heatmaps.horizons).map(Number).sort((a, b) => a - b);
-                    const currentHorizon = availableHorizons[currentHeatmapIndex];
-                    const matrix = heatmaps.horizons[currentHorizon];
-
-                    return (
-                      <div className="flex min-w-0 flex-col gap-4">
-                      <AnalyticsChartCard
-                        title={`CAGR heatmap · horizon ${currentHorizon} candle${currentHorizon > 1 ? "s" : ""}`}
-                        subtitle="TP × SL plane at fixed horizon; grayscale scale."
-                        style={{ minHeight: 320 }}
-                      >
-                        <div className="mb-2 flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCurrentHeatmapIndex((prev) => (prev - 1 + availableHorizons.length) % availableHorizons.length)
-                            }
-                            className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-sm text-[rgba(255,255,255,0.75)] transition hover:border-white/25 hover:bg-white/[0.06] disabled:opacity-40"
-                            disabled={availableHorizons.length <= 1}
-                          >
-                            ‹
-                          </button>
-                          <span className="min-w-[48px] text-center text-xs text-[rgba(255,255,255,0.5)]">
-                            {currentHeatmapIndex + 1} / {availableHorizons.length}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setCurrentHeatmapIndex((prev) => (prev + 1) % availableHorizons.length)}
-                            className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-sm text-[rgba(255,255,255,0.75)] transition hover:border-white/25 hover:bg-white/[0.06] disabled:opacity-40"
-                            disabled={availableHorizons.length <= 1}
-                          >
-                            ›
-                          </button>
-                        </div>
-
-                        {matrix ? (
-                          <div className="h-[280px] w-full">
-                            <Plot
-                              data={[
-                                {
-                                  type: "heatmap",
-                                  z: matrix,
-                                  x: heatmaps.tp_values,
-                                  y: heatmaps.sl_values,
-                                  colorscale: HEATMAP_GRAY,
-                                  zmin: heatmaps.vmin,
-                                  zmax: heatmaps.vmax,
-                                  showscale: true,
-                                  colorbar: {
-                                    title: { text: "CAGR %", font: { size: 9, color: DA.text } },
-                                    thickness: 12,
-                                    len: 0.8,
-                                    tickfont: { color: DA.tick },
-                                  },
-                                },
-                              ]}
-                              layout={{
-                                ...plotFontLayout(),
-                                margin: { l: 50, r: 55, t: 12, b: 50 },
-                                xaxis: {
-                                  ...axisPrimary("Take profit (%)"),
-                                  tickfont: { size: 8, color: DA.tick },
-                                },
-                                yaxis: {
-                                  ...axisPrimary("Stop loss (%)"),
-                                  tickfont: { size: 8, color: DA.tick },
-                                },
-                              }}
-                              config={{ displayModeBar: false, responsive: true, toImageButtonOptions: { format: "svg" } }}
-                              style={{ width: "100%", height: "100%" }}
-                              useResizeHandler={true}
-                            />
-                          </div>
-                        ) : (
-                          <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.02]">
-                            <span className="text-sm text-[rgba(255,255,255,0.45)]">No data</span>
-                          </div>
-                        )}
-                      </AnalyticsChartCard>
-
-                    <AnalyticsChartCard title="Export visuals" style={{ minHeight: 200 }}>
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-[#0a0a0a] shadow-lg shadow-black/20 transition hover:bg-white/90"
-                        onClick={async () => {
-                          try {
-                            // Trigger download of all visuals as ZIP
-                            const response = await fetchApi(`/api/labeling-optimizer/download-visuals/${runId}`, {
-                              method: 'GET',
-                            });
-
-                            if (response.ok) {
-                              const blob = await response.blob();
-                              const url = window.URL.createObjectURL(blob);
-                              const a = document.createElement('a');
-                              a.href = url;
-                              a.download = `labeling_optimizer_visuals_${runId}.zip`;
-                              document.body.appendChild(a);
-                              a.click();
-                              window.URL.revokeObjectURL(url);
-                              document.body.removeChild(a);
-                            } else {
-                              alert('Failed to download visuals. Please try again.');
-                            }
-                          } catch (error) {
-                            console.error('Download error:', error);
-                            alert('Error downloading visuals. Check console for details.');
+                  {heatmapMatrix && heatmaps && currentHorizon != null ? (
+                    <AnalyticsChartCard
+                      title={`CAGR heatmap · h=${currentHorizon}`}
+                      subtitle="TP × SL plane at fixed horizon."
+                    >
+                      <div className="mb-2 flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCurrentHeatmapIndex(
+                              (prev) => (prev - 1 + heatmapHorizons.length) % heatmapHorizons.length,
+                            )
                           }
-                        }}
-                      >
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                          />
-                        </svg>
-                        Download all as ZIP
-                      </button>
-                      <p className="mt-3 text-xs text-[rgba(255,255,255,0.42)]">Downloads JSON artifacts in a ZIP archive.</p>
-                    </AnalyticsChartCard>
+                          className="rounded-lg border border-white/15 bg-white/[0.04] px-2 py-1 text-sm text-white/80 transition hover:bg-white/[0.08] disabled:opacity-40"
+                          disabled={heatmapHorizons.length <= 1}
+                        >
+                          ‹
+                        </button>
+                        <span className="min-w-[48px] text-center text-xs text-white/45">
+                          {currentHeatmapIndex + 1} / {heatmapHorizons.length}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCurrentHeatmapIndex((prev) => (prev + 1) % heatmapHorizons.length)
+                          }
+                          className="rounded-lg border border-white/15 bg-white/[0.04] px-2 py-1 text-sm text-white/80 transition hover:bg-white/[0.08] disabled:opacity-40"
+                          disabled={heatmapHorizons.length <= 1}
+                        >
+                          ›
+                        </button>
                       </div>
-                );
-              })() : (
-                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 text-center text-sm text-[rgba(255,255,255,0.45)]">
-                  No heatmap data available
+                      <div className="h-[280px] w-full">
+                        <Plot
+                          data={[
+                            {
+                              type: "heatmap",
+                              z: heatmapMatrix,
+                              x: heatmaps.tp_values,
+                              y: heatmaps.sl_values,
+                              colorscale: HEATMAP_VIOLET,
+                              zmin: heatmaps.vmin,
+                              zmax: heatmaps.vmax,
+                              showscale: true,
+                              colorbar: {
+                                title: { text: "CAGR %", font: { size: 9, color: DA.text } },
+                                thickness: 12,
+                                len: 0.8,
+                                tickfont: { color: DA.tick },
+                              },
+                            },
+                          ]}
+                          layout={{
+                            ...plotFontLayout(),
+                            margin: { l: 50, r: 55, t: 12, b: 50 },
+                            xaxis: {
+                              ...axisPrimary("Take profit (%)"),
+                              tickfont: { size: 8, color: DA.tick },
+                            },
+                            yaxis: {
+                              ...axisPrimary("Stop loss (%)"),
+                              tickfont: { size: 8, color: DA.tick },
+                            },
+                          }}
+                          config={{
+                            displayModeBar: false,
+                            responsive: true,
+                            toImageButtonOptions: { format: "svg" },
+                          }}
+                          style={{ width: "100%", height: "100%" }}
+                          useResizeHandler
+                        />
+                      </div>
+                    </AnalyticsChartCard>
+                  ) : null}
                 </div>
-              )}
-                </div>
-              </div>
+              </section>
             )}
 
-            <div className="mt-10 border-t border-white/[0.06] pt-6">
-              <SectionLabel>Artifacts</SectionLabel>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {artifacts.map((artifact, index) => (
-                  <code
-                    key={index}
-                    className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1 font-mono text-[11px] text-[rgba(255,255,255,0.7)]"
-                  >
-                    {artifact}
-                  </code>
-                ))}
+            <section className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4 sm:p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <SectionLabel>Export</SectionLabel>
+                  <p className="mt-1 text-sm text-white/55">
+                    Download charts &amp; JSON artifacts for this run.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white px-5 py-2.5 text-sm font-semibold text-black transition hover:bg-white/90"
+                  onClick={async () => {
+                    try {
+                      const response = await fetchApi(
+                        `/api/labeling-optimizer/download-visuals/${runId}`,
+                        { method: "GET" },
+                      );
+                      if (response.ok) {
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `labeling_optimizer_visuals_${runId}.zip`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                      } else {
+                        alert("Failed to download visuals. Please try again.");
+                      }
+                    } catch (err) {
+                      console.error("Download error:", err);
+                      alert("Error downloading visuals. Check console for details.");
+                    }
+                  }}
+                >
+                  Download ZIP
+                </button>
               </div>
-              {artifacts.length === 0 && (
-                <div className="mt-2 text-sm text-[rgba(255,255,255,0.45)]">No artifacts found for this run.</div>
-              )}
-            </div>
-          </div>
+              {artifacts.length > 0 ? (
+                <div className="mt-4 flex flex-wrap gap-1.5 border-t border-white/[0.08] pt-3">
+                  {artifacts.map((artifact) => (
+                    <code
+                      key={artifact}
+                      className="rounded-md border border-white/10 bg-black/30 px-2 py-0.5 font-mono text-[10px] text-white/55"
+                    >
+                      {artifact}
+                    </code>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          </>
         )}
       </div>
     </div>

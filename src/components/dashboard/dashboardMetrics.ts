@@ -53,7 +53,7 @@ export function systemStatusFromBots(bots: Bot[]): SystemUiStatus {
 export function formatSignal(label?: string | null): "LONG" | "SHORT" | "NEUTRAL" {
   if (!label) return "NEUTRAL";
   const upper = String(label).toUpperCase();
-  if (upper === "1" || upper === "LONG") return "LONG";
+  if (upper === "1" || upper === "LONG" || upper === "BUY") return "LONG";
   if (upper === "-1" || upper === "SHORT") return "SHORT";
   return "NEUTRAL";
 }
@@ -63,18 +63,26 @@ export function formatConfidence(confidence?: number | null): string {
   return `${Math.round(confidence * 100)}%`;
 }
 
+/** API timestamps are UTC; naive ISO strings must be treated as UTC, not local. */
+export function parseDashboardTime(value?: string | null): Date | null {
+  if (!value) return null;
+  const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value);
+  const parsed = new Date(hasTz ? value : `${value}Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
 export function formatTime(value?: string): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
+  const parsed = parseDashboardTime(value);
+  if (!parsed) return value || "—";
   return parsed.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 /** Date + time for dashboard cards (next run, last run). */
 export function formatShortDateTime(value?: string | null): string {
   if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "—";
+  const parsed = parseDashboardTime(value);
+  if (!parsed) return "—";
   return parsed.toLocaleString(undefined, {
     month: "short",
     day: "numeric",

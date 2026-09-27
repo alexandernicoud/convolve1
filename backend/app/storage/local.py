@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,6 +57,28 @@ class LocalKerasModelStorage:
 
         total, original, ct = await _stream_upload_to_path(upload, dest)
         now = datetime.now(timezone.utc)
+
+        # Honest sidecar metadata: anonymous uploads carry no training provenance,
+        # so only upload facts are recorded (consumers must treat training info as unavailable).
+        sidecar = self._root / f"{model_id}.metadata.json"
+        try:
+            with open(sidecar, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "schema_version": 1,
+                        "source": "uploaded",
+                        "model_id": model_id,
+                        "storage_key": storage_key,
+                        "original_filename": original,
+                        "byte_size": total,
+                        "uploaded_at": now.isoformat(),
+                    },
+                    f,
+                    indent=2,
+                )
+        except OSError:
+            pass
+
         return StoredKerasModel(
             model_id=model_id,
             storage_key=storage_key,

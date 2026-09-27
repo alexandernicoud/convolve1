@@ -1,20 +1,29 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Activity, Radio } from "lucide-react";
 import {
   botsApi,
   dashboardApi,
   type Bot,
-  type DashboardActivityItem,
   type DashboardBundle,
+  type DashboardEquitySeries,
+  type DashboardTradeRow,
 } from "@/lib/api";
 import { DashboardTopBar } from "@/components/dashboard/DashboardTopBar";
 import { RunningProfitChart } from "@/components/dashboard/RunningProfitChart";
-import { BotEquityMiniChart } from "@/components/dashboard/BotEquityMiniChart";
-import { CommunityRankingCard } from "@/components/dashboard/CommunityRankingCard";
+import { DemoDailyProfitBarChart } from "@/components/dashboard/DemoDailyProfitBarChart";
+import { DemoAccuracyRings } from "@/components/dashboard/DemoAccuracyRings";
+import { DemoActivityLog } from "@/components/dashboard/DemoActivityLog";
+import { DemoLabelMatchRates } from "@/components/dashboard/DemoLabelMatchRates";
+import { DemoLastPredictionPanel } from "@/components/dashboard/DemoLastPredictionPanel";
+import { DemoModelPredictionsMarquee } from "@/components/dashboard/DemoModelPredictionsMarquee";
+import { demoLinkClass } from "@/components/dashboard/demoPortfolioPalette";
+import { FLEET_LINE_COLORS } from "@/components/dashboard/fleetPalette";
 import { MarketTickerTape } from "@/components/dashboard/MarketTickerTape";
 import { dashboardCard, dashboardCardHover } from "@/components/dashboard/dashboardCard";
 import { systemOperationalBadgeClass } from "@/components/dashboard/botStatusStyles";
+import { AccountFleetTable } from "@/components/dashboard/AccountFleetTable";
+import { AccountAllocationChart } from "@/components/dashboard/AccountAllocationChart";
+import { AccountSignalMix } from "@/components/dashboard/AccountSignalMix";
 import { cn } from "@/lib/utils";
 import {
   capitalOverview,
@@ -24,60 +33,60 @@ import {
   formatSignedUsd,
   formatShortDateTime,
   formatUsdPlain,
-  lastPredictionTimestamp,
   systemStatusFromBots,
 } from "@/components/dashboard/dashboardMetrics";
 
-function formatActivityTime(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+function buildAccountSeries(equityByBot: DashboardEquitySeries[]): DashboardEquitySeries | null {
+  if (!equityByBot.length) return null;
+  const ts = new Set<string>();
+  for (const s of equityByBot) {
+    for (const p of s.points) ts.add(p.as_of);
+  }
+  const sorted = [...ts].sort();
+  if (!sorted.length) return null;
+  const points = sorted.map((as_of) => {
+    let total = 0;
+    let realized = 0;
+    for (const s of equityByBot) {
+      const atOrBefore = [...s.points]
+        .filter((p) => p.as_of <= as_of)
+        .sort((a, b) => a.as_of.localeCompare(b.as_of))
+        .pop();
+      if (atOrBefore) {
+        total += atOrBefore.total_equity;
+        realized += atOrBefore.realized_pnl;
+      }
+    }
+    return { as_of, total_equity: total, realized_pnl: realized };
+  });
+  return { bot_id: "account", symbol: "ACCT", name: "Account", points };
+}
+
+function marqueeSectors(bots: Bot[]) {
+  return bots.slice(0, 12).map((b) => {
+    const sig = formatSignal(b.last_signal || b.latest_run?.signal || b.latest_run?.label);
+    const conf = formatConfidence(b.last_confidence ?? b.latest_run?.confidence);
+    const short = sig === "LONG" ? "L" : sig === "SHORT" ? "S" : "N";
+    return {
+      model: b.name || b.symbol,
+      line: `${b.symbol} · ${short} ${conf}`,
+    };
   });
 }
 
-function buildActivityFallback(bots: Bot[]): { id: string; label: string; time: string }[] {
-  const rows: { t: number; label: string }[] = [];
-  for (const bot of bots) {
-    const lr = bot.latest_run;
-    if (!lr) continue;
-    const name = bot.name || bot.symbol;
-    const sig = formatSignal(lr.label);
-    rows.push({
-      t: new Date(lr.run_at).getTime(),
-      label:
-        lr.status === "error"
-          ? `${name} · run error`
-          : `${name} · ${sig} ${formatConfidence(lr.confidence)}`,
-    });
-  }
-  rows.sort((a, b) => b.t - a.t);
-  return rows.slice(0, 6).map((r, i) => ({
-    id: `fb-${r.t}-${i}`,
-    label: r.label,
-    time: new Date(r.t).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    }),
-  }));
-}
-
-function activityFeedLine(item: DashboardActivityItem): string {
-  const conf = item.confidence != null ? formatConfidence(item.confidence) : null;
-  if (item.kind === "prediction") {
-    return conf ? `${item.symbol} → ${item.title} (${conf})` : `${item.symbol} → ${item.title}`;
-  }
-  return `${item.symbol} → ${item.title}`;
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">{label}</p>
+      <p className="font-digits text-[18px] font-semibold tabular-nums text-white sm:text-[20px]">{value}</p>
+    </div>
+  );
 }
 
 export default function Dashboard() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [bundle, setBundle] = useState<DashboardBundle | null>(null);
+  const [trades, setTrades] = useState<DashboardTradeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showWorkflowGuide, setShowWorkflowGuide] = useState(false);
@@ -94,9 +103,14 @@ export default function Dashboard() {
   const fetchDashboard = useCallback(async () => {
     try {
       setError(null);
-      const [list, dash] = await Promise.all([botsApi.listBots(), dashboardApi.getBundle()]);
+      const [list, dash, tradeRows] = await Promise.all([
+        botsApi.listBots(),
+        dashboardApi.getBundle(),
+        dashboardApi.listTrades().catch(() => [] as DashboardTradeRow[]),
+      ]);
       setBots(list);
       setBundle(dash);
+      setTrades(tradeRows);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard.");
     } finally {
@@ -114,7 +128,7 @@ export default function Dashboard() {
     };
 
     void refresh();
-    interval = setInterval(refresh, 45000);
+    interval = setInterval(refresh, 8000);
 
     return () => {
       active = false;
@@ -124,34 +138,83 @@ export default function Dashboard() {
 
   const overview = bundle?.overview;
   const cap = capitalOverview(overview, bots);
-
-  const bestBot = overview?.best_bot_id ? bots.find((b) => b.id === overview.best_bot_id) : null;
-  const bestSeries = bundle?.equity_by_bot.find((s) => s.bot_id === overview?.best_bot_id);
-
-  const bestReturnPct =
-    overview?.best_bot_return_pct != null
-      ? overview.best_bot_return_pct
-      : overview?.best_realized_pnl != null && bestBot
-        ? (overview.best_realized_pnl / (bestBot.starting_capital ?? 10000)) * 100
-        : null;
-
-  const lastTs = lastPredictionTimestamp(bots);
   const systemStatus = systemStatusFromBots(bots);
+  const pollSec = overview?.poll_interval_seconds ?? 60;
 
-  const feed = bundle?.activity_feed?.length ? bundle.activity_feed : null;
-  const fallbackActivity = !feed?.length ? buildActivityFallback(bots) : [];
+  const lastPred = bundle?.last_prediction;
+  const lastLive = lastPred
+    ? {
+        symbol: lastPred.symbol,
+        model: lastPred.model,
+        tp: lastPred.tp_pct != null ? `+${lastPred.tp_pct.toFixed(1)}%` : null,
+        sl: lastPred.sl_pct != null ? `−${Math.abs(lastPred.sl_pct).toFixed(1)}%` : null,
+        confidence: lastPred.confidence != null ? formatConfidence(lastPred.confidence) : null,
+        heatmapSrc:
+          lastPred.bot_id && lastPred.run_id
+            ? lastPred.has_heatmap
+              ? botsApi.getRunHeatmapUrl(
+                  lastPred.bot_id,
+                  lastPred.run_id,
+                  lastPred.finished_at || lastPred.run_id
+                )
+              : botsApi.getRunChartUrl(
+                  lastPred.bot_id,
+                  lastPred.run_id,
+                  lastPred.finished_at || lastPred.run_id
+                )
+            : null,
+        botHref: lastPred.bot_id ? `/dashboard/bots/${lastPred.bot_id}` : null,
+      }
+    : {
+        symbol: "—",
+        model: "—",
+        tp: "—",
+        sl: "—",
+        confidence: "—",
+        heatmapSrc: null,
+        botHref: null,
+      };
+
+  const equityByBot = bundle?.equity_by_bot ?? [];
+  const perfLines = useMemo(() => {
+    const account = buildAccountSeries(equityByBot);
+    const botsLines = equityByBot.slice(0, 8).map((s, i) => ({
+      ...s,
+      name: s.name || s.symbol || `Bot ${i + 1}`,
+    }));
+    return account ? [...botsLines, account] : botsLines;
+  }, [equityByBot]);
+
+  const perfLegend = perfLines.map((s, i) => ({
+    label: s.name || s.symbol,
+    color: FLEET_LINE_COLORS[i % FLEET_LINE_COLORS.length],
+  }));
+
+  const activity = bundle?.activity_feed ?? [];
+  const sectors = marqueeSectors(bots);
+  const recentCloses = trades.filter((t) => t.exit_date).slice(0, 6);
+  const liveBots = bots.filter((b) => (b.lifecycle_state ?? "active") !== "archived");
+  const pausedCount =
+    overview?.paused_bots ?? liveBots.filter((b) => (b.lifecycle_state ?? "") === "paused").length;
+  const errorCount =
+    overview?.error_bots ?? liveBots.filter((b) => (b.derived_status ?? "").toLowerCase() === "error").length;
+
   const closeWorkflowGuide = () => {
     setShowWorkflowGuide(false);
     try {
       window.localStorage.setItem("dashboard-workflow-guide-dismissed", "1");
     } catch {
-      // no-op: storage can fail in private mode
+      // no-op
     }
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden font-sans">
-      <DashboardTopBar className="mb-2" />
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden font-sans">
+      <DashboardTopBar className="mb-0 shrink-0" />
+      <p className="shrink-0 px-2 py-0.5 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-red-500">
+        notifications every {pollSec}s
+      </p>
+
       {showWorkflowGuide ? (
         <div className="absolute inset-0 z-[80] flex items-center justify-center bg-black/70 px-4">
           <div className="w-full max-w-xl rounded-2xl border border-white/[0.15] bg-[#0f1116] p-6 shadow-[0_36px_100px_-48px_rgba(0,0,0,0.9)]">
@@ -186,264 +249,244 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-3 md:gap-3 md:p-4">
-        <div className="grid shrink-0 grid-cols-12 gap-2 md:gap-3">
-          {/* Account & Performance */}
-          <div className={cn("col-span-12 md:col-span-4", dashboardCard, dashboardCardHover, "p-3 md:p-4")}>
-            <Link
-              to="/dashboard/portfolio"
-              className="block w-fit text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45 transition hover:text-white/75"
-            >
-              Account & Performance
-            </Link>
-            <p className="mt-2 font-digits text-[clamp(1.5rem,3.5vw,2rem)] font-semibold tabular-nums tracking-tight text-white">
-              {loading ? "…" : formatUsdPlain(cap.equity)}
-            </p>
-            <p className="mt-0.5 text-[9px] uppercase tracking-[0.1em] text-white/35">Equity</p>
-            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-              <div>
-                <p className="text-[9px] uppercase tracking-[0.12em] text-white/40">Start capital</p>
-                <p className="font-digits text-[13px] font-medium tabular-nums text-white/90">
-                  {loading ? "…" : formatUsdPlain(cap.startCapital)}
-                </p>
-              </div>
-              <div>
-                <p className="text-[9px] uppercase tracking-[0.12em] text-white/40">Realized PnL</p>
-                <p className="font-digits text-[13px] font-medium tabular-nums text-white/90">
-                  {loading ? "…" : formatSignedUsd(cap.realizedPnl)}
-                </p>
-              </div>
-              <div>
-                <p className="text-[9px] uppercase tracking-[0.12em] text-white/40">Return</p>
-                <p className="font-digits text-[13px] font-medium tabular-nums text-white/90">
-                  {loading ? "…" : formatReturnPct(cap.realizedReturnPct)}
-                </p>
-              </div>
-              <div>
-                <p className="text-[9px] uppercase tracking-[0.12em] text-white/40">Open MTM</p>
-                <p className="font-digits text-[13px] font-medium tabular-nums text-white/90">
-                  {loading ? "…" : formatSignedUsd(cap.openMtm)}
-                </p>
-              </div>
-              <div>
-                <p className="text-[9px] uppercase tracking-[0.12em] text-white/40">Open trades</p>
-                <p className="font-digits text-[13px] font-medium tabular-nums text-white/90">
-                  {loading ? "…" : cap.openTrades}
-                </p>
-              </div>
-              <div>
-                <p className="text-[9px] uppercase tracking-[0.12em] text-white/40">Closed trades</p>
-                <p className="font-digits text-[13px] font-medium tabular-nums text-white/90">
-                  {loading ? "…" : cap.closedTrades}
-                </p>
-              </div>
-              <div className="col-span-2 sm:col-span-3">
-                <p className="text-[9px] uppercase tracking-[0.12em] text-white/40">Label 1 precision</p>
-                <p className="font-digits text-[13px] font-medium tabular-nums text-white/90">
-                  {loading
-                    ? "…"
-                    : cap.label1Precision != null && cap.label1Sample > 0
-                      ? `${(cap.label1Precision * 100).toFixed(1)}% (n=${cap.label1Sample})`
-                      : "—"}
-                </p>
-              </div>
-            </div>
-          </div>
+      <div className="shrink-0 px-1.5 pb-1 pt-0.5 md:px-2">
+        <DemoModelPredictionsMarquee
+          sectors={
+            sectors.length
+              ? sectors
+              : [{ model: "No bot", line: "Deploy to see signals" }]
+          }
+        />
+      </div>
 
-          {/* Top bot — visual-first: metrics in header row, equity chart body */}
-          <div className={cn("col-span-12 flex min-h-0 flex-col md:col-span-4", dashboardCard, dashboardCardHover, "p-3")}>
-            <div className="flex min-w-0 items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
+      <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overflow-x-hidden p-1.5 md:p-2">
+        <div className={cn(dashboardCard, "w-full px-2 py-1.5")}>
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45">
+            Market watch
+          </p>
+          <MarketTickerTape className="min-h-[46px] w-full" />
+        </div>
+
+        <div className="grid gap-1.5 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.85fr)]">
+          <div className={cn(dashboardCard, dashboardCardHover, "p-2.5 md:p-3")}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <Link
+                to="/dashboard/portfolio"
+                className={cn("text-[11px] font-semibold uppercase tracking-[0.2em]", demoLinkClass)}
+              >
+                Account overview
+              </Link>
+              <span className={systemOperationalBadgeClass(systemStatus)}>{systemStatus}</span>
+            </div>
+            <div className="mt-2">
+              <p className="text-[10px] uppercase tracking-[0.1em] text-white/35">Total equity</p>
+              <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 font-digits text-[clamp(1.95rem,4vw,2.75rem)] font-semibold tabular-nums leading-none tracking-tight">
+                {loading ? (
+                  "…"
+                ) : (
+                  <>
+                    <span className="text-white">{formatUsdPlain(cap.equity)}</span>
+                    <span
+                      className={cn(
+                        "text-[0.92em] font-semibold",
+                        cap.realizedReturnPct >= 0 ? "text-white/80" : "text-white/45"
+                      )}
+                    >
+                      ({formatReturnPct(cap.realizedReturnPct)})
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-4">
+              <Stat label="Start capital" value={loading ? "…" : formatUsdPlain(cap.startCapital)} />
+              <Stat label="Realized PnL" value={loading ? "…" : formatSignedUsd(cap.realizedPnl)} />
+              <Stat label="Open MTM" value={loading ? "…" : formatSignedUsd(cap.openMtm)} />
+              <Stat
+                label="Win rate"
+                value={
+                  loading || overview?.win_rate_closed == null
+                    ? "—"
+                    : `${(overview.win_rate_closed * 100).toFixed(1)}%`
+                }
+              />
+              <Stat label="Open trades" value={loading ? "…" : String(cap.openTrades)} />
+              <Stat label="Closed trades" value={loading ? "…" : String(cap.closedTrades)} />
+              <Stat
+                label="Analyses (24h)"
+                value={loading ? "…" : String(overview?.analyses_24h ?? 0)}
+              />
+              <Stat
+                label="Bots"
+                value={
+                  loading
+                    ? "…"
+                    : `${overview?.active_bots ?? liveBots.length} live / ${pausedCount} paused`
+                }
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.08] pt-2 text-[11px] text-white/60">
+              <span>
+                Next run{" "}
+                <span className="font-digits text-white/85">
+                  {overview?.next_scheduled_run_iso
+                    ? formatShortDateTime(overview.next_scheduled_run_iso)
+                    : "—"}
+                </span>
+              </span>
+              <span>
+                Best bot{" "}
                 {overview?.best_bot_id ? (
-                  <Link
-                    to={`/dashboard/bots/${overview.best_bot_id}`}
-                    className="block w-fit text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45 transition hover:text-white/75"
-                  >
-                    Top bot
+                  <Link to={`/dashboard/bots/${overview.best_bot_id}`} className={demoLinkClass}>
+                    {overview.best_bot_name || overview.best_bot_symbol || "—"}
+                    {overview.best_realized_pnl != null
+                      ? ` · ${formatSignedUsd(overview.best_realized_pnl)}`
+                      : ""}
                   </Link>
                 ) : (
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">Top bot</p>
+                  <span className="text-white/45">—</span>
                 )}
-                <p className="mt-0.5 font-digits text-[11px] font-bold uppercase tracking-wide text-white/85">
-                  {loading ? "…" : overview?.best_bot_symbol || bestBot?.symbol || "—"}
-                </p>
-                <p className="truncate text-[13px] font-semibold leading-tight text-white">
-                  {loading ? "…" : overview?.best_bot_name || bestBot?.name || bestBot?.symbol || "—"}
-                </p>
-              </div>
-              <div className="flex max-w-[min(100%,220px)] flex-shrink-0 flex-wrap justify-end gap-x-3 gap-y-2 text-right sm:gap-x-4">
-                <div>
-                  <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-white/40">Return</p>
-                  <p className="font-digits text-[12px] font-semibold tabular-nums text-emerald-300/95 sm:text-[13px]">
-                    {loading || bestReturnPct == null
-                      ? "…"
-                      : `${bestReturnPct >= 0 ? "+" : ""}${bestReturnPct.toFixed(2)}%`}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-white/40">Realized</p>
-                  <p className="font-digits text-[12px] font-semibold tabular-nums text-white sm:text-[13px]">
-                    {loading ? "…" : formatSignedUsd(overview?.best_realized_pnl ?? 0)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-white/40">Max DD</p>
-                  <p className="font-digits text-[12px] font-semibold tabular-nums text-white sm:text-[13px]">
-                    {loading
-                      ? "…"
-                      : overview?.best_bot_max_drawdown_pct != null
-                        ? `${overview.best_bot_max_drawdown_pct.toFixed(1)}%`
-                        : "—"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-white/40">Label 1 prec.</p>
-                  <p className="font-digits text-[12px] font-semibold tabular-nums text-white sm:text-[13px]">
-                    {loading
-                      ? "…"
-                      : overview?.best_bot_label_1_precision != null && (overview.best_bot_label_1_sample ?? 0) > 0
-                        ? `${(overview.best_bot_label_1_precision * 100).toFixed(1)}%`
-                        : "—"}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-2 min-h-0 flex-1">
-              <BotEquityMiniChart points={bestSeries?.points} />
+              </span>
+              {errorCount > 0 ? (
+                <span className="text-white/80">{errorCount} bot{errorCount === 1 ? "" : "s"} in error</span>
+              ) : null}
             </div>
           </div>
 
-          {/* Operations — secondary, compact */}
-          <div className={cn("col-span-12 md:col-span-4", dashboardCard, dashboardCardHover, "p-3")}>
-            <Link
-              to="/dashboard/bots"
-              className="block w-fit text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45 transition hover:text-white/75"
-            >
-              Operations
-            </Link>
-            <div className="mt-2 space-y-2">
-              <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] pb-1.5">
-                <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-white/50">System</span>
-                <span className={systemOperationalBadgeClass(systemStatus)}>{systemStatus}</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-[11px] font-medium text-white/90">
-                  <Radio className="h-3.5 w-3.5 text-white/60" aria-hidden />
-                  Active bots
-                </span>
-                <span className="font-digits text-[15px] font-semibold tabular-nums text-white">
-                  {loading ? "…" : overview?.active_bots ?? 0}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-1 border-t border-white/[0.06] pt-1.5">
-                <span className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/45">Last prediction</span>
-                <span className="max-w-[58%] text-right font-digits text-[10px] leading-tight text-white/85">
-                  {lastTs ? formatShortDateTime(new Date(lastTs).toISOString()) : "—"}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/45">Next run</span>
-                <span className="max-w-[58%] text-right font-digits text-[10px] leading-tight text-white/85">
-                  {overview?.next_scheduled_run_iso ? formatShortDateTime(overview.next_scheduled_run_iso) : "—"}
-                </span>
-              </div>
-              <div className="border-t border-white/[0.06] pt-2">
-                <p className="text-[9px] font-medium uppercase tracking-[0.1em] text-white/45">Watchlist</p>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {bots.length === 0 && !loading ? (
-                    <span className="text-[10px] text-white/50">No symbols</span>
-                  ) : (
-                    bots.slice(0, 6).map((b) => (
-                      <span
-                        key={b.id}
-                        className="rounded border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 font-digits text-[10px] text-white/75"
-                      >
-                        {b.symbol}
-                        <span className="text-white/35"> · </span>
-                        <span className="text-white/55">{(b.derived_status ?? "active").toUpperCase()}</span>
-                      </span>
-                    ))
-                  )}
-                </div>
+          <div className={cn(dashboardCard, dashboardCardHover, "flex min-h-0 flex-col overflow-hidden p-2.5 md:p-3")}>
+            <AccountFleetTable bots={bots} equityByBot={equityByBot} loading={loading} />
+          </div>
+        </div>
+
+        <div className="grid min-h-[260px] gap-1.5 lg:grid-cols-2">
+          <div className={cn(dashboardCard, "flex min-h-[240px] flex-col p-2 md:p-2.5")}>
+            <div className="mb-1 flex shrink-0 items-start justify-between gap-2">
+              <div className="min-w-0">
                 <Link
-                  to="/dashboard/bots"
-                  className="mt-2 inline-flex text-[11px] font-semibold text-white/75 transition hover:text-white"
+                  to="/dashboard/portfolio"
+                  className={cn("block w-fit text-[11px] font-semibold uppercase tracking-[0.2em]", demoLinkClass)}
                 >
-                  View all bots →
+                  Account performance
                 </Link>
+                <p className="mt-0.5 text-[10px] leading-snug text-white/40 md:text-[11px]">
+                  Combined equity plus each bot. Open a bot for its own curve.
+                </p>
+              </div>
+              <div className="flex max-h-[72px] shrink-0 flex-col items-end gap-1 overflow-y-auto text-[9px] leading-tight text-white/75">
+                {perfLegend.map((item) => (
+                  <span key={item.label} className="flex items-center gap-1.5">
+                    <span className="h-px w-4 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />
+                    <span className="max-w-[7rem] truncate font-medium text-white/90">{item.label}</span>
+                  </span>
+                ))}
               </div>
             </div>
-          </div>
-        </div>
-
-        <div className="grid min-h-0 flex-1 grid-cols-12 gap-2 md:gap-3">
-          <div className={cn("col-span-12 flex min-h-[280px] flex-col lg:col-span-8", dashboardCard, "rounded-md p-3 md:p-4")}>
-            <Link
-              to="/dashboard/portfolio"
-              className="mb-2 block w-fit text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45 transition hover:text-white/75"
-            >
-              Portfolio equity
-            </Link>
-            <RunningProfitChart
-              equityByBot={bundle?.equity_by_bot ?? []}
-              baselineEquity={overview?.total_starting_capital ?? cap.startCapital}
-              equityDisplay={loading ? "…" : formatUsdPlain(cap.equity)}
-              returnDisplay={loading ? "…" : formatReturnPct(cap.realizedReturnPct)}
-              realizedDisplay={loading ? "…" : formatSignedUsd(cap.realizedPnl)}
-            />
-          </div>
-
-          <div className={cn("col-span-12 flex min-h-[280px] flex-col lg:col-span-4", dashboardCard, "rounded-md p-3 md:p-4")}>
-            <CommunityRankingCard />
-          </div>
-        </div>
-
-        <div className="grid min-h-0 shrink-0 grid-cols-12 gap-2 md:gap-3">
-          <div className={cn("col-span-12 flex max-h-[220px] min-h-0 flex-col md:col-span-6", dashboardCard, dashboardCardHover, "overflow-hidden p-3 md:p-4")}>
-            <p className="mb-2 shrink-0 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">Market watch</p>
-            <div className="min-h-0 flex-1">
-              <MarketTickerTape />
+            <div className="flex min-h-[220px] flex-1 flex-col">
+              <RunningProfitChart
+                equityByBot={perfLines}
+                baselineEquity={overview?.total_starting_capital ?? cap.startCapital}
+                equityDisplay=""
+                returnDisplay=""
+                realizedDisplay=""
+                hideArea
+                hideHeader
+                linePalette={[...FLEET_LINE_COLORS]}
+                lineInterpolation="linear"
+                largeHeader
+                tallChart
+                yAxisMode="currency"
+              />
             </div>
           </div>
 
-          <div className={cn("col-span-12 flex max-h-[220px] min-h-0 flex-col md:col-span-6", dashboardCard, dashboardCardHover, "overflow-hidden p-3 md:p-4")}>
-            <div className="mb-1.5 flex shrink-0 items-center gap-2">
-              <Activity className="h-3.5 w-3.5 text-white/50" aria-hidden />
-              <Link
-                to="/dashboard/trade-history"
-                className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45 transition hover:text-white/75"
-              >
-                Recent activity
+          <div className={cn(dashboardCard, "flex min-h-[240px] flex-col p-2 md:p-2.5")}>
+            <DemoDailyProfitBarChart rows={bundle?.daily_profit ?? []} />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5 xl:flex-row xl:items-stretch">
+          <div className={cn(dashboardCard, "min-h-[220px] flex-1 p-2.5")}>
+            <AccountAllocationChart bots={liveBots} equityByBot={equityByBot} />
+          </div>
+          <div className={cn(dashboardCard, "min-h-[220px] flex-1 p-2.5")}>
+            <AccountSignalMix bots={liveBots} />
+          </div>
+          <div className={cn(dashboardCard, "min-h-[220px] flex-1 p-2.5")}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white">Recent closes</p>
+              <Link to="/dashboard/trade-history" className={cn("text-[12px] font-semibold", demoLinkClass)}>
+                History →
               </Link>
             </div>
-            <ul className="min-h-0 flex-1 space-y-0 overflow-y-auto pr-0.5">
-              {feed?.length ? (
-                feed.map((item, idx) => (
-                  <li
-                    key={`${item.kind}-${item.at}-${idx}`}
-                    className="flex items-center justify-between gap-2 border-b border-white/[0.05] py-1.5 text-[11px] last:border-0"
-                  >
-                    <span className="min-w-0 flex-1 truncate font-digits text-white/90">{activityFeedLine(item)}</span>
-                    <span className="shrink-0 font-digits text-[9px] text-white/45">{formatActivityTime(item.at)}</span>
+            {recentCloses.length === 0 ? (
+              <p className="mt-3 text-sm text-white/45">No closed trades on this account yet.</p>
+            ) : (
+              <ul className="mt-2 space-y-1.5">
+                {recentCloses.map((t) => (
+                  <li key={t.id} className="flex items-baseline justify-between gap-2 text-[11px]">
+                    <Link to={`/dashboard/bots/${t.bot_id}`} className="min-w-0 truncate text-white/85 hover:underline">
+                      <span className="font-digits font-semibold">{t.symbol}</span>
+                      <span className="text-white/45"> · {t.status}</span>
+                    </Link>
+                    <span
+                      className={cn(
+                        "shrink-0 font-digits tabular-nums",
+                        (t.pnl_amount ?? 0) >= 0 ? "text-white" : "text-white/50"
+                      )}
+                    >
+                      {t.pnl_amount == null ? "—" : formatSignedUsd(t.pnl_amount)}
+                    </span>
                   </li>
-                ))
-              ) : fallbackActivity.length ? (
-                fallbackActivity.map((a) => (
-                  <li
-                    key={a.id}
-                    className="flex items-center justify-between gap-2 border-b border-white/[0.05] py-1.5 text-[11px] last:border-0"
-                  >
-                    <span className="min-w-0 flex-1 truncate font-digits text-white/85">{a.label}</span>
-                    <span className="shrink-0 font-digits text-[9px] text-white/45">{a.time}</span>
-                  </li>
-                ))
-              ) : !loading ? (
-                <li className="py-1.5 text-[11px] text-white/55">No events yet.</li>
-              ) : (
-                <li className="py-1.5 text-[11px] text-white/55">Loading…</li>
-              )}
-            </ul>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div
+            className={cn(
+              dashboardCard,
+              "mx-auto flex w-full max-w-[124px] shrink-0 flex-col p-1.5 md:p-2 xl:mx-0 xl:w-[124px] xl:min-w-[124px] xl:max-w-[124px]"
+            )}
+          >
+            <DemoAccuracyRings
+              weekPct={bundle?.accuracy?.week_pct ?? 0}
+              monthPct={bundle?.accuracy?.month_pct ?? 0}
+              yearPct={bundle?.accuracy?.year_pct ?? 0}
+            />
+          </div>
+          <div
+            className={cn(
+              dashboardCard,
+              "mx-auto flex w-full max-w-[124px] shrink-0 flex-col p-1.5 md:p-2 xl:mx-0 xl:w-[124px] xl:min-w-[124px] xl:max-w-[124px]"
+            )}
+          >
+            <DemoLabelMatchRates
+              correctL1={bundle?.label_match?.correct_l1_pct ?? 0}
+              wrongL1={bundle?.label_match?.wrong_l1_pct ?? 0}
+              correctL0={bundle?.label_match?.correct_l0_pct ?? 0}
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-1.5 lg:grid-cols-2">
+          <div className={cn(dashboardCard, "min-h-[220px] p-2.5")}>
+            <DemoLastPredictionPanel live={lastLive} />
+          </div>
+          <div className={cn(dashboardCard, "min-h-[220px] overflow-hidden p-2.5")}>
+            <DemoActivityLog
+              items={
+                activity.length
+                  ? activity
+                  : [
+                      {
+                        at: new Date().toISOString(),
+                        kind: "prediction",
+                        symbol: "—",
+                        title: "Waiting",
+                        subtitle: "No events yet",
+                      },
+                    ]
+              }
+            />
           </div>
         </div>
       </div>

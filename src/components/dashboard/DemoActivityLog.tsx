@@ -1,13 +1,15 @@
 import type { DashboardActivityItem } from "@/lib/api";
+import { parseDashboardTime } from "@/components/dashboard/dashboardMetrics";
 
 function formatActivityTime(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  const d = parseDashboardTime(iso);
+  if (!d) return "—";
   return d.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
   });
 }
 

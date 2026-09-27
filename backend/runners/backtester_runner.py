@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Dict, Any, Callable
 import subprocess
 
+from app.process_registry import kill_managed, popen_managed, wait_managed
+
 # --- STYLING ---
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -127,18 +129,47 @@ def run_backtester(config: Dict[str, Any], run_dir: Path, progress_cb: Callable)
     print(f"Model path: {model_path}")
     print(f"Dataset path: {dataset_path}")
 
+    run_id = run_dir.name
     try:
-        # Run the backtester script
-        result = subprocess.run(
+        # Run the backtester script (registered so /cancel can kill it)
+        proc = popen_managed(
+            run_id,
             cmd,
             cwd=str(backend_root),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=1800  # 30 minutes timeout
         )
+        returncode = wait_managed(run_id, proc, timeout_s=1800)
+        stdout = ""
+        stderr = ""
+        try:
+            out, err = proc.communicate(timeout=2)
+            stdout = out or ""
+            stderr = err or ""
+        except Exception:
+            pass
 
-        if result.returncode != 0:
-            error_msg = result.stderr[:500] if result.stderr else "Unknown error"
+        # Detect cancel via progress file written by cancel endpoint
+        progress_path = run_dir / "progress.json"
+        cancelled = False
+        if progress_path.is_file():
+            try:
+                with open(progress_path) as f:
+                    phase = str(json.load(f).get("phase") or "").lower()
+                cancelled = phase in ("cancelled", "canceled")
+            except Exception:
+                pass
+        if cancelled:
+            progress_cb("cancelled", 0.0, {"message": "Backtest cancelled by user"})
+            return
+
+        if returncode == -1:
+            progress_cb("error", 0.0, {"message": "Backtest timed out after 30 minutes"})
+            return
+
+        if returncode != 0:
+            error_msg = (stderr or stdout or "Unknown error")[:500]
             progress_cb("error", 0.0, {"message": f"Backtest failed: {error_msg}"})
             return
 
@@ -181,8 +212,6 @@ def run_backtester(config: Dict[str, Any], run_dir: Path, progress_cb: Callable)
             }
         })
 
-    except subprocess.TimeoutExpired:
-        progress_cb("error", 0.0, {"message": "Backtest timed out after 30 minutes"})
     except Exception as e:
         progress_cb("error", 0.0, {"message": f"Backtest failed: {str(e)[:200]}"})
         raise

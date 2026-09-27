@@ -184,6 +184,43 @@ class DashboardOverviewOut(BaseModel):
     best_bot_max_drawdown_pct: Optional[float] = None
     best_bot_label_1_precision: Optional[float] = None
     best_bot_label_1_sample: int = 0
+    poll_interval_seconds: int = 60
+    total_bots: int = 0
+    paused_bots: int = 0
+    error_bots: int = 0
+    analyses_24h: int = 0
+
+
+class DashboardLastPredictionOut(BaseModel):
+    bot_id: Optional[str] = None
+    run_id: Optional[str] = None
+    symbol: Optional[str] = None
+    model: Optional[str] = None
+    signal: Optional[str] = None
+    tp_pct: Optional[float] = None
+    sl_pct: Optional[float] = None
+    confidence: Optional[float] = None
+    has_heatmap: bool = False
+    finished_at: Optional[datetime] = None
+
+
+class DashboardAccuracyOut(BaseModel):
+    week_pct: Optional[float] = None
+    month_pct: Optional[float] = None
+    year_pct: Optional[float] = None
+
+
+class DashboardLabelMatchOut(BaseModel):
+    correct_l1_pct: Optional[float] = None
+    wrong_l1_pct: Optional[float] = None
+    correct_l0_pct: Optional[float] = None
+
+
+class DashboardDailyProfitOut(BaseModel):
+    day: str
+    profit: float
+    sma: float
+    metric: str = "pnl"
 
 
 class DashboardActivityItemOut(BaseModel):
@@ -210,6 +247,10 @@ class DashboardBundleOut(BaseModel):
     overview: DashboardOverviewOut
     equity_by_bot: List[EquitySeriesOut]
     activity_feed: List[DashboardActivityItemOut] = Field(default_factory=list)
+    last_prediction: Optional[DashboardLastPredictionOut] = None
+    accuracy: DashboardAccuracyOut = Field(default_factory=DashboardAccuracyOut)
+    label_match: DashboardLabelMatchOut = Field(default_factory=DashboardLabelMatchOut)
+    daily_profit: List[DashboardDailyProfitOut] = Field(default_factory=list)
 
 
 class DashboardTradeRowOut(BaseModel):
