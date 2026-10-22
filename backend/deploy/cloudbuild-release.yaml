@@ -1,0 +1,40 @@
+# Reproducible backend image build from a committed tree; see deploy/README.md.
+#   git archive <commit> backend | tar -x -C /tmp/rel && cd /tmp/rel/backend
+#   gcloud builds submit --region=europe-west6 --config=deploy/cloudbuild-release.yaml \
+#     --substitutions=_IMAGE=<repo>/backend,_TAG=<tag> .
+steps:
+- id: build
+  name: gcr.io/cloud-builders/docker
+  args: ['build', '-t', '${_IMAGE}:${_TAG}', '.']
+- id: verify
+  name: gcr.io/cloud-builders/docker
+  args:
+  - run
+  - --rm
+  - -e
+  - CONVOLVE_TEST=1
+  - -e
+  - DATABASE_URL=sqlite:////tmp/verify.db
+  - ${_IMAGE}:${_TAG}
+  - python
+  - -c
+  - |
+    import importlib, importlib.util, os, sys
+    for m in ["app.services.trainer_jobs", "app.jobs.train_worker", "app.jobs.run_due_bots", "app.services.durable_outputs",
+              "app.services.direct_uploads", "app.routers.uploads", "app.ml_versions", "app.ownership", "app.auth",
+              "app.paths", "app.storage.gcs", "app.bots_api", "app.main", "app.db_security"]:
+        importlib.import_module(m); print("ok", m)
+    assert importlib.util.find_spec("numba") is None, "numba must not be in the release image"
+    leaked = [os.path.join(d, f) for d, _, fs in os.walk("/app") for f in fs if f in (".env", ".env.local")]
+    assert not leaked, leaked
+    from app import ml_versions
+    assert ml_versions.version_mismatches() == [], ml_versions.version_mismatches()
+    from app.db_security import expected_revision
+    print("pins ok", ml_versions.describe(), "python", sys.version.split()[0], "alembic head", expected_revision())
+images: ['${_IMAGE}:${_TAG}']
+substitutions:
+  _IMAGE: europe-west6-docker.pkg.dev/project-23824ae4-252f-40b9-94a/convolve-staging/backend
+  _TAG: release-cb709ed
+options:
+  machineType: E2_HIGHCPU_8
+timeout: 1800s

@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://www.we-convolve.com", "https://we-convolve.com"],
+    "method": ["PUT", "OPTIONS"],
+    "responseHeader": ["Content-Type", "Content-Range"],
+    "maxAgeSeconds": 3600
+  }
+]

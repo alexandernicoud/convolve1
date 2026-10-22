@@ -5,13 +5,14 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, aliased
 
-from app.config import BOT_POLL_INTERVAL_SECONDS, USER_ID
+from app.config import BOT_POLL_INTERVAL_SECONDS
 from app.db import get_db
 from app.models import Bot, BotEquitySnapshot, BotRun, BotTrade
+from app.ownership import bot_scope_clause, bot_scope_owner_id
 from app.services.bot_status import next_scheduled_run_iso
 from app.schemas.bot import (
     BotEquityPointOut,
@@ -40,15 +41,15 @@ def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
-def _user_scope_filter():
-    return or_(Bot.user_id == USER_ID, Bot.user_id.is_(None))
+def _user_scope_filter(owner_id: str):
+    return bot_scope_clause(owner_id)
 
 
-def _scoped_active_bots(db: Session) -> List[Bot]:
+def _scoped_active_bots(db: Session, owner_id: str) -> List[Bot]:
     """Non-archived bots for the current user scope (dashboard overview)."""
     return (
         db.query(Bot)
-        .filter(_user_scope_filter(), Bot.lifecycle_state != "archived")
+        .filter(_user_scope_filter(owner_id), Bot.lifecycle_state != "archived")
         .order_by(Bot.created_at.desc())
         .all()
     )
@@ -269,9 +270,12 @@ def _daily_profit_rows(db: Session, bot_ids: List[str]) -> List[DashboardDailyPr
 
 
 @router.get("/bundle", response_model=DashboardBundleOut)
-def get_dashboard_bundle(db: Session = Depends(get_db)):
+def get_dashboard_bundle(
+    db: Session = Depends(get_db),
+    owner_id: str = Depends(bot_scope_owner_id),
+):
     now_utc = datetime.now(timezone.utc)
-    bots = _scoped_active_bots(db)
+    bots = _scoped_active_bots(db, owner_id)
     bot_ids = [b.id for b in bots]
     bot_by_id = {b.id: b for b in bots}
 
@@ -607,15 +611,19 @@ def get_dashboard_bundle(db: Session = Depends(get_db)):
     )
 
 
-def _scoped_all_bots(db: Session) -> List[Bot]:
+def _scoped_all_bots(db: Session, owner_id: str) -> List[Bot]:
     """All bots for user (including archived) — for destructive resets."""
-    return db.query(Bot).filter(_user_scope_filter()).order_by(Bot.created_at.desc()).all()
+    return db.query(Bot).filter(_user_scope_filter(owner_id)).order_by(Bot.created_at.desc()).all()
 
 
 @router.get("/trades", response_model=List[DashboardTradeRowOut])
-def list_dashboard_trades(bot_id: Optional[str] = None, db: Session = Depends(get_db)):
+def list_dashboard_trades(
+    bot_id: Optional[str] = None,
+    db: Session = Depends(get_db),
+    owner_id: str = Depends(bot_scope_owner_id),
+):
     """All trades across bots (optional filter by bot)."""
-    bots = _scoped_all_bots(db)
+    bots = _scoped_all_bots(db, owner_id)
     bot_by_id = {b.id: b for b in bots}
     ids = [b.id for b in bots]
     if not ids:
@@ -655,12 +663,15 @@ def list_dashboard_trades(bot_id: Optional[str] = None, db: Session = Depends(ge
 
 
 @router.post("/reset-trading-history")
-def reset_trading_history(db: Session = Depends(get_db)):
+def reset_trading_history(
+    db: Session = Depends(get_db),
+    owner_id: str = Depends(bot_scope_owner_id),
+):
     """
     Delete all runs, trades, and equity snapshots for bots in this user scope.
     Bots themselves are kept. Irreversible — call only after UI confirmation.
     """
-    bots = _scoped_all_bots(db)
+    bots = _scoped_all_bots(db, owner_id)
     bot_ids = [b.id for b in bots]
     if not bot_ids:
         return {"ok": True, "deleted_runs": 0, "deleted_trades": 0, "deleted_snapshots": 0}

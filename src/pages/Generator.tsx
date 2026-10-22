@@ -10,6 +10,7 @@ import { TIMESPAN_PRESETS } from "@/components/generator/timespanPresets";
 import { trainingChartGeneratorApi, ApiError, type ChartPreviewResult } from "@/lib/api";
 import { useRunsStore } from "@/state/runsStore";
 import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
+import { RunCostHint } from "@/components/RunCostHint";
 import {
   calendarDaysBetween,
   computeEndOffsetFromReferenceEnd,
@@ -946,15 +947,18 @@ export default function Generator() {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => void handleGenerate()}
-        disabled={starting}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-8 py-3.5 text-base font-semibold text-[#0a0a0a] transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <Play className="h-5 w-5" />
-        {starting ? "Starting…" : "Generate training dataset"}
-      </button>
+      <div className="space-y-1.5">
+        <button
+          type="button"
+          onClick={() => void handleGenerate()}
+          disabled={starting}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-8 py-3.5 text-base font-semibold text-[#0a0a0a] transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Play className="h-5 w-5" />
+          {starting ? "Starting…" : "Generate training dataset"}
+        </button>
+        <RunCostHint />
+      </div>
     </div>
   );
 

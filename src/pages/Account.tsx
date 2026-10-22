@@ -32,6 +32,7 @@ import {
 } from "@/lib/api";
 import { useCreditsStore, RUN_COST } from "@/state/creditsStore";
 import { getPaperWalletUsd } from "@/lib/portfolioWallet";
+import { useAuth } from "@/context/AuthContext";
 import {
   getProfileName,
   setProfileName,
@@ -60,10 +61,11 @@ export default function Account() {
   const [overview, setOverview] = useState<DashboardOverview | null>(null);
   const [bots, setBots] = useState<Bot[]>([]);
 
+  const { user, signOut, emailConfirmed } = useAuth();
   const [name, setName] = useState(getProfileName());
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(name);
-  const email = getProfileEmail();
+  const email = user?.email || getProfileEmail();
   const wallet = getPaperWalletUsd(10000);
 
   useEffect(() => {
@@ -114,13 +116,22 @@ export default function Account() {
                 Credits, XP, portfolio, and everything you've built in this workspace.
               </p>
             </div>
-            <Link
-              to="/credits"
-              className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-sm text-white/80 transition hover:bg-white/10"
-            >
-              <Zap className="h-4 w-4 text-amber-300" />
-              Manage credits
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                to="/credits"
+                className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-sm text-white/80 transition hover:bg-white/10"
+              >
+                <Zap className="h-4 w-4 text-amber-300" />
+                Manage credits
+              </Link>
+              <button
+                type="button"
+                onClick={() => void signOut()}
+                className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-sm text-white/80 transition hover:bg-white/10"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
 
           {/* Profile header */}
@@ -162,6 +173,9 @@ export default function Account() {
                 </div>
               )}
               <p className="mt-0.5 text-sm text-white/50">{email}</p>
+              {!emailConfirmed ? (
+                <p className="mt-1 text-[11px] text-amber-200/80">Email not verified yet — check your inbox.</p>
+              ) : null}
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                 <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/25 bg-amber-300/10 px-2.5 py-1 text-amber-100">
                   <Trophy className="h-3.5 w-3.5" /> Level {level}

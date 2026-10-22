@@ -7,6 +7,7 @@ import { z } from "zod";
 import { labelingOptimizerApi } from "@/lib/api";
 import { useRunsStore } from "@/state/runsStore";
 import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
+import { RunCostHint } from "@/components/RunCostHint";
 import { Slider } from "@/components/ui/slider";
 import FieldTip from "@/components/generator/FieldTip";
 import StepSection from "@/components/generator/StepSection";
@@ -431,6 +432,7 @@ export default function LabelingOptimizerTechnical() {
                   </>
                 )}
               </button>
+              <RunCostHint />
               <p className="text-center text-[10px] leading-snug text-[rgba(255,255,255,0.42)]">
                 The engine currently runs on symbol + date window; grid fields are saved with the run for the results
                 view and future wiring.

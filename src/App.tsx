@@ -7,6 +7,8 @@ import { BrowserRouter, Routes, Route, useLocation, useParams, Navigate } from "
 import { useEffect } from "react";
 import { useRunsStore } from "@/state/runsStore";
 import { HeaderRevealProvider, useHeaderReveal, isCompactHeaderPathname } from "@/context/HeaderRevealContext";
+import { AuthProvider } from "@/context/AuthContext";
+import { ProtectedRoute, isProtectedAppPath } from "@/components/auth/ProtectedRoute";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import GlobalBackground from "@/components/AppBackground";
@@ -23,6 +25,11 @@ import RunLog from "./pages/RunLog";
 import Account from "./pages/Account";
 import Credits from "./pages/Credits";
 import CreditGuardModal from "@/components/CreditGuardModal";
+import Login from "./pages/auth/Login";
+import AuthCallback from "./pages/auth/AuthCallback";
+import Signup from "./pages/auth/Signup";
+import ForgotPassword from "./pages/auth/ForgotPassword";
+import ResetPassword from "./pages/auth/ResetPassword";
 
 // Product / optimizer (technical UIs under /products; landings removed — use Navigate below)
 import LabelingOptimizerTechnical from "./pages/products/LabelingOptimizerTechnical";
@@ -36,6 +43,8 @@ import Generator from "./pages/Generator";
 import GeneratorResults from "./pages/GeneratorResults";
 import Trainer from "./pages/Trainer";
 import AnalysisTechnical from "./pages/AnalysisTechnical";
+import LabPage from "./features/lab/LabPage";
+import TrainingSessionPage, { LegacyTrainerAnalysisRedirect } from "./features/trainer/TrainingSessionPage";
 import Backtester from "./pages/Backtester";
 import BacktesterResults from "./pages/BacktesterResults";
 import Optimizer from "./pages/tools/Optimizer";
@@ -71,18 +80,20 @@ function LegacyLabelingOptimizerRunsRedirect() {
 function PageWrapper({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
   const compact = isCompactHeaderPathname(pathname);
-  return (
+  const shell = (
     <div
       className={cn(
         "flex min-h-0 w-full flex-1 flex-col",
-        // Compact tool shell uses position:fixed TechnicalLayout — never put a
-        // transform/filter animation on this ancestor (it becomes the fixed CB).
         compact ? "relative h-full min-h-0" : "animate-page-enter",
       )}
     >
       {children}
     </div>
   );
+  if (isProtectedAppPath(pathname)) {
+    return <ProtectedRoute>{shell}</ProtectedRoute>;
+  }
+  return shell;
 }
 
 function AppShell() {
@@ -171,6 +182,11 @@ function AppShell() {
           <Route path="/about" element={<PageWrapper><Founders /></PageWrapper>} />
           <Route path="/contact" element={<PageWrapper><Contact /></PageWrapper>} />
           <Route path="/docs" element={<PageWrapper><Docs /></PageWrapper>} />
+          <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />
+          <Route path="/auth/callback" element={<PageWrapper><AuthCallback /></PageWrapper>} />
+          <Route path="/signup" element={<PageWrapper><Signup /></PageWrapper>} />
+          <Route path="/forgot-password" element={<PageWrapper><ForgotPassword /></PageWrapper>} />
+          <Route path="/reset-password" element={<PageWrapper><ResetPassword /></PageWrapper>} />
 
           {/* Product hub (marketing) + legacy /product/* URLs → technical tools */}
           <Route path="/products" element={<PageWrapper><ProductsHub /></PageWrapper>} />
@@ -260,7 +276,28 @@ function AppShell() {
             }
           />
           <Route
+            path="/tools/trainer/runs/:runId"
+            element={
+              <PageWrapper>
+                <TechnicalLayout>
+                  <TrainingSessionPage />
+                </TechnicalLayout>
+              </PageWrapper>
+            }
+          />
+          <Route path="/tools/trainer/runs/:runId/analysis" element={<LegacyTrainerAnalysisRedirect />} />
+          <Route
             path="/tools/analysis"
+            element={
+              <PageWrapper>
+                <TechnicalLayout>
+                  <LabPage />
+                </TechnicalLayout>
+              </PageWrapper>
+            }
+          />
+          <Route
+            path="/tools/analysis/legacy"
             element={
               <PageWrapper>
                 <TechnicalLayout>
@@ -425,7 +462,9 @@ function AppShell() {
 
 const AppRoutes = () => (
   <HeaderRevealProvider>
-    <AppShell />
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   </HeaderRevealProvider>
 );
 

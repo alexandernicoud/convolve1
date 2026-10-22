@@ -11,22 +11,22 @@ import select
 import fcntl
 
 from app.process_registry import kill_managed, popen_managed, running_processes
+from app.paths import backtest_run_dir, find_backtest_dir, runs_root
 
 # In-memory storage for backtest runs
 backtest_runs = {}
 
 def get_backtests_root() -> Path:
-    root_dir = Path(__file__).resolve().parents[2]
-    return root_dir / "backend" / "runs" / "backtests"
+    """Legacy shared backtests directory (AUTH_REQUIRED=false / pre-namespaced)."""
+    return runs_root() / "backtests"
 
 def get_run_info(run_id: str) -> Optional[Dict[str, Any]]:
     """Get run info from memory or disk"""
     if run_id in backtest_runs:
         return backtest_runs[run_id]
 
-    # Try to load from disk
-    run_dir = get_backtests_root() / run_id
-    if run_dir.exists():
+    run_dir = find_backtest_dir(run_id)
+    if run_dir and run_dir.exists():
         info_file = run_dir / "run_info.json"
         if info_file.exists():
             try:
@@ -34,7 +34,7 @@ def get_run_info(run_id: str) -> Optional[Dict[str, Any]]:
                     info = json.load(f)
                     backtest_runs[run_id] = info
                     return info
-            except:
+            except Exception:
                 pass
     return None
 
@@ -42,8 +42,8 @@ def save_run_info(run_id: str, info: Dict[str, Any]):
     """Save run info to memory and disk"""
     backtest_runs[run_id] = info
 
-    # Save to disk
-    run_dir = get_backtests_root() / run_id
+    user_id = info.get("user_id")
+    run_dir = backtest_run_dir(run_id, user_id)
     run_dir.mkdir(parents=True, exist_ok=True)
     info_file = run_dir / "run_info.json"
 
@@ -103,7 +103,8 @@ def parse_progress_from_output(line: str) -> Optional[tuple[float, str]]:
 
 def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
     """Run backtester with real-time progress and logging"""
-    run_dir = get_backtests_root() / run_id
+    user_id = config.get("user_id")
+    run_dir = backtest_run_dir(run_id, user_id)
     output_dir = run_dir / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -118,7 +119,8 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
         "logs": "",
         "started_at": time.time(),
         "config": config,
-        "output_dir": str(output_dir)
+        "output_dir": str(output_dir),
+        "user_id": user_id,
     }
     save_run_info(run_id, run_info)
 

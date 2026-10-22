@@ -4,8 +4,13 @@ Build and run configuration for:
 
 - **Cloud Run service** — FastAPI + uvicorn (HTTP)
 - **Cloud Run job** — `python -m app.jobs.run_due_bots` (scheduled batch; no HTTP)
+- **Cloud Run job** — `python -m app.jobs.train_worker` (CNN trainer; spec in `deploy/trainer-job.yaml`)
 
 Do not bake secrets into the image. Set environment variables (or Secret Manager → env) on the service/job.
+
+The verified production configuration (session pooler, dedicated service accounts,
+Secret Manager, bucket-scoped IAM) and the remaining rollout steps are in
+**`deploy/README.md`**.
 
 ## Build
 
@@ -39,7 +44,7 @@ No uvicorn, no FastAPI process. Ensure the same `DATABASE_URL`, `BOT_DATA_DIR`, 
 
 | Variable | Required in prod? | Example / notes |
 |----------|-------------------|-----------------|
-| `DATABASE_URL` | **Yes** (Postgres) | `postgresql+psycopg2://user:pass@host:5432/postgres?sslmode=require` |
+| `DATABASE_URL` | **Yes** (Postgres) | Supabase session pooler: `postgresql+psycopg2://postgres.<ref>:<password>@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require` (the direct `db.<ref>.supabase.co` host is IPv6-only and unreachable from Cloud Run) |
 | `BOT_DATA_DIR` | **Yes** | `/tmp/bot_data` or a mounted volume path — ephemeral disk on Cloud Run unless you attach storage |
 | `MODEL_STORAGE_ROOT` | Recommended | Defaults to `{BOT_DATA_DIR}/models/keras` if unset |
 | `DEFAULT_TIMEZONE` | Optional | `America/New_York` (IANA); used for scheduling fallbacks |

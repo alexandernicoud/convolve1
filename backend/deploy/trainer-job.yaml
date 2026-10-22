@@ -1,0 +1,76 @@
+# Cloud Run Job for CNN training. Not applied by any script in this repo.
+# Prerequisites, IAM and the full rollout order: deploy/README.md.
+#
+# Replace the REPLACE_* values, then:
+#   gcloud run jobs replace deploy/trainer-job.yaml \
+#     --project=project-23824ae4-252f-40b9-94a --region=europe-west6
+#
+# The API starts one execution per run with CONVOLVE_RUN_ID as the only override.
+# REPLACE_BACKEND_IMAGE must be the same digest (image@sha256:...) used by the API and
+# by the convolve-run-due-bots job: Keras 3.14 cannot load models saved by 3.15.
+#
+# Before the first real run, execute the same image once with
+#   --args=-m,app.jobs.train_worker,--check
+# It opens a read-only transaction and reports TLS, schema revision, worker tables,
+# privileges, RLS and bucket access without writing anything.
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: convolve-trainer
+  labels:
+    app: convolve
+    component: trainer
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          # No retries: a failed attempt is final (no checkpoints or resume).
+          maxRetries: 0
+          # 8 vCPU default training measured at ~7-15 min; 2 vCPU at up to ~42 min.
+          timeoutSeconds: 3600
+          # Dedicated account, e.g. convolve-trainer@PROJECT.iam.gserviceaccount.com.
+          # It needs no project-level roles, only:
+          #   roles/secretmanager.secretAccessor on REPLACE_DATABASE_URL_SECRET
+          #   roles/storage.objectAdmin on REPLACE_MODEL_BUCKET (bucket-level binding)
+          serviceAccountName: REPLACE_TRAINER_SERVICE_ACCOUNT
+          containers:
+            - image: REPLACE_BACKEND_IMAGE
+              command: ["python", "-m", "app.jobs.train_worker"]
+              resources:
+                limits:
+                  cpu: "8"
+                  memory: 8Gi
+              env:
+                - name: APP_PROFILE
+                  value: cloud
+                - name: APP_MODE
+                  value: job
+                - name: MODEL_BUCKET
+                  value: REPLACE_MODEL_BUCKET
+                - name: TRAINER_THREADS
+                  value: "8"
+                - name: OMP_NUM_THREADS
+                  value: "8"
+                - name: TF_NUM_INTRAOP_THREADS
+                  value: "8"
+                - name: TF_NUM_INTEROP_THREADS
+                  value: "8"
+                - name: LIVE_DEPLOY_ENABLED
+                  value: "false"
+                - name: SCHEDULED_BOTS_ENABLED
+                  value: "false"
+                # Secret Manager secret holding the Supabase *session pooler* URL:
+                #   postgresql+psycopg2://postgres.<ref>:<password>@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require
+                # Cloud Run's default egress is IPv4-only; db.<ref>.supabase.co is IPv6-only.
+                # The transaction pooler (port 6543) is untested.
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: REPLACE_DATABASE_URL_SECRET
+                      key: latest

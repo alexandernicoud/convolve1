@@ -10,6 +10,7 @@ export function getPipelineTitle(pathname: string): string {
   if (pathname.startsWith("/tools/trainer")) return "Trainer";
   if (pathname.startsWith("/tools/backtester")) return "Backtester";
   if (pathname.startsWith("/tools/deploy")) return "Deploy";
+  if (pathname === "/tools/run-log" || pathname === "/tools/run-log/") return "Review";
   if (pathname.startsWith("/tools/run-log")) return "Run history";
   if (pathname.startsWith("/products/labeling-optimizer")) return "Labeling optimizer";
   if (pathname.startsWith("/products/trainer/analysis")) return "Analysis";

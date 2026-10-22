@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { Upload, X, File, AlertTriangle, CheckCircle, Brain } from "lucide-react";
-import { apiUrl } from "@/lib/api";
+import { uploadModel } from "@/lib/directUpload";
 
 /** Matches backend ModelUploadResponse; absolute_path is the canonical file location on the API host. */
 interface UploadedModel {
@@ -101,18 +101,7 @@ export default function ModelUploader({
     setUploadProgress(0);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const xhr = new XMLHttpRequest();
-
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          setUploadProgress(Math.round((e.loaded / e.total) * 100));
-        }
-      });
-
-      const uploadPromise = new Promise<{
+      const response = await uploadModel<{
         model_id: string;
         storage_key: string;
         absolute_path: string;
@@ -124,34 +113,7 @@ export default function ModelUploader({
         matched_training_run_id?: string | null;
         matched_model_name?: string | null;
         matched_metadata?: Record<string, unknown> | null;
-      }>((resolve, reject) => {
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const response = JSON.parse(xhr.responseText);
-              resolve(response);
-            } catch (e) {
-              reject(new Error('Invalid response from server'));
-            }
-          } else {
-            try {
-              const errorResponse = JSON.parse(xhr.responseText);
-              reject(new Error(errorResponse.detail || 'Upload failed'));
-            } catch (e) {
-              reject(new Error(`Upload failed with status ${xhr.status}`));
-            }
-          }
-        });
-
-        xhr.addEventListener('error', () => {
-          reject(new Error('Network error during upload'));
-        });
-
-        xhr.open('POST', apiUrl('/models/upload'));
-        xhr.send(formData);
-      });
-
-      const response = await uploadPromise;
+      }>(file, (fraction) => setUploadProgress(Math.round(fraction * 100)));
 
       const uploadedModel: UploadedModel = {
         model_id: response.model_id,

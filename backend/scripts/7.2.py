@@ -206,6 +206,319 @@ def compute_asset_stats_from_df(df: pd.DataFrame):
 # PARALLEL TRADE SIMULATOR (GRID)
 # ============================================================
 
+# The grid search calls simulate_system_for_metrics once per TP/SL/horizon.
+# That Python walk is the slow part. The compiled path below is the same
+# bar order, same same-bar high/low test, and same equity updates. The
+# original function remains the fallback (CONVOLVE_LABEL_GRID=python,
+# or when Numba cannot be imported or compiled).
+_NUMBA_FUNCS = None
+_NUMBA_BROKEN = False
+
+
+def _label_grid_mode() -> str:
+    return os.environ.get("CONVOLVE_LABEL_GRID", "auto").strip().lower()
+
+
+def _numba_exception(exc: BaseException) -> bool:
+    return type(exc).__module__.startswith("numba") or isinstance(exc, ImportError)
+
+
+def _metrics_from_state(
+    tp_frac: float,
+    sl_frac: float,
+    horizon_days: int,
+    years: float,
+    start_equity: float,
+    trades: int,
+    label1_count: int,
+    pnl_linear_sum: float,
+    dd_min: float,
+    mean_r: float,
+    M2: float,
+    equity_comp: float,
+):
+    """Same closing formulas as simulate_system_for_metrics."""
+    h = horizon_days
+    trades = int(trades)
+    label1_count = int(label1_count)
+    pnl_linear = pnl_linear_sum
+    pnl_linear_per_year = pnl_linear / years
+    pnl_linear_pct = pnl_linear * 100.0
+    pnl_linear_per_year_pct = pnl_linear_per_year * 100.0
+
+    label1_ratio = label1_count / trades if trades > 0 else 0.0
+
+    max_drawdown = -dd_min
+    max_drawdown = min(max_drawdown, 1.0)
+    max_drawdown_pct = max_drawdown * 100.0
+
+    trades_per_year = trades / years if years > 0 else np.nan
+
+    if trades > 1:
+        var = M2 / (trades - 1)
+        std_r = np.sqrt(var) if var > 0 else 0.0
+        if std_r > 1e-12:
+            sharpe_trade = mean_r / std_r
+            sharpe_annual = sharpe_trade * np.sqrt(trades_per_year)
+        else:
+            sharpe_annual = np.nan
+    else:
+        sharpe_annual = np.nan
+
+    compounded_return = (equity_comp / start_equity) - 1.0
+    if years > 0 and compounded_return > -0.999999:
+        compounded_cagr = (1.0 + compounded_return) ** (1.0 / years) - 1.0
+    else:
+        compounded_cagr = np.nan
+
+    calmar_ratio = (pnl_linear_per_year / max_drawdown) if max_drawdown > 1e-9 else np.nan
+
+    return {
+        "tp_frac": tp_frac,
+        "sl_frac": sl_frac,
+        "horizon_days": h,
+        "trades": trades,
+        "years": years,
+        "pnl_linear": pnl_linear,
+        "pnl_linear_per_year": pnl_linear_per_year,
+        "pnl_linear_pct": pnl_linear_pct,
+        "pnl_linear_per_year_pct": pnl_linear_per_year_pct,
+        "pnl_per_trade": mean_r,
+        "pnl_per_trade_pct": mean_r * 100.0,
+        "label1_ratio": label1_ratio,
+        "max_drawdown": max_drawdown,
+        "max_drawdown_pct": max_drawdown_pct,
+        "trades_per_year": trades_per_year,
+        "sharpe_annual": sharpe_annual,
+        "calmar_ratio": calmar_ratio,
+        "equity_final": equity_comp,
+        "compounded_return": compounded_return,
+        "compounded_return_pct": compounded_return * 100.0,
+        "compounded_cagr": compounded_cagr,
+        "compounded_cagr_pct": compounded_cagr * 100.0,
+    }
+
+
+def _load_numba_funcs():
+    """Compile the bar walk once per process. None when Numba cannot be used."""
+    global _NUMBA_FUNCS, _NUMBA_BROKEN
+    if _NUMBA_BROKEN:
+        return None
+    if _NUMBA_FUNCS is not None:
+        return _NUMBA_FUNCS
+    try:
+        from numba import get_num_threads, get_thread_id, njit, prange
+    except Exception as exc:
+        print(f"Label grid: Numba unavailable ({exc}); using the original Python grid.")
+        _NUMBA_BROKEN = True
+        return None
+
+    @njit(cache=False, fastmath=False)
+    def _scan(
+        opens,
+        highs,
+        lows,
+        tp_frac,
+        sl_frac,
+        horizon_days,
+        start_equity,
+        total_cost,
+        sl_first,
+        gen,
+        tp_levels,
+        sl_levels,
+        exps,
+        alive,
+    ):
+        n = opens.shape[0]
+        h = horizon_days
+        if h < 1:
+            h = 1
+        w = 1.0 / h
+
+        trades = 0
+        label1_count = 0
+        pnl_linear_sum = 0.0
+        equity_lin = 1.0
+        max_equity_lin = 1.0
+        dd_min = 0.0
+        mean_r = 0.0
+        M2 = 0.0
+        equity_comp = start_equity
+
+        for i in range(1, n):
+            entry_price = opens[i]
+            tp_levels[i] = entry_price * (1.0 + tp_frac)
+            sl_levels[i] = entry_price * (1.0 - sl_frac)
+            expiry = i + h - 1
+            if expiry > n - 1:
+                expiry = n - 1
+            exps[i] = expiry
+            alive[i] = gen
+
+            hi = highs[i]
+            lo = lows[i]
+            start = i - h + 1
+            if start < 1:
+                start = 1
+
+            for k in range(start, i + 1):
+                if alive[k] != gen:
+                    continue
+                tpL = tp_levels[k]
+                slL = sl_levels[k]
+                exp = exps[k]
+                hit_tp = hi >= tpL
+                hit_sl = lo <= slL
+
+                out = 0
+                if hit_tp and hit_sl:
+                    out = -1 if sl_first != 0 else 1
+                elif hit_sl:
+                    out = -1
+                elif hit_tp:
+                    out = 1
+                elif i >= exp:
+                    out = 0
+
+                if out == 0 and i < exp:
+                    continue
+
+                alive[k] = 0
+                if out == 1:
+                    r = tp_frac
+                    trades += 1
+                    label1_count += 1
+                    counted = True
+                elif out == -1:
+                    r = -sl_frac
+                    trades += 1
+                    counted = True
+                else:
+                    r = 0.0
+                    counted = False
+
+                eff_r = w * r
+                eff_r -= w * total_cost
+
+                pnl_linear_sum += eff_r
+                equity_lin += eff_r
+                equity_lin = max(equity_lin, 0.0)
+                max_equity_lin = max(max_equity_lin, equity_lin)
+                dd_min = min(dd_min, equity_lin - max_equity_lin)
+
+                if counted:
+                    delta = eff_r - mean_r
+                    mean_r += delta / trades
+                    delta2 = eff_r - mean_r
+                    M2 += delta2 * delta2
+
+                equity_comp *= (1.0 + eff_r)
+                equity_comp = max(equity_comp, 0.0)
+
+        return trades, label1_count, pnl_linear_sum, dd_min, mean_r, M2, equity_comp
+
+    @njit(cache=False, fastmath=False)
+    def _simulate_one(opens, highs, lows, tp_frac, sl_frac, horizon_days, start_equity, total_cost, sl_first):
+        n = opens.shape[0]
+        tp_levels = np.empty(n, dtype=np.float64)
+        sl_levels = np.empty(n, dtype=np.float64)
+        exps = np.empty(n, dtype=np.int64)
+        alive = np.zeros(n, dtype=np.int64)
+        return _scan(
+            opens, highs, lows, tp_frac, sl_frac, horizon_days,
+            start_equity, total_cost, sl_first, 1,
+            tp_levels, sl_levels, exps, alive,
+        )
+
+    @njit(cache=False, fastmath=False, parallel=True)
+    def _simulate_grid(opens, highs, lows, tp_values, sl_values, horizons, start_equity, total_cost, sl_first):
+        n = opens.shape[0]
+        n_tp = tp_values.shape[0]
+        n_sl = sl_values.shape[0]
+        n_h = horizons.shape[0]
+        total = n_tp * n_sl * n_h
+        trades = np.empty(total, dtype=np.int64)
+        label1 = np.empty(total, dtype=np.int64)
+        pnl = np.empty(total, dtype=np.float64)
+        dd = np.empty(total, dtype=np.float64)
+        mean = np.empty(total, dtype=np.float64)
+        m2 = np.empty(total, dtype=np.float64)
+        equity = np.empty(total, dtype=np.float64)
+
+        nthreads = get_num_threads()
+        tp_levels = np.empty((nthreads, n), dtype=np.float64)
+        sl_levels = np.empty((nthreads, n), dtype=np.float64)
+        exps = np.empty((nthreads, n), dtype=np.int64)
+        alive = np.zeros((nthreads, n), dtype=np.int64)
+        gen = np.zeros(nthreads, dtype=np.int64)
+
+        for p in prange(total):
+            tid = get_thread_id()
+            hi = p % n_h
+            tmp = p // n_h
+            si = tmp % n_sl
+            ti = tmp // n_sl
+            gen[tid] += 1
+            t, l1, pnl_i, dd_i, mean_i, m2_i, eq_i = _scan(
+                opens, highs, lows,
+                tp_values[ti], sl_values[si], horizons[hi],
+                start_equity, total_cost, sl_first, gen[tid],
+                tp_levels[tid], sl_levels[tid], exps[tid], alive[tid],
+            )
+            trades[p] = t
+            label1[p] = l1
+            pnl[p] = pnl_i
+            dd[p] = dd_i
+            mean[p] = mean_i
+            m2[p] = m2_i
+            equity[p] = eq_i
+        return trades, label1, pnl, dd, mean, m2, equity
+
+    _NUMBA_FUNCS = (_simulate_one, _simulate_grid)
+    return _NUMBA_FUNCS
+
+
+def _ohlc_arrays(df: pd.DataFrame):
+    opens = np.ascontiguousarray(df["Open"].to_numpy(dtype=np.float64, copy=False))
+    highs = np.ascontiguousarray(df["High"].to_numpy(dtype=np.float64, copy=False))
+    lows = np.ascontiguousarray(df["Low"].to_numpy(dtype=np.float64, copy=False))
+    return opens, highs, lows
+
+
+def _years_covered(df: pd.DataFrame) -> float:
+    dates = df.index
+    return max((dates[-1] - dates[0]).days / 365.25, 1e-9)
+
+
+def simulate_system_for_metrics_numba(
+    df: pd.DataFrame,
+    tp_frac: float,
+    sl_frac: float,
+    horizon_days: int,
+    start_equity: float,
+):
+    """Compiled equivalent of simulate_system_for_metrics. None if Numba is off."""
+    funcs = _load_numba_funcs()
+    if funcs is None:
+        return None
+    opens, highs, lows = _ohlc_arrays(df)
+    n = opens.shape[0]
+    if n < 3:
+        return None
+    h = max(int(horizon_days), 1)
+    sl_first = 0 if AMBIGUOUS_FILL == "TP_FIRST" else 1
+    trades, label1, pnl, dd_min, mean_r, m2, equity_comp = funcs[0](
+        opens, highs, lows,
+        float(tp_frac), float(sl_frac), h,
+        float(start_equity), float(TOTAL_COST_FRAC), sl_first,
+    )
+    return _metrics_from_state(
+        float(tp_frac), float(sl_frac), h, _years_covered(df), float(start_equity),
+        trades, label1, pnl, dd_min, mean_r, m2, equity_comp,
+    )
+
+
 def simulate_system_for_metrics(
         df: pd.DataFrame,
         tp_frac: float,
@@ -452,7 +765,7 @@ def simulate_compounded_equity_path(
 # GRID SEARCH
 # ================================
 
-def run_grid_search(df: pd.DataFrame, progress: ProgressWriter | None = None) -> pd.DataFrame:
+def _run_grid_search_python(df: pd.DataFrame, progress: ProgressWriter | None = None) -> pd.DataFrame:
     tp_values = np.linspace(TP_MIN, TP_MAX, TP_STEPS)
     sl_values = np.linspace(SL_MIN, SL_MAX, SL_STEPS)
     horizon_values = np.arange(HORIZON_MIN, HORIZON_MAX + 1)
@@ -529,6 +842,114 @@ def run_grid_search(df: pd.DataFrame, progress: ProgressWriter | None = None) ->
         return pd.DataFrame()
 
     return pd.DataFrame(results)
+
+
+def _append_grid_rows(rows, stats_iter):
+    for stats in stats_iter:
+        rows.append({
+            "tp_frac": stats["tp_frac"],
+            "sl_frac": stats["sl_frac"],
+            "horizon_days": stats["horizon_days"],
+            "spread": stats["tp_frac"] - stats["sl_frac"],
+            "trades": stats["trades"],
+            "years": stats["years"],
+            "pnl_linear": stats["pnl_linear"],
+            "pnl_linear_per_year": stats["pnl_linear_per_year"],
+            "pnl_linear_pct": stats["pnl_linear_pct"],
+            "pnl_linear_per_year_pct": stats["pnl_linear_per_year_pct"],
+            "pnl_per_trade": stats["pnl_per_trade"],
+            "pnl_per_trade_pct": stats["pnl_per_trade_pct"],
+            "label1_ratio": stats["label1_ratio"],
+            "max_drawdown": stats["max_drawdown"],
+            "max_drawdown_pct": stats["max_drawdown_pct"],
+            "trades_per_year": stats["trades_per_year"],
+            "sharpe_annual": stats["sharpe_annual"],
+            "calmar_ratio": stats["calmar_ratio"],
+            "equity_final": stats["equity_final"],
+            "compounded_return": stats["compounded_return"],
+            "compounded_return_pct": stats["compounded_return_pct"],
+            "compounded_cagr": stats["compounded_cagr"],
+            "compounded_cagr_pct": stats["compounded_cagr_pct"],
+        })
+
+
+def _run_grid_search_numba(df: pd.DataFrame, progress: ProgressWriter | None = None) -> pd.DataFrame:
+    funcs = _load_numba_funcs()
+    if funcs is None:
+        raise ImportError("numba unavailable")
+    _simulate_grid = funcs[1]
+
+    opens, highs, lows = _ohlc_arrays(df)
+    if opens.shape[0] < 3:
+        print("\nRunning grid search over 0 combinations...\n")
+        print("No systems produced metrics.")
+        return pd.DataFrame()
+
+    years = _years_covered(df)
+    tp_values = np.ascontiguousarray(np.linspace(TP_MIN, TP_MAX, TP_STEPS), dtype=np.float64)
+    sl_values = np.ascontiguousarray(np.linspace(SL_MIN, SL_MAX, SL_STEPS), dtype=np.float64)
+    horizon_values = np.ascontiguousarray(np.arange(HORIZON_MIN, HORIZON_MAX + 1), dtype=np.int64)
+    total_combos = int(tp_values.shape[0] * sl_values.shape[0] * horizon_values.shape[0])
+    print(f"\nRunning grid search over {total_combos:,} combinations...\n")
+
+    sl_first = 0 if AMBIGUOUS_FILL == "TP_FIRST" else 1
+    sl_batch = max(1, 1000 // max(int(horizon_values.shape[0]), 1))
+    rows = []
+    counter = 0
+    start_time = time.time()
+    start_equity = float(START_CAPITAL)
+    cost = float(TOTAL_COST_FRAC)
+
+    for ti in range(tp_values.shape[0]):
+        for si in range(0, sl_values.shape[0], sl_batch):
+            chunk_tp = np.ascontiguousarray(tp_values[ti:ti + 1])
+            chunk_sl = np.ascontiguousarray(sl_values[si:si + sl_batch])
+            trades, label1, pnl, dd, mean, m2, equity = _simulate_grid(
+                opens, highs, lows, chunk_tp, chunk_sl, horizon_values,
+                start_equity, cost, sl_first,
+            )
+            p = 0
+            batch_stats = []
+            for tp in chunk_tp:
+                for sl in chunk_sl:
+                    for h in horizon_values:
+                        batch_stats.append(_metrics_from_state(
+                            float(tp), float(sl), int(h), years, start_equity,
+                            trades[p], label1[p], pnl[p], dd[p], mean[p], m2[p], equity[p],
+                        ))
+                        p += 1
+                        counter += 1
+            _append_grid_rows(rows, batch_stats)
+            if (counter % 1000 == 0) or (counter == total_combos):
+                print_progress(counter, total_combos, start_time)
+                if progress is not None:
+                    frac = counter / total_combos
+                    progress.update(
+                        "grid search",
+                        percent=round(frac * 100.0, 2),
+                        step=counter,
+                    )
+
+    if not rows:
+        print("No systems produced metrics.")
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
+def run_grid_search(df: pd.DataFrame, progress: ProgressWriter | None = None) -> pd.DataFrame:
+    """Full TP × SL × horizon grid. Uses Numba unless it is unavailable or disabled."""
+    global _NUMBA_BROKEN
+    mode = _label_grid_mode()
+    use_python = mode in {"python", "original", "fallback"} or _NUMBA_BROKEN
+    if not use_python:
+        try:
+            return _run_grid_search_numba(df, progress)
+        except Exception as exc:
+            if not _numba_exception(exc):
+                raise
+            _NUMBA_BROKEN = True
+            print(f"Label grid: Numba path failed ({exc}); using the original Python grid.")
+    return _run_grid_search_python(df, progress)
 
 
 # ================================

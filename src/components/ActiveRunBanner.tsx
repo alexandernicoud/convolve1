@@ -1,9 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ChevronRight, ChevronDown, Play, CheckCircle, XCircle, Clock, X, ExternalLink } from 'lucide-react';
 import { useRunsStore } from '@/state/runsStore';
 import { useHeaderReveal } from '@/context/HeaderRevealContext';
 import { cancelAnyRun } from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
+
+const LIVE_POLL_MS = 5000;
+const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 
 const DISMISSED_RUNS_KEY = 'convolve_dismissed_runs';
 
@@ -32,6 +36,25 @@ const addDismissedRun = (runId: string) => {
   }
 };
 
+const getToolLabel = (tool: string) => {
+  switch (tool) {
+    case 'labeling-optimizer':
+      return 'Labeling Optimizer';
+    case 'training-chart-generator':
+      return 'Chart Generator';
+    case 'trainer':
+      return 'CNN Trainer';
+    case 'analysis':
+      return 'CNN Analysis';
+    case 'testdata':
+      return 'Test Dataset';
+    case 'backtester':
+      return 'Backtester';
+    default:
+      return tool;
+  }
+};
+
 const removeDismissedRun = (runId: string) => {
   const dismissed = getDismissedRuns();
   setDismissedRuns(dismissed.filter(id => id !== runId));
@@ -43,12 +66,52 @@ export default function ActiveRunBanner() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [dismissedRunIds, setDismissedRunIds] = useState<string[]>(getDismissedRuns());
   const progressStuckTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const getRunRoute = useRunsStore((s) => s.getRunRoute);
 
-  // Get visible (non-dismissed) active runs
+  // Get visible (non-dismissed) active runs; a run's own page already shows its progress.
   const visibleRuns = activeRunIds
     .map(runId => runsById[runId])
     .filter(run => run && run.status === 'running' && !dismissedRunIds.includes(run.id))
+    .filter(run => getRunRoute(run).split('?')[0] !== pathname)
     .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
+
+  // Keep live runs fresh between the app-wide reconcile passes.
+  const liveIds = activeRunIds
+    .filter(id => runsById[id]?.status === 'running' || runsById[id]?.status === 'queued')
+    .join(',');
+  useEffect(() => {
+    if (!liveIds) return;
+    const ids = liveIds.split(',');
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      ids.forEach(id => void useRunsStore.getState().refreshRun(id));
+    }, LIVE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [liveIds]);
+
+  // Announce runs that finish while the user is elsewhere.
+  const lastStatus = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const ids = new Set([...activeRunIds, ...Object.keys(lastStatus.current)]);
+    ids.forEach(id => {
+      const run = runsById[id];
+      if (!run) return;
+      const prev = lastStatus.current[id];
+      if (prev && !TERMINAL.has(prev) && TERMINAL.has(run.status) && getRunRoute(run).split('?')[0] !== pathname) {
+        const route = getRunRoute(run);
+        toast({
+          title: `${getToolLabel(run.tool)} ${run.status === 'succeeded' ? 'finished' : run.status}`,
+          description: run.status === 'failed' ? run.message || 'Open the run for details.' : 'Open the run to see the results.',
+          variant: run.status === 'failed' ? 'destructive' : undefined,
+          onClick: () => navigate(route),
+        });
+      }
+      if (TERMINAL.has(run.status)) delete lastStatus.current[id];
+      else lastStatus.current[id] = run.status;
+    });
+  }, [runsById, activeRunIds, pathname, getRunRoute, navigate]);
 
   // Track progress changes to detect stuck progress
   useEffect(() => {
@@ -129,7 +192,7 @@ export default function ActiveRunBanner() {
     const href = run
       ? useRunsStore.getState().getRunRoute(run)
       : `/tools/run-log?highlight=${encodeURIComponent(runId)}`;
-    window.location.href = href;
+    navigate(href);
   };
 
   // Add shimmer animation styles
@@ -168,25 +231,6 @@ export default function ActiveRunBanner() {
         return <Clock className="w-4 h-4 text-yellow-400" />;
       default:
         return <Play className="w-4 h-4 text-gray-400" />;
-    }
-  };
-
-  const getToolLabel = (tool: string) => {
-    switch (tool) {
-      case 'labeling-optimizer':
-        return 'Labeling Optimizer';
-      case 'training-chart-generator':
-        return 'Chart Generator';
-      case 'trainer':
-        return 'CNN Trainer';
-      case 'analysis':
-        return 'CNN Analysis';
-      case 'testdata':
-        return 'Test Dataset';
-      case 'backtester':
-        return 'Backtester';
-      default:
-        return tool;
     }
   };
 
@@ -239,19 +283,20 @@ export default function ActiveRunBanner() {
           <Play className="w-4 h-4 text-white animate-pulse" />
           <div className="absolute -top-1 -right-1 w-2 h-2 bg-white rounded-full animate-ping" />
         </div>
-        <div className="flex items-center gap-2">
-          <span className="font-medium">
-            {visibleRuns.length === 1
-              ? getToolLabel(visibleRuns[0].tool)
-              : `${visibleRuns.length} processes running`
-            }
-          </span>
-          {visibleRuns.length === 1 && (
-            <span className="text-white/70 text-sm">
-              {visibleRuns[0].id.slice(-8)}
-            </span>
-          )}
-        </div>
+        {visibleRuns.length === 1 ? (
+          <button
+            type="button"
+            onClick={() => handleRunClick(visibleRuns[0].id)}
+            className="flex items-center gap-2 rounded transition hover:text-white/80"
+            title="Open run"
+          >
+            <span className="font-medium">{getToolLabel(visibleRuns[0].tool)}</span>
+            <span className="text-white/70 text-sm">{visibleRuns[0].id.slice(-8)}</span>
+            <ExternalLink className="h-3.5 w-3.5 text-white/50" />
+          </button>
+        ) : (
+          <span className="font-medium">{`${visibleRuns.length} processes running`}</span>
+        )}
       </div>
 
       {/* Center: Status text */}

@@ -24,8 +24,10 @@ from app.config import (
     SCHEDULED_BOTS_ENABLED,
     STALE_RUNNING_RUN_MINUTES,
     USER_ID,
+    AUTH_REQUIRED,
     configure_logging,
 )
+from app import ml_versions
 from app.db import SessionLocal, init_db
 from app.models import Bot
 from app.services.bot_execution import (
@@ -100,14 +102,21 @@ def run_due_bots_once() -> dict[str, int]:
             now_utc=now_utc,
         )
 
-        bots = (
-            db.query(Bot)
-            .filter(
-                Bot.lifecycle_state == "active",
-                or_(Bot.user_id == USER_ID, Bot.user_id.is_(None)),
+        if AUTH_REQUIRED:
+            bots = (
+                db.query(Bot)
+                .filter(Bot.lifecycle_state == "active")
+                .all()
             )
-            .all()
-        )
+        else:
+            bots = (
+                db.query(Bot)
+                .filter(
+                    Bot.lifecycle_state == "active",
+                    or_(Bot.user_id == USER_ID, Bot.user_id.is_(None)),
+                )
+                .all()
+            )
         summary["candidates"] = len(bots)
 
         for bot in bots:
@@ -162,6 +171,14 @@ def main() -> int:
         BOT_SCHEDULE_TZ,
         STALE_RUNNING_RUN_MINUTES,
     )
+    problems = ml_versions.version_mismatches()
+    if problems:
+        logger.error(
+            "ML package versions do not match requirements.txt; models saved by the Trainer may not load: %s",
+            "; ".join(problems),
+        )
+    else:
+        logger.info("ML packages match pins (%s)", ml_versions.describe())
     try:
         summary = run_due_bots_once()
     except Exception:

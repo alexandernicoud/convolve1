@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import ToolLayout from "@/components/ToolLayout";
 import StatusPanel, { Status } from "@/components/StatusPanel";
 import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
+import { RunCostHint } from "@/components/RunCostHint";
 
 export default function Optimizer() {
   const [status, setStatus] = useState<Status>('idle');
@@ -152,13 +153,16 @@ export default function Optimizer() {
         </div>
       </div>
 
-      <button
-        onClick={handleRunOptimization}
-        disabled={status === 'running'}
-        className="w-full px-6 py-2.5 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {status === 'running' ? 'Optimizing...' : 'Run optimization'}
-      </button>
+      <div className="space-y-1.5">
+        <button
+          onClick={handleRunOptimization}
+          disabled={status === 'running'}
+          className="w-full px-6 py-2.5 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {status === 'running' ? 'Optimizing...' : 'Run optimization'}
+        </button>
+        <RunCostHint />
+      </div>
     </div>
   );
 

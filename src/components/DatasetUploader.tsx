@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { Upload, X, File, AlertTriangle, CheckCircle } from "lucide-react";
-import { apiUrl, fetchApi } from "@/lib/api";
+import { fetchApi } from "@/lib/api";
+import { UploadError, uploadDataset } from "@/lib/directUpload";
 
 interface DatasetSummary {
   total_images: number;
@@ -19,6 +20,20 @@ interface DatasetUploaderProps {
   onDatasetRemoved: () => void;
   uploadedDataset?: UploadedDataset | null;
   compact?: boolean;
+}
+
+function describeUploadError(err: unknown): string {
+  if (!(err instanceof UploadError)) {
+    return err instanceof Error ? err.message : "Upload failed";
+  }
+  if (err.status === 413) return `File too large: ${err.message}`;
+  if (err.status === 415) return "Invalid file type. Only ZIP files are supported.";
+  if (err.status === 422) return `File validation failed: ${err.message}`;
+  if (err.status >= 500) return "Server error. Please try again later.";
+  if (err.status === 0 && err.message === "Network error during upload") {
+    return "Network connection failed. Check that the dev server is running (Vite proxies to the API) or set VITE_API_BASE_URL if the API is elsewhere.";
+  }
+  return err.message;
 }
 
 export default function DatasetUploader({
@@ -47,8 +62,8 @@ export default function DatasetUploader({
     if (!file.name.toLowerCase().endsWith('.zip')) {
       return "Only ZIP files are supported";
     }
-    if (file.size > 2 * 1024 * 1024 * 1024) { // 2GB
-      return "File size exceeds 2GB limit";
+    if (file.size > 1024 * 1024 * 1024) {
+      return "File size exceeds the 1 GB limit";
     }
     return null;
   };
@@ -94,9 +109,6 @@ export default function DatasetUploader({
     setIsUploading(true);
     setUploadProgress(0);
 
-    const formData = new FormData();
-    formData.append('file', file);
-
     // Check if backend is accessible first
     try {
       await fetchApi('/datasets/test', { method: 'HEAD' });
@@ -107,90 +119,13 @@ export default function DatasetUploader({
     }
 
     try {
-      const xhr = new XMLHttpRequest();
-
-      // Track upload progress
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const progress = (e.loaded / e.total) * 100;
-          setUploadProgress(progress);
-        }
+      const response = await uploadDataset<UploadedDataset>(file, {
+        onProgress: (fraction) => setUploadProgress(fraction * 100),
       });
-
-      // Handle completion
-      xhr.addEventListener('load', () => {
-        console.log('Upload completed with status:', xhr.status);
-        console.log('Response:', xhr.responseText);
-
-        if (xhr.status === 200) {
-          try {
-            const response = JSON.parse(xhr.responseText);
-            onDatasetUploaded(response);
-            setIsUploading(false);
-          } catch (parseError) {
-            console.error('JSON parse error:', parseError);
-            setError(`Server response parsing failed: ${parseError instanceof Error ? parseError.message : 'Invalid JSON'}`);
-            setIsUploading(false);
-          }
-        } else {
-          // Handle different HTTP status codes
-          let errorMessage = `Upload failed with status ${xhr.status}`;
-
-          if (xhr.status === 413) {
-            errorMessage = "File too large. Please use a smaller ZIP file (under 2GB).";
-          } else if (xhr.status === 415) {
-            errorMessage = "Invalid file type. Only ZIP files are supported.";
-          } else if (xhr.status === 422) {
-            errorMessage = "File validation failed. Check file format and contents.";
-          } else if (xhr.status >= 500) {
-            errorMessage = "Server error. Please try again later.";
-          }
-
-          try {
-            const errorData = JSON.parse(xhr.responseText);
-            if (errorData.detail) {
-              errorMessage += `: ${errorData.detail}`;
-            }
-          } catch {
-            // If we can't parse error response, keep the generic message
-            if (xhr.responseText) {
-              errorMessage += ` - ${xhr.responseText.slice(0, 100)}`;
-            }
-          }
-
-          setError(errorMessage);
-          setIsUploading(false);
-        }
-      });
-
-      // Handle network errors
-      xhr.addEventListener('error', () => {
-        console.error('Network error during upload');
-        setError("Network connection failed. Check that the dev server is running (Vite proxies to the API) or set VITE_API_BASE_URL if the API is elsewhere.");
-        setIsUploading(false);
-      });
-
-      // Handle timeout
-      xhr.addEventListener('timeout', () => {
-        console.error('Upload timeout');
-        setError("Upload timed out. The file may be too large or the server is busy. Try with a smaller file.");
-        setIsUploading(false);
-      });
-
-      // Handle abort
-      xhr.addEventListener('abort', () => {
-        console.log('Upload was cancelled by user');
-        setError("Upload was cancelled");
-        setIsUploading(false);
-      });
-
-      // Set timeout (5 minutes for large files)
-      xhr.timeout = 5 * 60 * 1000;
-
-      xhr.open('POST', apiUrl('/datasets/upload'));
-      xhr.send(formData);
+      onDatasetUploaded(response);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
+      setError(describeUploadError(err));
+    } finally {
       setIsUploading(false);
     }
   };
@@ -337,7 +272,7 @@ export default function DatasetUploader({
               {compact ? "ZIP — drop or click" : "Drop ZIP file here or click to browse"}
             </div>
             <div className={`text-[#F5F5F5]/62 ${compact ? "text-[10px]" : "text-xs"}`}>
-              .zip · max 2GB
+              .zip · max 1GB
             </div>
           </div>
         )}

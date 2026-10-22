@@ -168,6 +168,17 @@ def _sqlite_migrate(engine: Engine) -> None:
         ("bots", "commission_pct", "FLOAT"),
         ("bots", "slippage_pct", "FLOAT"),
         ("bots", "lifecycle_state", "TEXT"),
+        ("bots", "provenance", "TEXT"),
+        ("bots", "source_model_id", "TEXT"),
+        ("bots", "source_training_run_id", "TEXT"),
+        ("bots", "source_backtest_run_id", "TEXT"),
+        ("pipeline_runs", "progress", "FLOAT"),
+        ("pipeline_runs", "stage", "TEXT"),
+        ("pipeline_runs", "message", "TEXT"),
+        ("pipeline_runs", "error_summary", "TEXT"),
+        ("pipeline_runs", "artifact_ref", "TEXT"),
+        ("pipeline_runs", "worker_id", "TEXT"),
+        ("pipeline_runs", "finished_at", "TIMESTAMP"),
     ]
 
     with engine.begin() as conn:

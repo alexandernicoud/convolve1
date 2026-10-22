@@ -67,6 +67,9 @@ If a process dies after creating a `BotRun` with `status=running`, the next job 
 
 ## What remains before production cloud deployment
 
+The current, verified rollout plan is in **`deploy/README.md`**; the list below is the
+original high-level checklist.
+
 - **Secrets**: Move DB URLs and keys out of plain env in source; use Secret Manager / CI.
 - **Migrations**: Use **Alembic** for Postgres (`alembic upgrade head`). SQLite-only `_sqlite_migrate` is for local legacy files only.
 - **HTTPS / CORS**: Restrict `CORS_ORIGINS` to real frontend origins.

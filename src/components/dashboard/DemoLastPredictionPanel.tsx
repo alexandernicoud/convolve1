@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { AuthorizedImage } from "@/components/AuthorizedImage";
 import heatmapImg from "@/assets/heatmap.png";
 import { demoLinkClass } from "@/components/dashboard/demoPortfolioPalette";
 import { cn } from "@/lib/utils";
@@ -66,7 +66,7 @@ export function DemoLastPredictionPanel({ live }: { live?: LivePrediction | null
         <div className="flex shrink-0 flex-col items-center gap-1 pt-0.5">
           <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-white/35">Heatmap</p>
           {heatSrc ? (
-            <img
+            <AuthorizedImage
               key={heatSrc}
               src={heatSrc}
               alt=""

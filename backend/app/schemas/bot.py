@@ -92,6 +92,10 @@ class BotOut(BaseModel):
     derived_status: Optional[str] = None
     lifecycle_state: str = "active"
     next_scheduled_run_iso: Optional[str] = None
+    provenance: Optional[str] = None
+    source_model_id: Optional[str] = None
+    source_training_run_id: Optional[str] = None
+    source_backtest_run_id: Optional[str] = None
 
 
 class BotSummarySectionOut(BaseModel):

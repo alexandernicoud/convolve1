@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { useRunsStore } from "@/state/runsStore";
 import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
+import { RunCostHint } from "@/components/RunCostHint";
 import FieldTip from "@/components/generator/FieldTip";
 import StepSection from "@/components/generator/StepSection";
 import SymbolBasket from "@/components/generator/SymbolBasket";
@@ -952,16 +953,19 @@ export default function TestDataGeneratorModal({
             >
               Cancel
             </button>
-            <button
-              type="button"
-              onClick={() => void handleGenerate()}
-              disabled={starting || overlapsTraining}
-              title={overlapsTraining ? "Test period overlaps the training period" : undefined}
-              className="flex items-center justify-center gap-2 rounded-xl bg-white px-8 py-3.5 text-base font-semibold text-[#0a0a0a] transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Play className="h-5 w-5" />
-              {starting ? "Starting…" : "Generate test dataset"}
-            </button>
+            <div className="flex flex-col items-stretch gap-1.5">
+              <button
+                type="button"
+                onClick={() => void handleGenerate()}
+                disabled={starting || overlapsTraining}
+                title={overlapsTraining ? "Test period overlaps the training period" : undefined}
+                className="flex items-center justify-center gap-2 rounded-xl bg-white px-8 py-3.5 text-base font-semibold text-[#0a0a0a] transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Play className="h-5 w-5" />
+                {starting ? "Starting…" : "Generate test dataset"}
+              </button>
+              <RunCostHint />
+            </div>
           </div>
         </div>
       </div>

@@ -14,6 +14,7 @@ import {
   type DatasetListItem,
 } from "@/lib/api";
 import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
+import { RunCostHint } from "@/components/RunCostHint";
 import { cn } from "@/lib/utils";
 
 type UploadedModel = {
@@ -392,20 +393,23 @@ export default function AnalysisTechnical() {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={!canRun}
-            onClick={() => void handleRun()}
-            className={cn(
-              "inline-flex w-full items-center justify-center gap-2 rounded-xl px-8 py-3.5 text-base font-semibold transition sm:w-auto",
-              canRun
-                ? "bg-white text-[#0a0a0a] shadow-[0_0_24px_rgba(255,255,255,0.12)] hover:bg-white/90"
-                : "cursor-not-allowed bg-white/20 text-white/40",
-            )}
-          >
-            {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
-            {running ? "Running…" : "Run analysis"}
-          </button>
+          <div className="flex w-full flex-col items-stretch gap-1.5 sm:w-auto">
+            <button
+              type="button"
+              disabled={!canRun}
+              onClick={() => void handleRun()}
+              className={cn(
+                "inline-flex w-full items-center justify-center gap-2 rounded-xl px-8 py-3.5 text-base font-semibold transition sm:w-auto",
+                canRun
+                  ? "bg-white text-[#0a0a0a] shadow-[0_0_24px_rgba(255,255,255,0.12)] hover:bg-white/90"
+                  : "cursor-not-allowed bg-white/20 text-white/40",
+              )}
+            >
+              {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
+              {running ? "Running…" : "Run analysis"}
+            </button>
+            <RunCostHint className="sm:text-left" />
+          </div>
           {running && phase ? <span className="text-[12px] tabular-nums text-white/45">{phase}</span> : null}
         </div>
       </div>

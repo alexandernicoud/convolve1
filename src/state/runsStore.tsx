@@ -107,7 +107,7 @@ export const useRunsStore = create<RunsStore>((set, get) => ({
       case 'training-chart-generator':
         return run.id ? `/tools/generator/runs/${encodeURIComponent(run.id)}` : '/tools/generator';
       case 'trainer':
-        return `/tools/trainer${run.id ? `?runId=${encodeURIComponent(run.id)}` : ''}`;
+        return run.id ? `/tools/trainer/runs/${encodeURIComponent(run.id)}` : '/tools/trainer';
       case 'analysis': {
         const tr = run.trainer_run_id ?? run.parent_run_id ?? undefined;
         const aid = run.analysis_id ?? undefined;

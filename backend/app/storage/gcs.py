@@ -17,11 +17,13 @@ import logging
 import tempfile
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, Tuple
 
 from fastapi import HTTPException, UploadFile
 
 from app.config import MAX_KERAS_UPLOAD_BYTES, MODEL_BUCKET
+from app.paths import keras_storage_key
 from app.storage.types import StoredKerasModel
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,10 @@ def build_gcs_uri(bucket: str, key: str) -> str:
 
 def is_gcs_uri(uri: str) -> bool:
     return bool(uri) and uri.startswith(GCS_SCHEME)
+
+
+def _new_model_id() -> str:
+    return f"model_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
 
 def parse_gcs_uri(uri: str) -> Optional[Tuple[str, str]]:
@@ -81,22 +87,55 @@ class GcsKerasModelStorage:
     def bucket_name(self) -> str:
         return self._bucket_name
 
-    async def save_keras_upload(self, upload: UploadFile) -> StoredKerasModel:
-        model_id = (
-            f"model_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-            f"_{uuid.uuid4().hex[:8]}"
-        )
-        return await self._upload_with_id(upload, model_id)
+    async def save_keras_upload(self, upload: UploadFile, user_id: Optional[str] = None) -> StoredKerasModel:
+        return await self._upload_with_id(upload, _new_model_id(), user_id=user_id)
 
-    async def save_bot_upload(
-        self, upload: UploadFile, bot_id: str
+    def save_keras_file(
+        self,
+        src: Path,
+        original_filename: str,
+        user_id: Optional[str] = None,
+        content_type: str = "application/octet-stream",
+    ) -> StoredKerasModel:
+        return self._store_file(src, _new_model_id(), original_filename, user_id, content_type)
+
+    def save_bot_file(
+        self, src: Path, original_filename: str, bot_id: str, user_id: Optional[str] = None
     ) -> StoredKerasModel:
         if not bot_id:
             raise ValueError("bot_id is required")
-        return await self._upload_with_id(upload, bot_id)
+        return self._store_file(src, bot_id, original_filename, user_id, "application/octet-stream")
+
+    def _store_file(
+        self, src: Path, model_id: str, original: str, user_id: Optional[str], ct: str
+    ) -> StoredKerasModel:
+        total = src.stat().st_size
+        if total > MAX_KERAS_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File size exceeds {MAX_KERAS_UPLOAD_BYTES // (1024 * 1024)}MB limit",
+            )
+        key = keras_storage_key(model_id, user_id)
+        self._ensure_bucket().blob(key).upload_from_filename(str(src), content_type=ct)
+        return StoredKerasModel(
+            model_id=model_id,
+            storage_key=key,
+            absolute_path=build_gcs_uri(self._bucket_name, key),
+            original_filename=original,
+            byte_size=total,
+            content_type=ct,
+            saved_at=datetime.now(timezone.utc),
+        )
+
+    async def save_bot_upload(
+        self, upload: UploadFile, bot_id: str, user_id: Optional[str] = None
+    ) -> StoredKerasModel:
+        if not bot_id:
+            raise ValueError("bot_id is required")
+        return await self._upload_with_id(upload, bot_id, user_id=user_id)
 
     async def _upload_with_id(
-        self, upload: UploadFile, model_id: str
+        self, upload: UploadFile, model_id: str, user_id: Optional[str] = None
     ) -> StoredKerasModel:
         if not upload.filename or not upload.filename.lower().endswith(".keras"):
             raise HTTPException(
@@ -105,7 +144,7 @@ class GcsKerasModelStorage:
 
         original = upload.filename
         ct = upload.content_type or "application/octet-stream"
-        key = f"keras/{model_id}.keras"
+        key = keras_storage_key(model_id, user_id)
 
         # Stream upload to a SpooledTemporaryFile so we can both enforce the size
         # cap and hand a seekable file-like object to GCS without holding the whole

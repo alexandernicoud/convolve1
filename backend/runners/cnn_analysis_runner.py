@@ -698,7 +698,7 @@ def run_cnn_analysis(config: Dict[str, Any], run_dir: str, progress_cb: Callable
             "analysis_id": analysis_id,
             "chart_reference_file": chart_file,
             "image_size": {"width": int(img_size[1]), "height": int(img_size[0])},
-            "source_image_path": img_path,
+            "source_image_path": os.path.basename(str(img_path)),
             "artifacts": manifest_artifacts,
             "compatibility": {
                 "png_naming": "legacy_trainer_ui",
@@ -730,15 +730,15 @@ def run_cnn_analysis(config: Dict[str, Any], run_dir: str, progress_cb: Callable
             json.dump(delivery, f, indent=2)
 
         analysis_summary = {
-            "model_path": model_path,
-            "img_path": img_path,
+            "model_path": os.path.basename(str(model_path)),
+            "img_path": os.path.basename(str(img_path)),
             "img_size": list(img_size),
-            "output_dir": str(out_dir),
+            "output_dir": f"analysis/{out_dir.name}",
             "analysis_id": analysis_id,
             "generated_files": png_files,
             "generated_json_files": json_files,
             "manifest_file": manifest_name,
-            "manifest_path": str(out_dir / manifest_name),
+            "manifest_path": f"analysis/{out_dir.name}/{manifest_name}",
             "artifact_metadata": manifest_artifacts,
             "completed_at": time.time(),
         }

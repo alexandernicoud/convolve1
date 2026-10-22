@@ -1,16 +1,17 @@
 import logging
 import os
 import shutil
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Thread
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.bot_runner import fetch_market_data
 from app.config import (
@@ -18,10 +19,11 @@ from app.config import (
     BOT_SCHEDULE_TIME,
     BOT_SCHEDULE_TZ,
     LIVE_DEPLOY_ENABLED,
-    USER_ID,
 )
 from app.db import get_db
 from app.jobs.run_due_bots import run_due_bots_once
+from app.services import direct_uploads, library_models
+from app.storage import save_bot_keras_file, save_bot_keras_upload
 from app.models import Bot, BotRun
 from app.schemas.bot import (
     BotDetailOut,
@@ -36,7 +38,7 @@ from app.services.trade_lifecycle import (
     record_equity_snapshot,
 )
 from app.services.bot_execution import BotNotExecutable, execute_bot_run, is_runtime_expired
-from app.storage import save_bot_keras_upload
+from app.ownership import bot_scope_clause, bot_scope_owner_id, bot_write_owner_id
 
 
 router = APIRouter(prefix="/api/bots", tags=["bots"])
@@ -80,14 +82,14 @@ def _normalize_run_time_hhmm(raw: str) -> str:
     return f"{h:02d}:{m:02d}"
 
 
-def _user_scope_filter():
-    return or_(Bot.user_id == USER_ID, Bot.user_id.is_(None))
+def _user_scope_filter(owner_id: str):
+    return bot_scope_clause(owner_id)
 
 
-def _get_bot(db: Session, bot_id: str) -> Bot:
+def _get_bot(db: Session, bot_id: str, owner_id: str) -> Bot:
     bot = (
         db.query(Bot)
-        .filter(Bot.id == bot_id, _user_scope_filter())
+        .filter(Bot.id == bot_id, _user_scope_filter(owner_id))
         .first()
     )
     if not bot:
@@ -140,7 +142,8 @@ def run_active_bots_once() -> None:
 
 @router.post("", response_model=BotOut)
 async def create_bot(
-    model_file: UploadFile = File(...),
+    model_file: Optional[UploadFile] = File(None),
+    model_upload_id: Optional[str] = Form(None),
     symbol: str = Form(...),
     confidence_threshold: float = Form(0.5),
     img_size: int = Form(224),
@@ -155,7 +158,11 @@ async def create_bot(
     slippage_pct: float = Form(0.05),
     run_time: str = Form(..., description="Daily run time HH:MM or HH.MM in the bot timezone"),
     timezone: str = Form(default=BOT_SCHEDULE_TZ),
+    source_model_id: Optional[str] = Form(None),
+    source_training_run_id: Optional[str] = Form(None),
+    source_backtest_run_id: Optional[str] = Form(None),
     db: Session = Depends(get_db),
+    owner_id: str = Depends(bot_write_owner_id),
 ):
     if tp_pct <= 0 or sl_pct <= 0:
         raise HTTPException(
@@ -163,13 +170,34 @@ async def create_bot(
             detail="tp_pct and sl_pct must be positive",
         )
     schedule_time = _normalize_run_time_hhmm(run_time)
+    from_library = bool(source_model_id or source_training_run_id)
+    supplied = sum((model_file is not None, bool(model_upload_id), from_library))
+    if supplied != 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide exactly one of model_file, model_upload_id, or a library model",
+        )
+    if source_backtest_run_id and not from_library:
+        raise HTTPException(status_code=400, detail="source_backtest_run_id requires a library model")
 
     bot_id = str(uuid.uuid4())
-    artifact = await save_bot_keras_upload(model_file, bot_id)
+    if model_file is not None:
+        artifact = await save_bot_keras_upload(model_file, bot_id, user_id=owner_id)
+    elif model_upload_id:
+        artifact = await run_in_threadpool(_adopt_bot_model_upload, model_upload_id, bot_id, owner_id)
+    else:
+        artifact = await run_in_threadpool(
+            _adopt_library_model,
+            owner_id,
+            source_model_id,
+            source_training_run_id,
+            source_backtest_run_id,
+            bot_id,
+        )
 
     bot = Bot(
         id=bot_id,
-        user_id=USER_ID,
+        user_id=owner_id,
         name=name,
         symbol=symbol.upper(),
         model_path=artifact.absolute_path,
@@ -188,6 +216,10 @@ async def create_bot(
         slippage_pct=slippage_pct,
         is_active=True,
         lifecycle_state="active",
+        provenance="library" if from_library else "upload",
+        source_model_id=source_model_id if from_library else None,
+        source_training_run_id=source_training_run_id if from_library else None,
+        source_backtest_run_id=source_backtest_run_id if from_library else None,
     )
     db.add(bot)
     db.commit()
@@ -212,11 +244,34 @@ async def create_bot(
     return _enrich_bot_out(db, bot)
 
 
+def _adopt_bot_model_upload(upload_id: str, bot_id: str, owner_id: str):
+    with direct_uploads.adopt_upload(owner_id, upload_id, "model") as (staged, local):
+        return save_bot_keras_file(local, staged.filename, bot_id, user_id=owner_id)
+
+
+def _adopt_library_model(
+    owner_id: str,
+    model_id: Optional[str],
+    training_run_id: Optional[str],
+    backtest_run_id: Optional[str],
+    bot_id: str,
+):
+    """Bot-owned copy of an owned library model; the source stays untouched."""
+    src, filename = library_models.resolve_library_model(
+        owner_id, model_id=model_id, training_run_id=training_run_id
+    )
+    if backtest_run_id and not library_models.backtest_references_model(
+        owner_id, backtest_run_id, model_id=model_id, training_run_id=training_run_id
+    ):
+        raise HTTPException(status_code=400, detail="That backtest was not run on the selected model")
+    return save_bot_keras_file(src, filename, bot_id, user_id=owner_id)
+
+
 @router.get("", response_model=List[BotOut])
-def list_bots(db: Session = Depends(get_db)):
+def list_bots(db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
     bots = (
         db.query(Bot)
-        .filter(_user_scope_filter(), Bot.lifecycle_state != "archived")
+        .filter(_user_scope_filter(owner_id), Bot.lifecycle_state != "archived")
         .order_by(Bot.created_at.desc())
         .all()
     )
@@ -224,8 +279,8 @@ def list_bots(db: Session = Depends(get_db)):
 
 
 @router.get("/{bot_id}", response_model=BotDetailOut)
-def get_bot_detail(bot_id: str, db: Session = Depends(get_db)):
-    bot = _get_bot(db, bot_id)
+def get_bot_detail(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
+    bot = _get_bot(db, bot_id, owner_id)
     total_runs = db.query(BotRun).filter(BotRun.bot_id == bot.id).count()
     success_runs = (
         db.query(BotRun).filter(BotRun.bot_id == bot.id, BotRun.status == "success").count()
@@ -242,14 +297,14 @@ def get_bot_detail(bot_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{bot_id}/trading", response_model=BotTradingDetailFullOut)
-def get_bot_trading(bot_id: str, db: Session = Depends(get_db)):
-    bot = _get_bot(db, bot_id)
+def get_bot_trading(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
+    bot = _get_bot(db, bot_id, owner_id)
     return build_trading_detail_full(db, bot)
 
 
 @router.post("/{bot_id}/pause", response_model=BotOut)
-def pause_bot(bot_id: str, db: Session = Depends(get_db)):
-    bot = _get_bot(db, bot_id)
+def pause_bot(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
+    bot = _get_bot(db, bot_id, owner_id)
     if getattr(bot, "lifecycle_state", "active") in ("archived", "closed"):
         raise HTTPException(status_code=400, detail="Cannot pause this bot")
     bot.lifecycle_state = "paused"
@@ -261,9 +316,9 @@ def pause_bot(bot_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{bot_id}/resume", response_model=BotOut)
-def resume_bot(bot_id: str, db: Session = Depends(get_db)):
+def resume_bot(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
     _require_live_deploy()
-    bot = _get_bot(db, bot_id)
+    bot = _get_bot(db, bot_id, owner_id)
     if bot.lifecycle_state != "paused":
         raise HTTPException(status_code=400, detail="Bot is not paused")
     if is_runtime_expired(bot, datetime.now(timezone.utc)):
@@ -277,9 +332,9 @@ def resume_bot(bot_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{bot_id}/close", response_model=BotTradingDetailFullOut)
-def close_bot_lifecycle(bot_id: str, db: Session = Depends(get_db)):
+def close_bot_lifecycle(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
     _require_live_deploy()
-    bot = _get_bot(db, bot_id)
+    bot = _get_bot(db, bot_id, owner_id)
     market_data = fetch_market_data(bot.symbol)
     if market_data is None or market_data.empty:
         raise HTTPException(status_code=400, detail="No market data to close positions")
@@ -296,8 +351,8 @@ def close_bot_lifecycle(bot_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{bot_id}/archive", response_model=BotOut)
-def archive_bot(bot_id: str, db: Session = Depends(get_db)):
-    bot = _get_bot(db, bot_id)
+def archive_bot(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
+    bot = _get_bot(db, bot_id, owner_id)
     bot.lifecycle_state = "archived"
     bot.is_active = False
     db.add(bot)
@@ -307,8 +362,8 @@ def archive_bot(bot_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{bot_id}/runs", response_model=List[BotRunOut])
-def list_bot_runs(bot_id: str, limit: int = 20, db: Session = Depends(get_db)):
-    bot = _get_bot(db, bot_id)
+def list_bot_runs(bot_id: str, limit: int = 20, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
+    bot = _get_bot(db, bot_id, owner_id)
     runs = (
         db.query(BotRun)
         .filter(BotRun.bot_id == bot.id)
@@ -320,8 +375,8 @@ def list_bot_runs(bot_id: str, limit: int = 20, db: Session = Depends(get_db)):
 
 
 @router.post("/{bot_id}/toggle", response_model=BotOut)
-def toggle_bot(bot_id: str, db: Session = Depends(get_db)):
-    bot = _get_bot(db, bot_id)
+def toggle_bot(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
+    bot = _get_bot(db, bot_id, owner_id)
     ls = getattr(bot, "lifecycle_state", "active")
     if ls == "active":
         bot.lifecycle_state = "paused"
@@ -343,9 +398,9 @@ def toggle_bot(bot_id: str, db: Session = Depends(get_db)):
     return _enrich_bot_out(db, bot)
 
 
-def _manual_run_response(bot_id: str, db: Session) -> BotRunOut:
+def _manual_run_response(bot_id: str, db: Session, owner_id: str) -> BotRunOut:
     _require_live_deploy()
-    bot = _get_bot(db, bot_id)
+    bot = _get_bot(db, bot_id, owner_id)
     _assert_bot_runnable(bot)
     try:
         run, _outcome = execute_bot_run(db, bot)
@@ -355,20 +410,20 @@ def _manual_run_response(bot_id: str, db: Session) -> BotRunOut:
 
 
 @router.post("/{bot_id}/run", response_model=BotRunOut)
-def run_bot_scheduled_shape(bot_id: str, db: Session = Depends(get_db)):
+def run_bot_scheduled_shape(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
     """Manual run: same execution path as the batch job; ignores schedule, respects idempotency."""
-    return _manual_run_response(bot_id, db)
+    return _manual_run_response(bot_id, db, owner_id)
 
 
 @router.post("/{bot_id}/run-now", response_model=BotRunOut)
-def run_bot_now(bot_id: str, db: Session = Depends(get_db)):
+def run_bot_now(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
     """Alias for POST /{bot_id}/run."""
-    return _manual_run_response(bot_id, db)
+    return _manual_run_response(bot_id, db, owner_id)
 
 
 @router.delete("/{bot_id}")
-def delete_bot(bot_id: str, db: Session = Depends(get_db)):
-    bot = _get_bot(db, bot_id)
+def delete_bot(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
+    bot = _get_bot(db, bot_id, owner_id)
     model_path = bot.model_path
     runs_dir = Path(os.path.join(BOT_DATA_DIR, "runs", bot.id))
 
@@ -384,8 +439,8 @@ def delete_bot(bot_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{bot_id}/runs/{run_id}/chart")
-def get_run_chart(bot_id: str, run_id: str, db: Session = Depends(get_db)):
-    _get_bot(db, bot_id)
+def get_run_chart(bot_id: str, run_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
+    _get_bot(db, bot_id, owner_id)
     run = (
         db.query(BotRun)
         .filter(BotRun.id == run_id, BotRun.bot_id == bot_id)
@@ -403,8 +458,8 @@ def get_run_chart(bot_id: str, run_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{bot_id}/runs/{run_id}/heatmap")
-def get_run_heatmap(bot_id: str, run_id: str, db: Session = Depends(get_db)):
-    _get_bot(db, bot_id)
+def get_run_heatmap(bot_id: str, run_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
+    _get_bot(db, bot_id, owner_id)
     run = (
         db.query(BotRun)
         .filter(BotRun.id == run_id, BotRun.bot_id == bot_id)

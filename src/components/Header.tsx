@@ -3,8 +3,34 @@ import { Link, useLocation } from "react-router-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import logoMark from "@/assets/convolve-mark.png";
 import { isCompactHeaderPathname, useHeaderReveal } from "@/context/HeaderRevealContext";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { PRODUCT_PIPELINE_ITEMS } from "@/components/products/productPipelineLinks";
+
+function HeaderCta({ isHomeLanding }: { isHomeLanding: boolean }) {
+  const { session, loading } = useAuth();
+  const className = cn(
+    "inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-xs transition-all duration-200 sm:px-4 sm:py-2 sm:text-sm",
+    isHomeLanding
+      ? "border-white/20 bg-transparent text-white/85 hover:border-white/35 hover:text-white"
+      : "border-white/25 bg-white/[0.06] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-sm hover:border-white/40 hover:bg-white/[0.1] focus:outline-none focus:ring-2 focus:ring-white/20",
+  );
+  if (loading) {
+    return <span className={cn(className, "opacity-50")}>…</span>;
+  }
+  if (session) {
+    return (
+      <Link to="/dashboard" className={className}>
+        Open workspace
+      </Link>
+    );
+  }
+  return (
+    <Link to="/login" className={className}>
+      {isHomeLanding ? "Sign in" : "Sign in"}
+    </Link>
+  );
+}
 
 function MainNav({
   productsOpen,
@@ -162,17 +188,7 @@ function MainNav({
       </div>
 
       <div className="flex items-center justify-end gap-2 sm:gap-3 md:justify-self-end">
-        <Link
-          to={isHomeLanding ? "/contact" : "/products"}
-          className={cn(
-            "inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-xs transition-all duration-200 sm:px-4 sm:py-2 sm:text-sm",
-            isHomeLanding ?
-              "border-white/20 bg-transparent text-white/85 hover:border-white/35 hover:text-white"
-            : "border-white/25 bg-white/[0.06] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-sm hover:border-white/40 hover:bg-white/[0.1] focus:outline-none focus:ring-2 focus:ring-white/20"
-          )}
-        >
-          {isHomeLanding ? "Get early access" : "Free trial"}
-        </Link>
+        <HeaderCta isHomeLanding={isHomeLanding} />
       </div>
     </nav>
   );

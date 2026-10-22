@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useRunsStore } from "@/state/runsStore";
 import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
+import { RunCostHint } from "@/components/RunCostHint";
 import {
   realtimeBacktesterApi,
   testDataGeneratorApi,
@@ -1532,6 +1533,7 @@ export default function Backtester() {
                   </>
                 )}
               </button>
+              <RunCostHint />
               {!canRun && !isSubmitting ? (
                 <p className="text-center text-[10px] text-white/40">
                   {!hasModel

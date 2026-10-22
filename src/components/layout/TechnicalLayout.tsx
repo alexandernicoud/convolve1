@@ -56,6 +56,10 @@ export function TechnicalLayout({ children, variant = "scroll" }: Props) {
               children
             ) : (
               <div className="mx-auto w-full min-h-full max-w-[100rem] px-5 pb-6 pt-0 md:px-8 lg:px-10 lg:pb-8">
+                <p className="mb-3 max-w-3xl text-[10px] leading-relaxed text-white/32">
+                  Free trial compute is shared and substantially slower than a dedicated machine. Generator,
+                  training, analysis, and backtests can take much longer here than on localhost.
+                </p>
                 {/* Content grows; this column scrolls. Do not use h-full/overflow-hidden traps here. */}
                 <div className="min-w-0">{children}</div>
               </div>

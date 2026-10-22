@@ -51,7 +51,13 @@ function networkErrorMessage(cause: unknown, url: string): Error {
 export async function fetchApi(path: string, init?: RequestInit): Promise<Response> {
   const url = apiUrl(path);
   try {
-    return await fetch(url, init);
+    const headers = new Headers(init?.headers);
+    const { getAccessToken } = await import("@/lib/supabase");
+    const token = await getAccessToken();
+    if (token && !headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+    return await fetch(url, { ...init, headers });
   } catch (e) {
     throw networkErrorMessage(e, url);
   }
@@ -244,6 +250,93 @@ export interface TrainerProgressResponse {
     estimated_remaining_seconds?: number | null;
   };
   error_message?: string;
+  /** Durable session view (identity, dataset, config, timing, full history). */
+  session?: TrainingSession;
+}
+
+export type TrainingStage =
+  | "queued"
+  | "preparing"
+  | "initializing"
+  | "training"
+  | "saving"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface TrainingEpoch {
+  epoch: number;
+  epochs?: number;
+  loss: number | null;
+  accuracy: number | null;
+  val_loss: number | null;
+  val_accuracy: number | null;
+  label_1_recall?: number | null;
+  val_label_1_recall?: number | null;
+  timestamp?: number;
+}
+
+export interface TrainingArchitectureLayer {
+  name: string;
+  shape: number[];
+  params: number;
+  activation?: string;
+}
+
+export interface TrainingSession {
+  run_id: string;
+  stage: TrainingStage | string;
+  model_name?: string | null;
+  dataset: {
+    id?: string;
+    name?: string;
+    image_count?: number;
+    label_distribution?: Record<string, number>;
+    generator_run_id?: string;
+    market?: Record<string, unknown> & { symbols?: string[] | string; timeframe?: string };
+  };
+  config: {
+    use_standard_config: boolean;
+    image_size?: number[];
+    batch_size?: number;
+    epochs?: number;
+    val_split?: number;
+    random_seed?: number;
+  };
+  architecture?: {
+    family: string;
+    layers: TrainingArchitectureLayer[];
+    total_params: number;
+    loss: string;
+    optimizer: string;
+    early_stopping: { monitor: string; patience: number; restore_best_weights: boolean };
+  } | null;
+  train_samples?: number | null;
+  val_samples?: number | null;
+  train_label_counts?: Record<string, number> | null;
+  val_label_counts?: Record<string, number> | null;
+  epochs_total?: number | null;
+  epochs_completed: number;
+  history: TrainingEpoch[];
+  best_epoch?: number | null;
+  best_metrics?: TrainingEpoch | null;
+  mean_epoch_seconds?: number | null;
+  started_at?: number | null;
+  updated_at?: number | null;
+  finished_at?: number | null;
+  error?: string | null;
+  worker_active?: boolean | null;
+  summary?: {
+    epochs_configured?: number;
+    epochs_trained?: number;
+    stopped_early?: boolean;
+    best_epoch?: number;
+    saved_weights_epoch?: number | null;
+    saved_weights_metrics?: TrainingEpoch;
+    saved_weights_inferred?: boolean;
+    summary_version?: number;
+    completed_at?: number;
+  };
 }
 
 export interface AnalysisResponse {
@@ -402,6 +495,11 @@ const extractFilename = (disposition: string | null, fallback: string) => {
   }
   return fallback;
 };
+
+/** Authenticated blob download (anchor tags cannot send Authorization). */
+export async function downloadApiFile(endpoint: string, fallbackFilename: string): Promise<void> {
+  return downloadFile(endpoint, fallbackFilename);
+}
 
 async function downloadFile(endpoint: string, fallbackFilename: string): Promise<void> {
   const response = await fetchApi(endpoint);
@@ -654,8 +752,8 @@ export const realtimeBacktesterApi = {
     return apiUrl(`/api/backtests/${runId}/files/${path}`);
   },
 
-  downloadZip(runId: string): void {
-    window.open(apiUrl(`/runs/backtester/${runId}/download.zip`), '_blank');
+  downloadZip(runId: string): Promise<void> {
+    return downloadFile(`/runs/backtester/${runId}/download.zip`, `backtester_results_${runId}.zip`);
   },
 };
 
@@ -752,8 +850,8 @@ export const testDataGeneratorApi = {
     return apiRequest<TestDataGeneratorResultResponse>(`/runs/testdata/${runId}/result`);
   },
 
-  downloadZip(runId: string): void {
-    window.open(apiUrl(`/runs/testdata/${runId}/download.zip`), '_blank');
+  downloadZip(runId: string): Promise<void> {
+    return downloadFile(`/runs/testdata/${runId}/download.zip`, `testdata_${runId}.zip`);
   },
 
   /** Saved request for a test dataset run (linkage / history). */
@@ -1095,6 +1193,11 @@ export interface Bot {
   /** active | paused | closed | archived */
   lifecycle_state?: string | null;
   next_scheduled_run_iso?: string | null;
+  /** "library" | "upload"; null on bots created before provenance was recorded. */
+  provenance?: string | null;
+  source_model_id?: string | null;
+  source_training_run_id?: string | null;
+  source_backtest_run_id?: string | null;
 }
 
 export interface DashboardTradeRow {
@@ -1196,6 +1299,7 @@ export interface ReviewSummary {
   totalTrainingRuns: number;
   totalBacktests: number;
   totalAnalyses: number;
+  totalOptimizerRuns?: number;
   totalBots: number;
 }
 
@@ -1207,7 +1311,116 @@ export interface ReviewRunLinks {
   analysis_id?: string | null;
 }
 
-export interface ReviewRun {
+/** Final-epoch training metrics. `accuracy`/`loss` are training-set; `val_*` are validation-set. */
+export interface ReviewTrainingMetrics {
+  accuracy?: number;
+  val_accuracy?: number;
+  loss?: number;
+  val_loss?: number;
+  label_1_recall?: number;
+  val_label_1_recall?: number;
+  val_label_1_accuracy?: number;
+  epochs_trained?: number;
+  best_epoch?: number;
+}
+
+export interface ReviewTrainingSetup {
+  train_samples?: number;
+  val_samples?: number;
+  batch_size?: number;
+  epochs?: number;
+  epochs_trained?: number;
+  best_epoch?: number;
+  val_split?: number;
+  random_seed?: number;
+  image_size?: number[];
+  architecture?: string;
+  use_standard_config?: boolean;
+  learning_rate?: number;
+  optimizer?: string;
+  completed_at?: number;
+  metrics?: ReviewTrainingMetrics;
+}
+
+/** Simulated trading outcome; P&L is net of the modelled commission and slippage. */
+export interface ReviewBacktestPerformance {
+  return_pct?: number;
+  pnl?: number;
+  win_rate?: number;
+  profit_factor?: number;
+  sharpe_ratio?: number;
+  sharpe_ratio_annualized_hint?: number;
+  max_drawdown?: number;
+  max_drawdown_pct?: number;
+  avg_win?: number;
+  avg_loss?: number;
+  trades?: number;
+  no_trade_count?: number;
+  trade_frequency?: number;
+  total_charts_analyzed?: number;
+  metrics_insufficient_sample?: boolean;
+  avg_confidence_trades?: number;
+  costs_included?: boolean;
+}
+
+export interface ReviewBacktestAssumptions {
+  starting_capital?: number;
+  position_size_pct?: number;
+  commission_pct?: number;
+  slippage_pct?: number;
+  confidence_threshold?: number;
+  tp_pct?: number;
+  sl_pct?: number;
+  sample_size?: number | string;
+  img_size?: number;
+  max_drawdown_pct?: number;
+  max_trades_per_day?: number;
+}
+
+export interface ReviewBacktestSummary {
+  assumptions: ReviewBacktestAssumptions;
+  performance?: ReviewBacktestPerformance;
+  /** Per-image label agreement (fractions 0–1); independent of trade P&L. */
+  classification?: { accuracy?: number; precision?: number; recall?: number; f1?: number };
+  period?: { start?: string | null; end?: string | null };
+  symbol?: string;
+}
+
+/** In-sample (hindsight) label-grid search. Not an out-of-sample trading result. */
+export interface ReviewOptimizerSummary {
+  in_sample: true;
+  config?: Record<string, string | number | boolean>;
+  best?: {
+    best_tp?: number;
+    best_sl?: number;
+    best_h?: number;
+    best_cagr?: number;
+    best_linear_annual_pl?: number;
+    max_drawdown?: number;
+    trades?: number;
+    win_rate?: number;
+    calmar_ratio?: number;
+    asset_annual_cagr_pct?: number;
+  };
+  yearly?: { years?: number[]; strategy_compounded_pct?: number[]; price_compounded_pct?: number[] };
+}
+
+export interface ReviewGeneratorSummary {
+  config?: Record<string, string | number | boolean>;
+  stats?: Record<string, string | number | boolean>;
+  label_distribution?: Record<string, number>;
+}
+
+export interface ReviewLabelFields {
+  display_name?: string | null;
+  auto_name?: string | null;
+  tags?: string[];
+  favorite?: boolean;
+  archived?: boolean;
+  notes?: string | null;
+}
+
+export interface ReviewRun extends ReviewLabelFields {
   id: string;
   tool: string;
   status: string;
@@ -1216,13 +1429,26 @@ export interface ReviewRun {
   message: string;
   created_at: number;
   updated_at: number;
+  finished_at?: number | null;
+  duration_s?: number | null;
+  error?: string | null;
   route?: string | null;
+  parent_run_id?: string | null;
+  trainer_run_id?: string | null;
+  analysis_id?: string | null;
   download_zip_url?: string | null;
   links: ReviewRunLinks;
   details: Record<string, unknown>;
+  training?: ReviewTrainingSetup;
+  backtest?: ReviewBacktestSummary;
+  optimizer?: ReviewOptimizerSummary;
+  generator?: ReviewGeneratorSummary;
+  analysis?: { artifact_count?: number };
 }
 
-export interface ReviewModel {
+export type ReviewLinkProvenance = 'recorded' | 'recovered';
+
+export interface ReviewModel extends ReviewLabelFields {
   id: string;
   name?: string | null;
   source: 'trained' | 'uploaded' | 'unknown';
@@ -1231,6 +1457,7 @@ export interface ReviewModel {
   training_run_id?: string | null;
   dataset_id?: string | null;
   generator_run_id?: string | null;
+  generator_link?: ReviewLinkProvenance | null;
   symbols?: string | null;
   timeframe?: string | null;
   take_profit_fraction?: number | null;
@@ -1239,27 +1466,26 @@ export interface ReviewModel {
   image_dimension?: number | null;
   training_period_start?: string | null;
   training_period_end?: string | null;
-  metrics?: Record<string, number> | null;
+  metrics?: ReviewTrainingMetrics | null;
+  training?: Omit<ReviewTrainingSetup, 'metrics'> | null;
   byte_size?: number | null;
   download_url?: string | null;
   metadata_available: boolean;
   status?: string | null;
-  display_name?: string | null;
-  auto_name?: string | null;
-  tags?: string[];
-  favorite?: boolean;
-  archived?: boolean;
-  notes?: string | null;
+  catalog_only?: boolean;
 }
 
-export interface ReviewDataset {
+export interface ReviewDataset extends ReviewLabelFields {
   id: string;
   dataset_id?: string | null;
   name?: string | null;
   kind: 'training' | 'test' | 'unknown';
-  source: 'generated' | 'uploaded' | 'unknown';
+  source: 'generated' | 'uploaded' | 'unknown' | string;
+  /** archive = generator ZIP output; extracted = an image folder usable by tools. */
+  representation?: 'archive' | 'extracted';
   created_at?: number | null;
   generator_run_id?: string | null;
+  generator_link?: ReviewLinkProvenance | null;
   testdata_run_id?: string | null;
   model_id?: string | null;
   training_run_id?: string | null;
@@ -1267,22 +1493,22 @@ export interface ReviewDataset {
   timeframe?: string | null;
   period_start?: string | null;
   period_end?: string | null;
+  /** generator_config = recorded; sample_filenames = estimated from a few chart names. */
+  period_source?: 'generator_config' | 'sample_filenames' | null;
   timespan_unit?: string | null;
   timespan_count?: number | null;
   take_profit_fraction?: number | null;
   stop_loss_fraction?: number | null;
   horizon_bars?: number | null;
+  image_dimension?: number | null;
   total_images?: number | null;
   label_distribution?: Record<string, number> | null;
   download_url?: string | null;
   extracted?: boolean;
   used_by_training_runs?: string[];
-  display_name?: string | null;
-  auto_name?: string | null;
-  tags?: string[];
-  favorite?: boolean;
-  archived?: boolean;
-  notes?: string | null;
+  archive_key?: string | null;
+  extracted_as?: string[];
+  catalog_only?: boolean;
 }
 
 export interface ReviewLineageRef {
@@ -1301,7 +1527,7 @@ export interface ReviewLineage {
   test_datasets: { run_id: string; dataset_id?: string | null; name?: string | null; status?: string | null }[];
   analyses: { run_id: string; trainer_run_id?: string | null; analysis_id?: string | null; status?: string | null }[];
   backtests: { run_id: string; status?: string | null }[];
-  bot: unknown | null;
+  bot: { id: string; name?: string | null; symbol?: string | null } | null;
   updated_at: number;
 }
 
@@ -1312,6 +1538,29 @@ export interface ReviewBot {
   model_filename?: string | null;
   is_active: boolean;
   lifecycle_state?: string | null;
+  created_at?: number | null;
+  tp_pct?: number | null;
+  sl_pct?: number | null;
+  confidence_threshold?: number | null;
+  starting_capital?: number | null;
+  commission_pct?: number | null;
+  slippage_pct?: number | null;
+  last_signal?: string | null;
+  last_run_at?: number | null;
+  /** library | upload | unknown (bot predates provenance recording). */
+  provenance?: 'library' | 'upload' | 'unknown' | string;
+  source_model_id?: string | null;
+  source_training_run_id?: string | null;
+  source_backtest_run_id?: string | null;
+}
+
+/** A provenance edge. Node keys: run:<id>, model:<id>, dataset:<id>, bot:<id>. */
+export interface ReviewEdge {
+  source: string;
+  target: string;
+  relation: string;
+  provenance: ReviewLinkProvenance;
+  basis: string;
 }
 
 export interface ReviewOverviewResponse {
@@ -1321,11 +1570,76 @@ export interface ReviewOverviewResponse {
   datasets: ReviewDataset[];
   lineages: ReviewLineage[];
   bots: ReviewBot[];
+  edges?: ReviewEdge[];
+  sources?: { filesystem: boolean; catalog: boolean };
+  generated_at?: number;
 }
+
+export interface ReviewHistoryPoint extends ReviewTrainingMetrics {
+  epoch: number;
+}
+
+export interface ReviewEquityPoint {
+  as_of_date?: string;
+  equity?: number;
+  strategy_indexed?: number;
+  spy_indexed?: number;
+  underlying_indexed?: number;
+}
+
+/** GET /api/review/assets/{kind}/{id} — fields present depend on the asset. */
+export interface ReviewAssetDetail {
+  kind: 'model' | 'dataset' | 'run';
+  id: string;
+  tool?: string;
+  source?: string;
+  run?: Partial<ReviewRun>;
+  training?: ReviewTrainingSetup;
+  training_config?: Record<string, unknown>;
+  generator_config?: Record<string, unknown> | null;
+  history?: ReviewHistoryPoint[];
+  model_file?: string | null;
+  sidecar?: Record<string, unknown> | null;
+  backtest?: ReviewBacktestSummary & {
+    links?: { model_id?: string | null; trainer_run_id?: string | null; dataset_id?: string | null };
+    equity?: ReviewEquityPoint[];
+    benchmark?: { spy_ticker?: string; underlying_ticker?: string; phase_start?: string; phase_end?: string; error?: string | null } | null;
+    trade_count?: number | null;
+    status?: string;
+  };
+  optimizer?: ReviewOptimizerSummary;
+  generator?: ReviewGeneratorSummary;
+  testdata?: { config?: Record<string, unknown>; dataset_id?: string | null; summary?: Record<string, unknown> };
+  analysis?: {
+    artifact_count?: number;
+    artifacts?: { id?: string; type?: string; title?: string; subtitle?: string; layer_name?: string; png_file?: string }[];
+    images?: string[];
+    image_urls?: Record<string, string>;
+    context?: Record<string, unknown>;
+  };
+  representation?: 'archive' | 'extracted';
+  generator_run_id?: string;
+  generator_link?: ReviewLinkProvenance;
+  on_disk?: boolean;
+  summary?: Record<string, unknown> & { label_distribution?: Record<string, number>; total_images?: number };
+  example_filenames?: string[];
+  filename_coverage?: { symbols?: string; period_start?: string; period_end?: string };
+}
+
+export type ReviewAssetKind = ReviewAssetDetail['kind'];
 
 export const reviewApi = {
   getOverview(): Promise<ReviewOverviewResponse> {
     return apiRequest<ReviewOverviewResponse>('/api/review/overview');
+  },
+  getAsset(kind: ReviewAssetKind, id: string): Promise<ReviewAssetDetail> {
+    return apiRequest<ReviewAssetDetail>(`/api/review/assets/${kind}/${encodeURIComponent(id)}`);
+  },
+  updateRunLabel(runId: string, patch: LibraryLabelPatch): Promise<LibraryLabelOverlay & { run_id: string }> {
+    return apiRequest<LibraryLabelOverlay & { run_id: string }>(
+      `/api/review/labels/run/${encodeURIComponent(runId)}`,
+      { method: 'PATCH', body: JSON.stringify(patch) },
+    );
   },
 };
 

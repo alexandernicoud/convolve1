@@ -1,8 +1,8 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from pydantic import BaseModel, model_validator
-from typing import Optional, Dict, Any, List, Union, Callable
+from typing import Optional, Dict, Any, List, Tuple, Union, Callable
 import subprocess
 import os
 import json
@@ -14,9 +14,12 @@ import io
 from datetime import datetime
 import sys
 import shutil
+import tempfile
 from pathlib import Path
 
 import logging
+
+from starlette.concurrency import run_in_threadpool
 import threading
 from threading import Thread
 
@@ -25,21 +28,87 @@ from app.bots_api import router as bots_router, run_active_bots_once
 from app.dashboard_api import router as dashboard_router
 from app.config import (
     APP_MODE,
+    AUTH_REQUIRED,
     CORS_ORIGINS,
     LIVE_DEPLOY_ENABLED,
+    MAX_DATASET_EXTRACTED_BYTES,
+    MAX_DATASET_UPLOAD_BYTES,
     MODEL_STORAGE_ROOT,
     RUN_BOTS_ON_API_STARTUP,
     SCHEDULED_BOTS_ENABLED,
     configure_logging,
 )
+from app.auth import PUBLIC_PATHS, authenticate_request, get_current_user_id
+from app.ownership import (
+    record_pipeline_run,
+    require_owned_run,
+    owned_run_ids,
+    lookup_run_owner,
+    record_user_dataset,
+    record_user_model,
+    assert_cross_owned,
+    owned_dataset_ids,
+    owned_model_ids,
+    fetch_library_catalog,
+    update_pipeline_run_state,
+    fetch_pipeline_run_state,
+    list_pipeline_run_states,
+    reconcile_orphaned_pipeline_runs,
+    current_worker_id,
+    canonical_run_status,
+    TERMINAL_RUN_STATUSES,
+)
+from app.paths import (
+    safe_resolve_under,
+    run_dir_for,
+    iter_run_dirs,
+    iter_backtest_dirs,
+    iter_dataset_dirs,
+    dataset_dir_for,
+    resolve_existing_dataset_dir,
+    find_local_keras_file,
+    find_keras_sidecar,
+    find_backtest_dir,
+    is_user_uuid,
+    validate_id,
+)
 from app.services.bot_scheduler import start_bot_scheduler
+from app.services import trainer_jobs
 from app.db import init_db
 from app.routers.models_upload import router as models_upload_router
+from app.routers.uploads import router as uploads_router
+from app.routers.cnn_lab import router as cnn_lab_router
 from app.services.model_paths import require_existing_model_file
+from app.services import asset_labels
+from app.services import review_meta
 
 app = FastAPI(title="Labeling Optimizer API", version="1.0.0")
 
-# CORS middleware
+app.include_router(bots_router)
+app.include_router(dashboard_router)
+app.include_router(models_upload_router)
+app.include_router(uploads_router)
+app.include_router(cnn_lab_router)
+
+logger = logging.getLogger("app.main")
+
+
+@app.middleware("http")
+async def supabase_auth_middleware(request: Request, call_next):
+    """Require a valid Supabase JWT on every non-public path when AUTH_REQUIRED is on."""
+    if not AUTH_REQUIRED:
+        return await call_next(request)
+    if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS or request.url.path.startswith("/docs"):
+        return await call_next(request)
+    try:
+        request.state.user_id = authenticate_request(request)
+    except HTTPException as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    return await call_next(request)
+
+
+# Added after the auth middleware so it wraps it: auth 401s must carry CORS headers,
+# otherwise the browser reports "Failed to fetch" instead of a readable 401.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -47,12 +116,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-app.include_router(bots_router)
-app.include_router(dashboard_router)
-app.include_router(models_upload_router)
-
-logger = logging.getLogger("app.main")
 
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPTS_DIR = _BACKEND_ROOT / "scripts"
@@ -74,6 +137,12 @@ def startup() -> None:
             "scheduled batches should use: python -m app.jobs.run_due_bots"
         )
     init_db()
+    interrupted = reconcile_orphaned_pipeline_runs()
+    if interrupted:
+        logger.info(
+            "Marked %s pipeline run(s) interrupted because their worker process is gone",
+            interrupted,
+        )
     logger.info("Startup complete: database initialized.")
     started = start_bot_scheduler()
     if started:
@@ -247,6 +316,8 @@ class TrainerProgressResponse(BaseModel):
     last_metrics: Optional[Dict[str, Any]] = None
     history_preview: Optional[List[Dict[str, Any]]] = None
     artifact_paths: Optional[List[str]] = None
+    # Full session view (identity, dataset, config, timing, full history). See services/trainer_session.py.
+    session: Optional[Dict[str, Any]] = None
 
 class TrainerSummary(BaseModel):
     model_name: str
@@ -256,7 +327,7 @@ class TrainerSummary(BaseModel):
     image_size: List[int]
     batch_size: int
     epochs_trained: int
-    best_epoch: int
+    best_epoch: Optional[int] = None
     final_metrics: Optional[Dict[str, Any]] = None
     completed_at: float
 
@@ -309,7 +380,7 @@ class DatasetSummary(BaseModel):
 class GlobalRun(BaseModel):
     id: str
     tool: str  # "labeling-optimizer", "training-chart-generator", "trainer", "analysis", "backtester", "testdata"
-    status: str  # "queued", "running", "succeeded", "failed", "cancelled"
+    status: str  # queued | running | succeeded | failed | cancelled | interrupted
     progress: float = 0.0  # 0.0 to 1.0
     stage: str = ""
     message: str = ""
@@ -321,6 +392,7 @@ class GlobalRun(BaseModel):
     trainer_run_id: Optional[str] = None
     analysis_id: Optional[str] = None
     download_zip_url: Optional[str] = None  # optional hint for list UI
+    user_id: Optional[str] = None
 
 
 def _suggest_download_zip_url(
@@ -358,6 +430,7 @@ def _persist_run_manifest_disk(run: GlobalRun) -> None:
         "trainer_run_id": run.trainer_run_id,
         "analysis_id": run.analysis_id,
         "download_zip_url": run.download_zip_url,
+        "user_id": run.user_id,
     }
     try:
         with open(os.path.join(manifest_dir, "run_manifest.json"), "w", encoding="utf-8") as f:
@@ -419,6 +492,7 @@ def _global_run_from_manifest_dict(m: Dict[str, Any]) -> GlobalRun:
             m.get("trainer_run_id"),
             m.get("analysis_id"),
         ),
+        user_id=str(m["user_id"]) if m.get("user_id") else None,
     )
 
 
@@ -457,6 +531,7 @@ def _merge_manifest_with_progress_json(run_path: str, base: GlobalRun) -> Global
         download_zip_url=_suggest_download_zip_url(
             base.tool, base.id, base.trainer_run_id, base.analysis_id
         ),
+        user_id=base.user_id,
     )
 
 
@@ -555,6 +630,7 @@ def _global_run_from_analysis_disk(
                 trainer_run_id=str(tr),
                 analysis_id=str(aid),
                 download_zip_url=_suggest_download_zip_url("analysis", base.id, str(tr), str(aid)),
+                user_id=base.user_id,
             )
     except OSError:
         pass
@@ -579,6 +655,7 @@ def _global_run_from_analysis_disk(
         trainer_run_id=str(tr),
         analysis_id=str(aid),
         download_zip_url=_suggest_download_zip_url("analysis", base.id, str(tr), str(aid)),
+        user_id=base.user_id,
     )
 
 
@@ -673,14 +750,7 @@ def _discover_run_from_main_folder(dirname: str, run_path: str) -> Optional[Glob
 
 def _discover_backtest_runs_from_disk() -> Dict[str, GlobalRun]:
     out: Dict[str, GlobalRun] = {}
-    root_dir = Path(__file__).resolve().parent.parent
-    bt_root = root_dir / "backend" / "runs" / "backtests"
-    if not bt_root.is_dir():
-        return out
-    for child in bt_root.iterdir():
-        if not child.is_dir():
-            continue
-        rid = child.name
+    for rid, child, owner in iter_backtest_dirs():
         info_file = child / "run_info.json"
         if not info_file.is_file():
             continue
@@ -702,6 +772,7 @@ def _discover_backtest_runs_from_disk() -> Dict[str, GlobalRun]:
         msg = str(info.get("message", "") or "")
         started = float(info.get("started_at", 0) or 0)
         updated = float(info.get("updated_at", started) or started)
+        uid = str(info["user_id"]) if info.get("user_id") else owner
         out[rid] = GlobalRun(
             id=rid,
             tool="backtester",
@@ -713,29 +784,61 @@ def _discover_backtest_runs_from_disk() -> Dict[str, GlobalRun]:
             updated_at=updated or started,
             route=f"/tools/backtester/runs/{rid}",
             download_zip_url=None,
+            user_id=uid,
         )
     return out
 
 
-def discover_runs_merged_from_disk_and_memory(limit: int) -> List[GlobalRun]:
-    """Merge disk-backed runs with in-memory all_runs (memory wins on same id)."""
+def _global_run_from_persisted(state: Dict[str, Any]) -> GlobalRun:
+    return GlobalRun(
+        id=state["id"],
+        tool=state["tool"] or "unknown",
+        status=state["status"] or "running",
+        progress=float(state.get("progress") or 0.0),
+        stage=state.get("stage") or "",
+        message=state.get("message") or "",
+        created_at=float(state.get("created_at") or state.get("updated_at") or 0.0),
+        updated_at=float(state.get("updated_at") or state.get("created_at") or 0.0),
+        route=state.get("route"),
+        parent_run_id=state.get("parent_run_id"),
+        trainer_run_id=state.get("trainer_run_id"),
+        analysis_id=state.get("analysis_id"),
+        download_zip_url=state.get("artifact_ref"),
+        user_id=state.get("user_id"),
+    )
+
+
+def discover_runs_merged_from_disk_and_memory(limit: int, user_id: Optional[str] = None) -> List[GlobalRun]:
+    """Merge disk, memory, and pipeline_runs. Live memory wins. Otherwise the DB status wins when it is terminal."""
     merged: Dict[str, GlobalRun] = {}
     try:
-        for name in os.listdir(runs_dir):
-            if name == "backtests":
-                continue
-            p = os.path.join(runs_dir, name)
-            if not os.path.isdir(p):
-                continue
-            gr = _discover_run_from_main_folder(name, p)
+        for rid, path, owner in iter_run_dirs():
+            gr = _discover_run_from_main_folder(rid, str(path))
             if gr:
+                if owner and not gr.user_id:
+                    gr = gr.model_copy(update={"user_id": owner})
                 merged[gr.id] = gr
     except OSError:
         pass
     merged.update(_discover_backtest_runs_from_disk())
+    scope = user_id if AUTH_REQUIRED and user_id else None
+    for state in list_pipeline_run_states(scope, limit=max(limit, 500)):
+        if state["id"] in all_runs:
+            continue
+        persisted = _global_run_from_persisted(state)
+        existing = merged.get(state["id"])
+        if existing is None:
+            merged[state["id"]] = persisted
+            continue
+        db_terminal = state["status"] in TERMINAL_RUN_STATUSES
+        disk_terminal = existing.status in TERMINAL_RUN_STATUSES
+        if db_terminal or not disk_terminal or _state_is_remote_job(state):
+            merged[state["id"]] = persisted
     for rid, run in all_runs.items():
         merged[rid] = run
     rows = sorted(merged.values(), key=lambda r: r.updated_at, reverse=True)
+    if AUTH_REQUIRED and user_id:
+        rows = [r for r in rows if r.user_id == user_id]
     return rows[:limit]
 
 
@@ -743,17 +846,30 @@ def try_resolve_run_from_disk(run_id: str) -> Optional[GlobalRun]:
     """Single-run recovery when not present in all_runs."""
     if run_id in all_runs:
         return all_runs[run_id]
+    disk_run: Optional[GlobalRun] = None
     p = get_run_dir(run_id)
     if os.path.isdir(p):
-        gr = _discover_run_from_main_folder(run_id, p)
-        if gr:
-            return gr
-    root_dir = Path(__file__).resolve().parent.parent
-    bt = root_dir / "backend" / "runs" / "backtests" / run_id
-    if bt.is_dir():
-        found = _discover_backtest_runs_from_disk()
-        return found.get(run_id)
-    return None
+        disk_run = _discover_run_from_main_folder(run_id, p)
+    if disk_run is None:
+        disk_run = _discover_backtest_runs_from_disk().get(run_id)
+    state = fetch_pipeline_run_state(run_id)
+    if state is None:
+        return disk_run
+    persisted = _global_run_from_persisted(state)
+    if disk_run is None:
+        return persisted
+    if (
+        state["status"] in TERMINAL_RUN_STATUSES
+        or disk_run.status not in TERMINAL_RUN_STATUSES
+        or _state_is_remote_job(state)
+    ):
+        return persisted
+    return disk_run
+
+
+def _state_is_remote_job(state: Dict[str, Any]) -> bool:
+    """A training job writes only to the database; this API's disk cannot tell if it is alive."""
+    return str(state.get("worker_id") or "").startswith("job/")
 
 
 # Backtester models
@@ -836,13 +952,15 @@ def register_run(
     *,
     trainer_run_id: Optional[str] = None,
     analysis_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    status: str = "running",
 ) -> None:
     """Register a new run in the global registry and persist a lightweight manifest on disk."""
     now = time.time()
     all_runs[run_id] = GlobalRun(
         id=run_id,
         tool=tool,
-        status="running",
+        status=status,
         progress=0.0,
         stage="starting",
         message="Initializing...",
@@ -853,8 +971,28 @@ def register_run(
         trainer_run_id=trainer_run_id,
         analysis_id=analysis_id,
         download_zip_url=_suggest_download_zip_url(tool, run_id, trainer_run_id, analysis_id),
+        user_id=user_id,
     )
     _persist_run_manifest_disk(all_runs[run_id])
+    extra = {}
+    if trainer_run_id:
+        extra["trainer_run_id"] = trainer_run_id
+    if analysis_id:
+        extra["analysis_id"] = analysis_id
+    record_pipeline_run(
+        run_id,
+        user_id,
+        tool,
+        status=status,
+        route=route,
+        parent_run_id=parent_run_id,
+        extra=extra or None,
+        progress=0.0,
+        stage="starting",
+        message="Initializing...",
+        artifact_ref=all_runs[run_id].download_zip_url,
+        worker_id=current_worker_id() if user_id else None,
+    )
 
 
 def update_run_progress(run_id: str, progress: float, stage: str, message: str = "", status: Optional[str] = None) -> None:
@@ -864,7 +1002,24 @@ def update_run_progress(run_id: str, progress: float, stage: str, message: str =
     "completed", "error") is mapped to the matching run status so the on-disk manifest
     is always finalized. Historically some flows (trainer/analysis) only ever reported
     progress with a terminal *phase* but no status, leaving manifests stuck on "running".
+
+    Succeeded is stored only after final artifacts are in the durable store.
     """
+    from app.ownership import canonical_run_status
+    from app.services.durable_outputs import publish_completed_run
+
+    if not status:
+        mapped, _, _ = _progress_phase_to_run_fields(stage, message)
+        if mapped in ("succeeded", "failed", "cancelled"):
+            status = mapped
+    else:
+        status = canonical_run_status(status) or status
+    if status == "succeeded":
+        stored, err = publish_completed_run(run_id)
+        if not stored:
+            status = "failed"
+            stage = "error"
+            message = (err or "Completed outputs could not be stored")[:500]
     if run_id in all_runs:
         run = all_runs[run_id]
         run.progress = progress
@@ -881,8 +1036,29 @@ def update_run_progress(run_id: str, progress: float, stage: str, message: str =
         run.download_zip_url = _suggest_download_zip_url(
             run.tool, run.id, run.trainer_run_id, run.analysis_id
         )
-        if run.status in ("succeeded", "failed", "cancelled"):
-            _persist_run_manifest_disk(run)
+        _persist_run_manifest_disk(run)
+        accepted = update_pipeline_run_state(
+            run_id,
+            status=run.status,
+            progress=run.progress,
+            stage=run.stage,
+            message=run.message,
+            error_summary=run.message if run.status in TERMINAL_RUN_STATUSES else None,
+            artifact_ref=run.download_zip_url,
+        )
+        if not accepted:
+            locked = fetch_pipeline_run_state(run_id)
+            if locked and locked["status"] in TERMINAL_RUN_STATUSES:
+                all_runs[run_id] = _global_run_from_persisted(locked)
+    else:
+        update_pipeline_run_state(
+            run_id,
+            status=status,
+            progress=progress,
+            stage=stage,
+            message=message,
+            error_summary=message if status in TERMINAL_RUN_STATUSES else None,
+        )
 
 def get_active_runs() -> List[GlobalRun]:
     """Get all active (running/queued) runs"""
@@ -959,6 +1135,8 @@ def cancel_run_process(run_id: str, message: str = "Cancelled by user") -> Dict[
 
     _write_cancelled_progress(run_id, message)
     update_run_progress(run_id, 0.0, "cancelled", message, "cancelled")
+    if trainer_jobs.is_job_run(run_id):
+        trainer_jobs.cancel_execution(run_id)
     return {"status": "cancelled", "run_id": run_id, "killed": killed}
 
 
@@ -967,8 +1145,20 @@ def generate_run_id() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + str(uuid.uuid4())[:6]
 
 def get_run_dir(run_id: str) -> str:
-    """Get the run directory path"""
-    return os.path.join(runs_dir, run_id)
+    """Get the run directory path (namespaced by user UUID when available)."""
+    uid = None
+    if run_id in all_runs:
+        uid = all_runs[run_id].user_id
+    if not uid:
+        uid = lookup_run_owner(run_id)
+    path = run_dir_for(run_id, uid)
+    try:
+        from app.services.durable_outputs import maybe_restore_run
+
+        maybe_restore_run(run_id, path)
+    except Exception:
+        logger.exception("Could not restore completed run %s", run_id)
+    return str(path)
 
 def get_artifacts_dir(run_id: str) -> str:
     """Get the artifacts directory path"""
@@ -1036,7 +1226,7 @@ def run_labeling_optimizer(request: RunRequest, run_id: str):
             "--start", start,
             "--end", end,
             "--run_id", run_id,
-            "--out_dir", runs_dir
+            "--out_dir", str(Path(run_dir).parent)
         ]
 
         print(f"Starting labeling optimizer: {' '.join(cmd)}")
@@ -1076,7 +1266,9 @@ def run_labeling_optimizer(request: RunRequest, run_id: str):
             ]
 
             for chart_file in chart_files:
-                src_path = os.path.join(runs_dir, chart_file)
+                src_path = os.path.join(str(Path(run_dir).parent), chart_file)
+                if not os.path.exists(src_path):
+                    src_path = os.path.join(run_dir, chart_file)
                 if os.path.exists(src_path):
                     dst_path = os.path.join(artifacts_dir, chart_file)
                     shutil.copy2(src_path, dst_path)
@@ -1383,13 +1575,31 @@ def run_training_chart_generator(config: Dict[str, Any], run_id: str):
         with open(os.path.join(run_dir, "progress.json"), 'w') as f:
             json.dump(error_progress, f)
 
+@app.get("/api/me")
+async def get_me(http_request: Request):
+    """Authenticated identity (JWT sub). 401 when AUTH_REQUIRED and token is missing."""
+    user_id = get_current_user_id(http_request)
+    if AUTH_REQUIRED and not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"user_id": user_id}
+
+
 @app.post("/api/labeling-optimizer/run", response_model=RunResponse)
-async def start_run(request: RunRequest, background_tasks: BackgroundTasks):
+async def start_run(
+    request: RunRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+):
     """Start a labeling optimizer run"""
     run_id = generate_run_id()
 
     # Register run globally
-    register_run(run_id, "labeling-optimizer", f"/products/labeling-optimizer/run/{run_id}")
+    register_run(
+        run_id,
+        "labeling-optimizer",
+        f"/products/labeling-optimizer/run/{run_id}",
+        user_id=get_current_user_id(http_request),
+    )
 
     # Start the script in background
     background_tasks.add_task(run_labeling_optimizer, request, run_id)
@@ -1397,13 +1607,13 @@ async def start_run(request: RunRequest, background_tasks: BackgroundTasks):
     return RunResponse(run_id=run_id)
 
 @app.get("/api/labeling-optimizer/progress/{run_id}")
-async def get_progress(run_id: str) -> ProgressResponse:
+async def get_progress(run_id: str = Depends(require_owned_run)) -> ProgressResponse:
     """Get progress for a run"""
     progress_data = read_progress_file(run_id)
     return ProgressResponse(**progress_data)
 
 @app.get("/api/labeling-optimizer/runs/{run_id}")
-async def list_run_artifacts(run_id: str) -> Dict[str, List[str]]:
+async def list_run_artifacts(run_id: str = Depends(require_owned_run)) -> Dict[str, List[str]]:
     """List available artifact files for a run"""
     artifacts_dir = get_artifacts_dir(run_id)
 
@@ -1419,7 +1629,7 @@ async def list_run_artifacts(run_id: str) -> Dict[str, List[str]]:
     return {"artifacts": artifacts}
 
 @app.get("/api/labeling-optimizer/artifacts/{run_id}/{name}")
-async def get_artifact(run_id: str, name: str):
+async def get_artifact(name: str, run_id: str = Depends(require_owned_run)):
     """Get a specific artifact file"""
     # Sanitize the name (only allow safe characters)
     if not all(c.isalnum() or c in '._-' for c in name):
@@ -1434,7 +1644,7 @@ async def get_artifact(run_id: str, name: str):
     return FileResponse(file_path, media_type="application/json")
 
 @app.get("/api/labeling-optimizer/download-visuals/{run_id}")
-async def download_visuals(run_id: str):
+async def download_visuals(run_id: str = Depends(require_owned_run)):
     """Download all visual artifacts as a ZIP file"""
     artifacts_dir = get_artifacts_dir(run_id)
 
@@ -1498,12 +1708,21 @@ async def yfinance_symbol_search(q: str = "", max_results: int = 12):
 
 # Training Chart Generator endpoints
 @app.post("/api/training-chart-generator/run", response_model=RunResponse)
-async def start_training_chart_generator(request: TrainingChartGeneratorRequest, background_tasks: BackgroundTasks):
+async def start_training_chart_generator(
+    request: TrainingChartGeneratorRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+):
     """Start a training chart generator run"""
     run_id = generate_run_id()
 
     # Register run globally
-    register_run(run_id, "training-chart-generator", f"/tools/generator/runs/{run_id}")
+    register_run(
+        run_id,
+        "training-chart-generator",
+        f"/tools/generator/runs/{run_id}",
+        user_id=get_current_user_id(http_request),
+    )
 
     # Create run directory and initial progress file immediately
     run_dir = get_run_dir(run_id)
@@ -1822,7 +2041,7 @@ def preview_training_chart(request: ChartPreviewRequest) -> Dict[str, Any]:
 
 
 @app.get("/api/training-chart-generator/config/{run_id}")
-async def get_training_chart_generator_config(run_id: str) -> Dict[str, Any]:
+async def get_training_chart_generator_config(run_id: str = Depends(require_owned_run)) -> Dict[str, Any]:
     """Return the saved generator request for this run (for results / history)."""
     run_dir = get_run_dir(run_id)
     path = os.path.join(run_dir, "generator_config.json")
@@ -1836,14 +2055,14 @@ async def get_training_chart_generator_config(run_id: str) -> Dict[str, Any]:
 
 
 @app.get("/api/training-chart-generator/progress/{run_id}")
-async def get_training_chart_generator_progress(run_id: str) -> ProgressResponse:
+async def get_training_chart_generator_progress(run_id: str = Depends(require_owned_run)) -> ProgressResponse:
     """Get progress for a training chart generator run"""
     progress_data = read_progress_file(run_id)
     print(f"Progress request for run {run_id}: {progress_data}")
     return ProgressResponse(**progress_data)
 
 @app.get("/api/training-chart-generator/artifacts/{run_id}")
-async def get_training_chart_generator_artifacts(run_id: str) -> DatasetStats:
+async def get_training_chart_generator_artifacts(run_id: str = Depends(require_owned_run)) -> DatasetStats:
     """Get dataset statistics for a training chart generator run"""
     artifacts_dir = get_artifacts_dir(run_id)
     stats_file = os.path.join(artifacts_dir, "dataset_stats.json")
@@ -1859,7 +2078,7 @@ async def get_training_chart_generator_artifacts(run_id: str) -> DatasetStats:
     return DatasetStats()
 
 @app.post("/api/training-chart-generator/cancel/{run_id}")
-async def cancel_training_chart_generator(run_id: str):
+async def cancel_training_chart_generator(run_id: str = Depends(require_owned_run)):
     """Cancel a training chart generator run"""
     run_dir = get_run_dir(run_id)
 
@@ -1870,7 +2089,7 @@ async def cancel_training_chart_generator(run_id: str):
 
 
 @app.post("/api/labeling-optimizer/cancel/{run_id}")
-async def cancel_labeling_optimizer(run_id: str):
+async def cancel_labeling_optimizer(run_id: str = Depends(require_owned_run)):
     """Cancel a labeling optimizer run"""
     run_dir = get_run_dir(run_id)
     if not os.path.exists(run_dir):
@@ -1879,12 +2098,12 @@ async def cancel_labeling_optimizer(run_id: str):
 
 
 @app.post("/api/runs/{run_id}/cancel")
-async def cancel_any_run(run_id: str):
+async def cancel_any_run(run_id: str = Depends(require_owned_run)):
     """Cancel any active tool run by id (subprocess kill + status update)."""
     return cancel_run_process(run_id, "Cancelled by user")
 
 @app.get("/api/training-chart-generator/download/{run_id}")
-async def download_training_chart_generator_dataset(run_id: str):
+async def download_training_chart_generator_dataset(run_id: str = Depends(require_owned_run)):
     """Download the generated training dataset ZIP file"""
     run_dir = get_run_dir(run_id)
     zip_path = os.path.join(run_dir, f"training-dataset-{run_id}.zip")
@@ -1892,15 +2111,29 @@ async def download_training_chart_generator_dataset(run_id: str):
     if not os.path.exists(zip_path):
         raise HTTPException(status_code=404, detail="Dataset not found or still generating")
 
-    return FileResponse(
-        zip_path,
-        media_type='application/zip',
-        filename=f"training-dataset-{run_id}.zip"
-    )
+    return stream_file_response(zip_path, f"training-dataset-{run_id}.zip", "application/zip")
 
 # Dataset storage
 datasets_dir = os.path.join(os.path.dirname(__file__), "..", "datasets")
 os.makedirs(datasets_dir, exist_ok=True)
+
+
+def _locate_dataset_dir(
+    dataset_id: str,
+    user_id: Optional[str] = None,
+    *,
+    restore: bool = True,
+) -> Optional[str]:
+    found = resolve_existing_dataset_dir(dataset_id, user_id, restore=restore)
+    if found is not None:
+        return str(found)
+    # Authenticated lookups must not walk another user's namespaced folder.
+    if AUTH_REQUIRED:
+        return None
+    for did, path, _owner in iter_dataset_dirs():
+        if did == str(dataset_id):
+            return str(path)
+    return None
 
 # Dataset upload endpoints
 @app.post("/datasets/upload", response_model=DatasetUploadResponse)
@@ -1908,38 +2141,86 @@ async def upload_dataset(
     file: UploadFile = File(...),
     source: Optional[str] = Form(None),
     generator_run_id: Optional[str] = Form(None),
+    http_request: Request = None,
 ):
     """Upload and extract a dataset ZIP file.
 
     Optional `source` / `generator_run_id` form fields record provenance
     (e.g. the Trainer page re-uploading a chart-generator ZIP) for lineage.
     """
+    uid = get_current_user_id(http_request) if http_request is not None else None
+    if generator_run_id:
+        assert_cross_owned(uid, run_id=generator_run_id)
+
     if not file.filename.endswith('.zip'):
         raise HTTPException(status_code=400, detail="Only ZIP files are supported")
 
-    # Check file size (warning at 2GB)
-    file_size = 0
-    content = await file.read()
-    file_size = len(content)
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = Path(tmp) / "upload.zip"
+        total = 0
+        with open(staged, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_DATASET_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File size exceeds {MAX_DATASET_UPLOAD_BYTES // (1024 * 1024)}MB limit",
+                    )
+                out.write(chunk)
+        return await run_in_threadpool(_ingest_dataset_zip, staged, uid, source, generator_run_id)
 
-    if file_size > 2 * 1024 * 1024 * 1024:  # 2GB
-        print(f"Warning: Large file upload ({file_size} bytes)")
 
-    # Generate dataset ID
+class DatasetFinalizeRequest(BaseModel):
+    source: Optional[str] = None
+    generator_run_id: Optional[str] = None
+
+
+@app.post("/api/uploads/{upload_id}/dataset", response_model=DatasetUploadResponse)
+def finalize_dataset_upload(upload_id: str, http_request: Request, body: Optional[DatasetFinalizeRequest] = None):
+    """Ingest a finished direct upload exactly like POST /datasets/upload."""
+    from app.services import direct_uploads
+
+    body = body or DatasetFinalizeRequest()
+    uid = get_current_user_id(http_request)
+    if body.generator_run_id:
+        assert_cross_owned(uid, run_id=body.generator_run_id)
+    with direct_uploads.adopt_upload(uid, upload_id, "dataset") as (_, local):
+        return _ingest_dataset_zip(local, uid, body.source, body.generator_run_id)
+
+
+def _check_zip_members(zip_ref: zipfile.ZipFile) -> None:
+    extracted = sum(info.file_size for info in zip_ref.infolist())
+    if extracted > MAX_DATASET_EXTRACTED_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Dataset expands to more than {MAX_DATASET_EXTRACTED_BYTES // (1024 * 1024)}MB",
+        )
+
+
+def _ingest_dataset_zip(
+    staged_zip: Path,
+    uid: Optional[str],
+    source: Optional[str],
+    generator_run_id: Optional[str],
+) -> DatasetUploadResponse:
+    try:
+        with zipfile.ZipFile(staged_zip, 'r') as zip_ref:
+            _check_zip_members(zip_ref)
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="File is not a valid ZIP archive")
+
     dataset_id = str(uuid.uuid4())[:8]
-    dataset_dir = os.path.join(datasets_dir, dataset_id)
+    dataset_dir = str(dataset_dir_for(dataset_id, uid))
     images_dir = os.path.join(dataset_dir, "images")
 
     try:
-        # Create directories
         os.makedirs(images_dir, exist_ok=True)
-
-        # Save ZIP file
         zip_path = os.path.join(dataset_dir, f"{dataset_id}.zip")
-        with open(zip_path, 'wb') as f:
-            f.write(content)
+        shutil.move(str(staged_zip), zip_path)
 
-        # Extract ZIP
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(images_dir)
 
@@ -1964,12 +2245,32 @@ async def upload_dataset(
         with open(summary_file, 'w') as f:
             json.dump(summary_data, f, indent=2)
 
+        record_user_dataset(
+            dataset_id,
+            uid,
+            source=source or "uploaded",
+            kind="training" if source == "generator" else "uploaded",
+            path=dataset_dir,
+            extra={"generator_run_id": generator_run_id} if generator_run_id else None,
+        )
+        if uid:
+            from app.services.durable_outputs import publish_dataset_dir
+
+            stored, err = publish_dataset_dir(dataset_id, uid, Path(dataset_dir))
+            if not stored:
+                raise HTTPException(
+                    status_code=500,
+                    detail=err or "Dataset could not be stored",
+                )
+
         return DatasetUploadResponse(
             dataset_id=dataset_id,
             extracted_path=images_dir,
             summary=summary
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         # Cleanup on failure
         if os.path.exists(dataset_dir):
@@ -1977,10 +2278,14 @@ async def upload_dataset(
         raise HTTPException(status_code=500, detail=f"Dataset processing failed: {str(e)}")
 
 @app.get("/datasets/{dataset_id}", response_model=DatasetSummary)
-async def get_dataset_info(dataset_id: str):
+async def get_dataset_info(dataset_id: str, http_request: Request):
     """Get dataset information and summary"""
-    dataset_dir = os.path.join(datasets_dir, dataset_id)
-    summary_file = os.path.join(dataset_dir, "summary.json")
+    uid = get_current_user_id(http_request)
+    assert_cross_owned(uid, dataset_id=dataset_id)
+    dataset_path = resolve_existing_dataset_dir(dataset_id, uid)
+    if dataset_path is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    summary_file = os.path.join(str(dataset_path), "summary.json")
 
     if not os.path.exists(summary_file):
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -2089,13 +2394,14 @@ def _parse_meta_from_chart_filenames(filenames: List[str]) -> Dict[str, Any]:
     return out
 
 
-def _dataset_meta_from_disk(dataset_id: str) -> Dict[str, Any]:
+def _dataset_meta_from_disk(dataset_id: str, *, restore: bool = True) -> Dict[str, Any]:
     """Best-effort {symbols, period_start, period_end} for a dataset from its files on disk.
 
     Prefers the full image listing (accurate range); falls back to the summary's
     example_filenames. Returns {} when nothing can be recovered.
     """
-    ddir = os.path.join(datasets_dir, str(dataset_id))
+    ddir_found = _locate_dataset_dir(str(dataset_id), restore=restore)
+    ddir = ddir_found or os.path.join(datasets_dir, str(dataset_id))
     images_dir = os.path.join(ddir, "images")
     names: List[str] = []
     try:
@@ -2111,9 +2417,15 @@ def _dataset_meta_from_disk(dataset_id: str) -> Dict[str, Any]:
     return _parse_meta_from_chart_filenames(names)
 
 
-def _resolve_generator_run_id_for_dataset(dataset_id: str) -> Optional[str]:
+def _resolve_generator_run_id_for_dataset(
+    dataset_id: str,
+    user_id: Optional[str] = None,
+    *,
+    restore: bool = True,
+) -> Optional[str]:
     """Generator run recorded in the dataset's summary.json at upload time, or None."""
-    path = os.path.join(datasets_dir, str(dataset_id), "summary.json")
+    located = _locate_dataset_dir(str(dataset_id), user_id, restore=restore)
+    path = os.path.join(located or os.path.join(datasets_dir, str(dataset_id)), "summary.json")
     try:
         with open(path, "r", encoding="utf-8") as f:
             summary = json.load(f)
@@ -2149,7 +2461,7 @@ def _generator_output_names(generator_run_id: str) -> set:
     return set()
 
 
-def _build_generator_output_index() -> Dict[str, set]:
+def _build_generator_output_index(user_id: Optional[str] = None) -> Dict[str, set]:
     """Map each generator run id -> set of chart filenames it produced.
 
     Used to backtrace a dataset (and the models trained on it) to the generator
@@ -2157,14 +2469,12 @@ def _build_generator_output_index() -> Dict[str, set]:
     directory listings / zip name tables.
     """
     index: Dict[str, set] = {}
-    try:
-        entries = os.listdir(runs_dir)
-    except OSError:
-        return index
-    for name in entries:
-        run_path = os.path.join(runs_dir, name)
-        if not os.path.isdir(run_path):
-            continue
+    owned = owned_run_ids(user_id) if AUTH_REQUIRED and user_id else None
+    for name, run_path_p, owner in iter_run_dirs():
+        if AUTH_REQUIRED and user_id:
+            if name not in (owned or set()) and owner != user_id:
+                continue
+        run_path = str(run_path_p)
         # A generator run is identifiable by its config, delivered zip, or output dir.
         has_marker = (
             os.path.isfile(os.path.join(run_path, "generator_config.json"))
@@ -2179,20 +2489,25 @@ def _build_generator_output_index() -> Dict[str, set]:
     return index
 
 
-def _match_generator_run_for_dataset(dataset_id: str, index: Dict[str, set]) -> Optional[str]:
+def _match_generator_run_for_dataset(
+    dataset_id: str, index: Dict[str, set], user_id: Optional[str] = None
+) -> Optional[str]:
     """Find the generator run whose output contains this dataset's charts.
 
     Datasets can be a balanced subset of the generator's output, so we require
     the dataset's filenames to be (almost entirely) a subset of a generator run's
     output rather than an exact match.
     """
-    ddir = os.path.join(datasets_dir, str(dataset_id), "images")
+    located = _locate_dataset_dir(str(dataset_id), user_id)
+    if not located:
+        return None
+    ddir = os.path.join(located, "images")
     try:
         dataset_names = {f for f in os.listdir(ddir) if f.lower().endswith(".png")} if os.path.isdir(ddir) else set()
     except OSError:
         dataset_names = set()
     if not dataset_names:
-        summary = _read_json_dict(os.path.join(datasets_dir, str(dataset_id), "summary.json")) or {}
+        summary = _read_json_dict(os.path.join(located, "summary.json")) or {}
         ex = summary.get("example_filenames")
         if isinstance(ex, list):
             dataset_names = {os.path.basename(str(x)) for x in ex if str(x).lower().endswith(".png")}
@@ -2205,13 +2520,18 @@ def _match_generator_run_for_dataset(dataset_id: str, index: Dict[str, set]) -> 
     return None
 
 
-def _persist_dataset_generator_link(dataset_id: str, generator_run_id: str) -> None:
+def _persist_dataset_generator_link(
+    dataset_id: str, generator_run_id: str, user_id: Optional[str] = None
+) -> None:
     """Record a recovered generator link into the dataset's summary.json.
 
     Makes the backtrace permanent so subsequent reads hit the fast path and the
     trainer-time metadata resolver picks it up too. Never overwrites an existing link.
     """
-    path = os.path.join(datasets_dir, str(dataset_id), "summary.json")
+    located = _locate_dataset_dir(str(dataset_id), user_id)
+    if not located:
+        return
+    path = os.path.join(located, "summary.json")
     summary = _read_json_dict(path)
     if summary is None or summary.get("generator_run_id"):
         return
@@ -2252,8 +2572,10 @@ def _derive_model_fields_from_generator_config(generator_config: Dict[str, Any])
     return out
 
 
-def _write_trainer_model_metadata(run_id: str, request: "TrainerRequest", trainer_config: Dict[str, Any]) -> None:
-    """Write model_metadata.json into the trainer run dir.
+def _write_trainer_model_metadata(
+    run_id: str, request: "TrainerRequest", trainer_config: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Write model_metadata.json into the trainer run dir and return it.
 
     Links the trained model to its source dataset and (when known) the
     chart-generator run + config it was built from. Unknown fields are
@@ -2273,7 +2595,9 @@ def _write_trainer_model_metadata(run_id: str, request: "TrainerRequest", traine
     # recorded in the dataset's summary.json at upload time.
     generator_run_id = request.generator_run_id
     if not generator_run_id and request.dataset_id:
-        generator_run_id = _resolve_generator_run_id_for_dataset(request.dataset_id)
+        generator_run_id = _resolve_generator_run_id_for_dataset(
+            request.dataset_id, lookup_run_owner(run_id)
+        )
     if generator_run_id:
         metadata["generator_run_id"] = generator_run_id
         generator_config = _load_generator_config_from_disk(generator_run_id)
@@ -2285,10 +2609,11 @@ def _write_trainer_model_metadata(run_id: str, request: "TrainerRequest", traine
             json.dump(metadata, f, indent=2)
     except (OSError, TypeError) as exc:
         logger.warning("Could not write model_metadata.json for %s: %s", run_id, exc)
+    return metadata
 
 
 @app.get("/trainer/runs/{run_id}/model-metadata")
-async def get_trainer_model_metadata(run_id: str) -> Dict[str, Any]:
+async def get_trainer_model_metadata(run_id: str = Depends(require_owned_run)) -> Dict[str, Any]:
     """Model/training metadata for a trainer run (404 when the run predates metadata support).
 
     Read-time enrichment: when the stored file lacks generator settings but the linked
@@ -2306,7 +2631,9 @@ async def get_trainer_model_metadata(run_id: str) -> Dict[str, Any]:
     if isinstance(metadata, dict) and metadata.get("symbols") is None:
         generator_run_id = metadata.get("generator_run_id")
         if not generator_run_id and metadata.get("dataset_id"):
-            generator_run_id = _resolve_generator_run_id_for_dataset(str(metadata["dataset_id"]))
+            generator_run_id = _resolve_generator_run_id_for_dataset(
+                str(metadata["dataset_id"]), lookup_run_owner(run_id)
+            )
         if generator_run_id:
             generator_config = _load_generator_config_from_disk(str(generator_run_id))
             if generator_config:
@@ -2318,12 +2645,12 @@ async def get_trainer_model_metadata(run_id: str) -> Dict[str, Any]:
 
 
 @app.get("/models/{model_id}/metadata")
-async def get_uploaded_model_metadata(model_id: str) -> Dict[str, Any]:
+async def get_uploaded_model_metadata(model_id: str, http_request: Request) -> Dict[str, Any]:
     """Metadata sidecar for an uploaded .keras model (404 when none exists — never fabricated)."""
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+", model_id or ""):
-        raise HTTPException(status_code=400, detail="Invalid model id")
-    path = Path(MODEL_STORAGE_ROOT) / f"{model_id}.metadata.json"
-    if not path.is_file():
+    uid = get_current_user_id(http_request)
+    assert_cross_owned(uid, model_id=model_id)
+    path = find_keras_sidecar(Path(MODEL_STORAGE_ROOT), model_id, uid)
+    if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="No metadata for this model")
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -2386,7 +2713,8 @@ def _finalize_testdata_from_output(config: Dict[str, Any], run_dir: Path, progre
                 chart_dates.append(parsed[key])
 
     dataset_id = f"dataset_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    dataset_path = Path(datasets_dir) / dataset_id
+    uid = config.get("user_id")
+    dataset_path = dataset_dir_for(dataset_id, uid if isinstance(uid, str) else None)
     dataset_images_path = dataset_path / "images"
     dataset_images_path.mkdir(parents=True, exist_ok=True)
     for png_file in png_files:
@@ -2430,6 +2758,15 @@ def _finalize_testdata_from_output(config: Dict[str, Any], run_dir: Path, progre
             )
     except OSError as exc:
         logger.warning("Could not write dataset summary for %s: %s", dataset_id, exc)
+
+    record_user_dataset(
+        dataset_id,
+        uid if isinstance(uid, str) else None,
+        source="testdata",
+        kind="test",
+        path=str(dataset_path),
+        extra={"source_run_id": run_dir.name},
+    )
 
     results = {
         "dataset_id": dataset_id,
@@ -2594,8 +2931,13 @@ def run_testdata_generator(config: Dict[str, Any], run_dir: Path, progress_cb: C
         raise
 
 @app.post("/trainer/runs", response_model=RunResponse)
-async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTasks):
+async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTasks, http_request: Request):
     """Start a CNN trainer run"""
+    uid = get_current_user_id(http_request)
+    if request.dataset_id:
+        assert_cross_owned(uid, dataset_id=request.dataset_id)
+    if trainer_jobs.job_mode_enabled():
+        return await _start_trainer_job(request, uid)
     try:
         from runners.trainer_runner import run_trainer, CancelledError
     except Exception as import_error:
@@ -2606,20 +2948,22 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
     run_id = generate_run_id()
 
     # Register run globally
-    register_run(run_id, "trainer", f"/tools/trainer/runs/{run_id}")
+    register_run(run_id, "trainer", f"/tools/trainer/runs/{run_id}", user_id=uid)
 
     run_dir = Path(get_run_dir(run_id))
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # Resolve training folder from dataset_id or folder_name
     if request.dataset_id:
-        # Use uploaded dataset
-        dataset_images_dir = os.path.join(datasets_dir, request.dataset_id, "images")
-        if not os.path.exists(dataset_images_dir):
+        located = _locate_dataset_dir(request.dataset_id, uid)
+        dataset_images_dir = os.path.join(located, "images") if located else ""
+        if not located or not os.path.exists(dataset_images_dir):
             raise HTTPException(status_code=400, detail=f"Dataset {request.dataset_id} not found")
         training_folder = dataset_images_dir
     elif request.folder_name:
-        # Legacy support
+        if AUTH_REQUIRED:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        # Legacy support when auth is off (cloud pre-cutover)
         training_folder = request.folder_name
     else:
         raise HTTPException(status_code=400, detail="Either dataset_id or folder_name must be provided")
@@ -2643,6 +2987,9 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
         "config": trainer_config,
         "run_dir": run_dir,
         "cancel_event": cancel_event,
+        "history": [],
+        "training_state": {},
+        "worker_active": True,
     }
 
     def progress_callback(phase: str, percent: int, data: Dict[str, Any]):
@@ -2651,6 +2998,9 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
             "percent": percent,
             **data
         }
+        split = {k: data[k] for k in trainer_jobs._SPLIT_KEYS if data.get(k) is not None}
+        if split:
+            trainer_runs[run_id]["training_state"] = {**split, "data_ready_at": time.time()}
         if "epoch" in data:
             trainer_runs[run_id]["last_metrics"] = {
                 "epoch": data.get("epoch"),
@@ -2660,19 +3010,25 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
                 "val_loss": data.get("val_loss"),
                 "val_accuracy": data.get("val_accuracy")
             }
-            # Keep last 20 history points for preview
+            # Short preview kept for older clients; the session carries the full history.
             history = trainer_runs[run_id]["history_preview"]
             history.append(trainer_runs[run_id]["last_metrics"])
             if len(history) > 20:
                 history.pop(0)
+            trainer_runs[run_id]["history"].append(
+                {
+                    **trainer_runs[run_id]["last_metrics"],
+                    **{k: data.get(k) for k in trainer_jobs._EXTRA_EPOCH_KEYS if k in data},
+                }
+            )
 
         # Update global run registry
         message = data.get("message", f"{phase}")
         if "epoch" in data:
             epoch = data.get("epoch", 0)
             epochs = data.get("epochs", 0)
-            acc = data.get("val_accuracy", 0)
-            message = f"Epoch {epoch}/{epochs} • Val acc {acc:.3f}"
+            acc = data.get("val_accuracy")
+            message = f"Epoch {epoch}/{epochs}" + (f" • Val acc {acc:.3f}" if isinstance(acc, (int, float)) else "")
 
         update_run_progress(run_id, percent / 100.0, phase, message)
 
@@ -2700,6 +3056,8 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
             }
             update_run_progress(run_id, 0.0, "error", str(exc), "failed")
             raise
+        finally:
+            trainer_runs[run_id]["worker_active"] = False
 
     # Start training in background
     background_tasks.add_task(run_trainer_safe)
@@ -2707,8 +3065,43 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
     return RunResponse(run_id=run_id)
 
 
+async def _start_trainer_job(request: TrainerRequest, uid: Optional[str]) -> RunResponse:
+    """Queue the run and start the training Cloud Run Job. TensorFlow is not loaded here."""
+    from starlette.concurrency import run_in_threadpool
+
+    from app.services.durable_outputs import publish_dataset_dir
+
+    if not uid or not is_user_uuid(uid):
+        raise HTTPException(status_code=400, detail="Cloud training requires a signed-in user")
+    if not request.dataset_id:
+        raise HTTPException(status_code=400, detail="Cloud training requires a dataset_id")
+    located = _locate_dataset_dir(request.dataset_id, uid)
+    images_dir = os.path.join(located, "images") if located else ""
+    if not located or not os.path.isdir(images_dir):
+        raise HTTPException(status_code=400, detail=f"Dataset {request.dataset_id} not found")
+    stored, err = trainer_jobs.dataset_is_stored(request.dataset_id, uid)
+    if not stored:
+        ok, publish_err = await run_in_threadpool(publish_dataset_dir, request.dataset_id, uid, Path(located))
+        stored, err = trainer_jobs.dataset_is_stored(request.dataset_id, uid) if ok else (False, publish_err)
+    if not stored:
+        raise HTTPException(status_code=409, detail=err)
+
+    run_id = generate_run_id()
+    register_run(run_id, "trainer", f"/tools/trainer/runs/{run_id}", user_id=uid, status="queued")
+    # The job owns progress; a cached registry entry here would hide its updates.
+    all_runs.pop(run_id, None)
+    trainer_config = request.dict()
+    trainer_config["folder_name"] = images_dir
+    metadata = _write_trainer_model_metadata(run_id, request, trainer_config)
+    trainer_jobs.save_job_payload(run_id, trainer_config, request.dataset_id, metadata)
+    ok, detail = await run_in_threadpool(trainer_jobs.dispatch, run_id)
+    if not ok:
+        raise HTTPException(status_code=503, detail=detail)
+    return RunResponse(run_id=run_id)
+
+
 @app.post("/trainer/runs/{run_id}/cancel")
-async def cancel_trainer_run(run_id: str):
+async def cancel_trainer_run(run_id: str = Depends(require_owned_run)):
     """Cancel a running trainer job"""
     run = trainer_runs.get(run_id)
     if not run:
@@ -2719,62 +3112,155 @@ async def cancel_trainer_run(run_id: str):
     return cancel_run_process(run_id, "Training cancelled")
 
 @app.get("/trainer/runs/{run_id}", response_model=TrainerProgressResponse)
-async def get_trainer_progress(run_id: str):
-    """Get trainer run progress and status"""
-    if run_id in trainer_runs:
-        run_data = dict(trainer_runs[run_id])
-        run_data.pop("cancel_event", None)
-        return TrainerProgressResponse(**run_data)
+async def get_trainer_progress(run_id: str = Depends(require_owned_run)):
+    """Trainer run status plus the full session view (works after navigation, refresh and API restart)."""
+    from app.services import trainer_session
 
-    # Check if run directory exists (don't rely on in-memory trainer_runs)
+    row = fetch_pipeline_run_state(run_id)
+    if run_id in trainer_runs:
+        live = trainer_runs[run_id]
+        run_dir = str(live.get("run_dir") or get_run_dir(run_id))
+        session = trainer_session.build_session(
+            run_id,
+            run_dir,
+            status=live["status"],
+            progress=live.get("progress") or {},
+            live_history=live.get("history") or None,
+            live_state=live.get("training_state") or None,
+            row=row,
+            dataset_summary=_trainer_dataset_summary(run_dir),
+            worker_active=bool(live.get("worker_active")),
+        )
+        return TrainerProgressResponse(
+            status=live["status"],
+            progress=live.get("progress") or {},
+            last_metrics=live.get("last_metrics"),
+            history_preview=live.get("history_preview") or [],
+            artifact_paths=live.get("artifact_paths") or [],
+            session=session,
+        )
+
+    job_view = trainer_jobs.progress_response(run_id)
+    if job_view is not None:
+        run_dir = get_run_dir(run_id)
+        session = trainer_session.build_session(
+            run_id,
+            run_dir,
+            status=job_view["status"],
+            progress=job_view["progress"],
+            live_history=job_view.get("history") or None,
+            live_state=job_view.get("training_state") or None,
+            row=job_view.get("row") or row,
+            dataset_summary=_trainer_dataset_summary(run_dir),
+            worker_active=None,
+        )
+        return TrainerProgressResponse(
+            status=job_view["status"],
+            progress=job_view["progress"],
+            last_metrics=job_view.get("last_metrics"),
+            history_preview=job_view.get("history_preview") or [],
+            artifact_paths=job_view.get("artifact_paths") or [],
+            session=session,
+        )
+
+    # Not owned by this process: rebuild from the run directory and the pipeline_runs row.
     run_dir = get_run_dir(run_id)
-    if not os.path.exists(run_dir):
+    has_dir = os.path.isdir(run_dir)
+    model_found = has_dir and _find_trained_model_file(run_dir) is not None
+    db_status = canonical_run_status((row or {}).get("status"))
+    if db_status == "succeeded" or (model_found and db_status in (None, "running")):
+        status, progress = "done", {"phase": "completed", "percent": 100, "message": "Training completed"}
+    elif db_status in ("failed", "interrupted"):
+        message = (row or {}).get("error_summary") or (row or {}).get("message") or "Training failed"
+        if db_status == "interrupted":
+            message = "Training stopped because the server restarted before it finished."
+        status, progress = "failed", {"phase": "error", "percent": 0, "message": message}
+    elif db_status == "cancelled":
+        status, progress = "cancelled", {"phase": "cancelled", "percent": 0, "message": "Training cancelled"}
+    elif db_status in ("running", "queued"):
+        # A row says running but no live state here: another worker may own it. Report what is recorded.
+        status = "running"
+        progress = {
+            "phase": (row or {}).get("stage") or "starting",
+            "percent": round(float((row or {}).get("progress") or 0) * 100),
+            "message": (row or {}).get("message") or "",
+        }
+    else:
         raise HTTPException(status_code=404, detail="Trainer run not found")
 
-    # Look for common model file extensions
-    model_extensions = ['.keras', '.h5', '.pkl', '.joblib']
-    model_found = any(
-        filename.endswith(tuple(model_extensions))
-        for filename in os.listdir(run_dir)
+    if status == "done" and db_status == "succeeded" and not model_found and not has_dir:
+        raise HTTPException(status_code=404, detail="Trainer run not found")
+
+    session = trainer_session.build_session(
+        run_id,
+        run_dir if has_dir else None,
+        status=status,
+        progress=progress,
+        row=row,
+        dataset_summary=_trainer_dataset_summary(run_dir) if has_dir else None,
+        worker_active=False if status != "running" else None,
+    )
+    history = session.get("history") or []
+    return TrainerProgressResponse(
+        status=status,
+        progress=progress,
+        last_metrics=history[-1] if history else None,
+        history_preview=history[-20:],
+        artifact_paths=["model", "metrics", "summary", "history"] if status == "done" else [],
+        session=session,
     )
 
-    if not model_found:
-        # No in-memory run + no model on disk -> treat as stale
-        raise HTTPException(status_code=404, detail="Trainer run not found")
 
-    # Provide completed trainer data structure
-    run_data = {
-        "status": "done",
-        "progress": {"phase": "completed", "percent": 100, "message": "Training completed"},
-        "last_metrics": None,
-        "history_preview": [],
-        "artifact_paths": ["model", "metrics", "summary", "history"],
-        "config": {"model_name": "trained_model.keras"},
-        "run_dir": run_dir
-    }
-
-    return TrainerProgressResponse(**run_data)
+def _trainer_dataset_summary(run_dir: str) -> Optional[Dict[str, Any]]:
+    """summary.json of the dataset a training run used (owner lookup via the run's owner)."""
+    meta = _read_json_dict(os.path.join(run_dir, "model_metadata.json")) or {}
+    dataset_id = meta.get("dataset_id")
+    if not dataset_id:
+        return None
+    try:
+        located = _locate_dataset_dir(str(dataset_id), lookup_run_owner(Path(run_dir).name), restore=False)
+    except Exception:
+        return None
+    if not located:
+        return None
+    return _read_json_dict(os.path.join(located, "summary.json"))
 
 
 @app.get("/trainer/runs/{run_id}/history")
-async def get_trainer_history(run_id: str):
-    """Per-epoch metrics from `history.json` (written at end of training). Used by the analysis UI."""
+async def get_trainer_history(run_id: str = Depends(require_owned_run)):
+    """Per-epoch metrics: history.json after training, metrics.jsonl while it runs. Missing values are null.
+
+    Analysis runs resolve to the trainer run recorded in their analysis_context.json.
+    """
+    from app.services import trainer_session
+
     run_dir = get_run_dir(run_id)
     if not os.path.exists(run_dir):
         raise HTTPException(status_code=404, detail="Trainer run not found")
-    history_path = os.path.join(run_dir, "history.json")
-    if not os.path.isfile(history_path):
-        return []
-    try:
-        with open(history_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError):
-        return []
+    source_dir = run_dir
+    context = _read_json_dict(os.path.join(run_dir, "analysis_context.json")) or {}
+    source_trainer = context.get("source_trainer_run_id")
+    if source_trainer and not trainer_session.disk_history(run_dir):
+        try:
+            validate_id(str(source_trainer))
+            owner = lookup_run_owner(run_id)
+            if AUTH_REQUIRED and owner:
+                assert_cross_owned(owner, trainer_run_id=str(source_trainer))
+            source_dir = get_run_dir(str(source_trainer))
+        except HTTPException:
+            return []
+        except ValueError:
+            return []
+    summary = _read_json_dict(os.path.join(source_dir, "summary.json")) or {}
+    val_samples = summary.get("val_samples")
+    return trainer_session.normalize_history(
+        trainer_session.disk_history(source_dir),
+        val_samples=val_samples if isinstance(val_samples, int) else None,
+    )
 
 
 @app.get("/trainer/runs/{run_id}/download/model")
-async def download_trainer_model(run_id: str):
+async def download_trainer_model(run_id: str = Depends(require_owned_run)):
     """Download the trained model file"""
     run_dir = get_run_dir(run_id)
     if not os.path.exists(run_dir):
@@ -2799,14 +3285,101 @@ async def download_trainer_model(run_id: str):
     if isinstance(named, str) and named.strip().lower().endswith((".keras", ".h5")):
         download_name = Path(named.strip()).name
 
-    return FileResponse(
-        model_path,
-        media_type='application/octet-stream',
-        filename=os.path.basename(download_name)
+    return stream_file_response(model_path, os.path.basename(download_name))
+
+
+DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+def _iter_file_chunks(path: str, chunk_size: int = DOWNLOAD_CHUNK_BYTES):
+    with open(path, "rb") as fh:
+        while True:
+            chunk = fh.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+
+
+def stream_file_response(
+    path: str,
+    filename: str,
+    media_type: str = "application/octet-stream",
+) -> StreamingResponse:
+    """Chunked response with no Content-Length.
+
+    Cloud Run rejects HTTP/1 responses over 32 MiB that declare their size;
+    chunked transfer encoding is not subject to that limit.
+    """
+    from urllib.parse import quote
+
+    if filename.isascii() and '"' not in filename and "\\" not in filename:
+        disposition = f'attachment; filename="{filename}"'
+    else:
+        disposition = f"attachment; filename*=utf-8''{quote(filename)}"
+    return StreamingResponse(
+        _iter_file_chunks(path),
+        media_type=media_type,
+        headers={"Content-Disposition": disposition, "Cache-Control": "no-store"},
     )
 
+_ANALYSIS_ID_RE = re.compile(r"^analysis_[A-Za-z0-9_-]{1,100}$")
+_ANALYSIS_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+
+def _analysis_dir_for(run_dir: str, analysis_id: str) -> str:
+    """analysis/<analysis_id> inside an owned run; anything else looks missing."""
+    if not _ANALYSIS_ID_RE.fullmatch(str(analysis_id or "")):
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    return os.path.join(run_dir, "analysis", analysis_id)
+
+
+def _analysis_file(run_dir: str, analysis_id: str, filename: str) -> Optional[Path]:
+    if not filename or filename != os.path.basename(filename) or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    return safe_resolve_under(Path(_analysis_dir_for(run_dir, analysis_id)), filename)
+
+
+def _resolve_trainer_analysis_image(run_dir: str, requested: Optional[str], uid: Optional[str]) -> str:
+    """The sample image must come from the dataset this model was trained on (owner's copy).
+
+    ``requested`` may be a filename in that dataset or a path inside its images folder;
+    without it the first image (sorted) is used.
+    """
+    meta = _read_json_dict(os.path.join(run_dir, "model_metadata.json")) or {}
+    dataset_id = meta.get("dataset_id")
+    images_dir = None
+    if isinstance(dataset_id, str) and dataset_id:
+        try:
+            validate_id(dataset_id, kind="dataset")
+            assert_cross_owned(uid, dataset_id=dataset_id)
+            located = _locate_dataset_dir(dataset_id, uid)
+        except HTTPException:
+            located = None
+        if located:
+            sub = os.path.join(located, "images")
+            images_dir = sub if os.path.isdir(sub) else located
+    if not images_dir:
+        raise HTTPException(status_code=400, detail="The training dataset for this model is not available, so no sample image can be chosen")
+    root = os.path.realpath(images_dir)
+    if requested:
+        name = str(requested).strip()
+        candidate = os.path.realpath(name if os.path.isabs(name) else os.path.join(root, name))
+        if not candidate.startswith(root + os.sep) or not os.path.isfile(candidate) or not candidate.lower().endswith(_ANALYSIS_IMAGE_EXTS):
+            raise HTTPException(status_code=400, detail="The image must be part of this model's training dataset")
+        return candidate
+    for f in sorted(os.listdir(root)):
+        if f.lower().endswith(_ANALYSIS_IMAGE_EXTS) and os.path.isfile(os.path.join(root, f)):
+            return os.path.join(root, f)
+    raise HTTPException(status_code=400, detail="No images found in the training dataset")
+
+
 @app.post("/trainer/runs/{run_id}/analysis", response_model=AnalysisResponse)
-async def start_trainer_analysis(run_id: str, request: AnalysisRequest, background_tasks: BackgroundTasks):
+async def start_trainer_analysis(
+    request: AnalysisRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+    run_id: str = Depends(require_owned_run),
+):
     """Start CNN analysis on a trained model"""
     try:
         from runners.cnn_analysis_runner import run_cnn_analysis
@@ -2830,6 +3403,8 @@ async def start_trainer_analysis(run_id: str, request: AnalysisRequest, backgrou
     if not model_file:
         raise HTTPException(status_code=400, detail="Training must be completed before analysis")
 
+    img_path = _resolve_trainer_analysis_image(run_dir, request.img_path, get_current_user_id(http_request))
+
     analysis_id = f"analysis_{generate_run_id()}"
     model_path = Path(run_dir) / model_file
 
@@ -2842,6 +3417,7 @@ async def start_trainer_analysis(run_id: str, request: AnalysisRequest, backgrou
         run_id,
         trainer_run_id=run_id,
         analysis_id=analysis_id,
+        user_id=get_current_user_id(http_request),
     )
 
     # Initialize analysis status
@@ -2893,7 +3469,7 @@ async def start_trainer_analysis(run_id: str, request: AnalysisRequest, backgrou
 
     analysis_config = {
         "model_path": str(model_path),
-        "img_path": request.img_path,
+        "img_path": img_path,
         "img_size": [224, 224],  # Default size
         "white_mask_thresh": request.white_mask_thresh,
         "trainer_folder": trainer_folder or "",
@@ -2907,7 +3483,7 @@ async def start_trainer_analysis(run_id: str, request: AnalysisRequest, backgrou
 
 
 @app.get("/trainer/runs/{run_id}/analyses")
-async def list_trainer_run_analyses(run_id: str) -> Dict[str, List[str]]:
+async def list_trainer_run_analyses(run_id: str = Depends(require_owned_run)) -> Dict[str, List[str]]:
     """List completed analysis folder IDs under this trainer (or standalone analysis) run."""
     run_dir = get_run_dir(run_id)
     if not os.path.isdir(run_dir):
@@ -2926,9 +3502,18 @@ async def list_trainer_run_analyses(run_id: str) -> Dict[str, List[str]]:
 
 @app.post("/trainer/analysis/standalone", response_model=AnalysisStandaloneResponse)
 async def start_standalone_cnn_analysis(
-    request: AnalysisStandaloneRequest, background_tasks: BackgroundTasks
+    request: AnalysisStandaloneRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
 ):
     """Run CNN analysis from an uploaded .keras model and a dataset ZIP (first image as sample)."""
+    uid = get_current_user_id(http_request)
+    assert_cross_owned(
+        uid,
+        dataset_id=request.dataset_id,
+        model_id=request.model_id,
+        trainer_run_id=request.trainer_run_id,
+    )
     try:
         from runners.cnn_analysis_runner import run_cnn_analysis
     except Exception as import_error:
@@ -2944,14 +3529,16 @@ async def start_standalone_cnn_analysis(
             raise HTTPException(status_code=404, detail="Trained model not found for this trainer run")
         model_file = Path(trainer_dir) / trained_name
     elif request.model_id:
-        model_file = Path(MODEL_STORAGE_ROOT) / f"{request.model_id}.keras"
-        if not model_file.is_file():
+        found = find_local_keras_file(Path(MODEL_STORAGE_ROOT), request.model_id, uid)
+        if found is None or not found.is_file():
             raise HTTPException(status_code=404, detail="Uploaded model not found")
+        model_file = found
     else:
         raise HTTPException(status_code=422, detail="Provide model_id or trainer_run_id")
 
-    dataset_images = os.path.join(datasets_dir, request.dataset_id, "images")
-    if not os.path.isdir(dataset_images):
+    located = _locate_dataset_dir(request.dataset_id, uid)
+    dataset_images = os.path.join(located, "images") if located else ""
+    if not located or not os.path.isdir(dataset_images):
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     img_path: Optional[str] = None
@@ -2966,6 +3553,13 @@ async def start_standalone_cnn_analysis(
         raise HTTPException(status_code=400, detail="No images found in the test dataset")
 
     run_id = generate_run_id()
+    uid = get_current_user_id(http_request)
+    register_run(
+        run_id,
+        "analysis",
+        f"/products/trainer/analysis/{run_id}",
+        user_id=uid,
+    )
     run_dir = get_run_dir(run_id)
     os.makedirs(run_dir, exist_ok=True)
 
@@ -2995,6 +3589,7 @@ async def start_standalone_cnn_analysis(
         None,
         trainer_run_id=run_id,
         analysis_id=analysis_id,
+        user_id=uid,
     )
 
     trainer_runs[analysis_key] = {
@@ -3045,10 +3640,11 @@ async def start_standalone_cnn_analysis(
 
 
 @app.get("/trainer/runs/{run_id}/analysis/{analysis_id}", response_model=AnalysisStatusResponse)
-async def get_analysis_status(run_id: str, analysis_id: str):
+async def get_analysis_status(analysis_id: str, run_id: str = Depends(require_owned_run)):
     """Get CNN analysis status"""
     # Check if run directory exists (don't rely on in-memory trainer_runs)
     run_dir = get_run_dir(run_id)
+    _analysis_dir_for(run_dir, analysis_id)
     if not os.path.exists(run_dir):
         raise HTTPException(status_code=404, detail="Analysis not found")
 
@@ -3071,7 +3667,7 @@ async def get_analysis_status(run_id: str, analysis_id: str):
             artifact_metadata=run_data.get("artifact_metadata"),
         )
 
-    analysis_dir = os.path.join(run_dir, "analysis", analysis_id)
+    analysis_dir = _analysis_dir_for(run_dir, analysis_id)
     delivery_path = os.path.join(analysis_dir, "delivery_summary.json")
 
     if os.path.isfile(delivery_path):
@@ -3128,51 +3724,42 @@ async def get_analysis_status(run_id: str, analysis_id: str):
     )
 
 @app.get("/trainer/runs/{run_id}/analysis/{analysis_id}/download")
-async def download_analysis_zip(run_id: str, analysis_id: str):
+async def download_analysis_zip(analysis_id: str, run_id: str = Depends(require_owned_run)):
     """Download the CNN analysis ZIP file"""
     run_dir = get_run_dir(run_id)
+    _analysis_dir_for(run_dir, analysis_id)
     zip_path = os.path.join(run_dir, "cnn_analysis.zip")
 
     if not os.path.exists(zip_path):
         raise HTTPException(status_code=404, detail="Analysis ZIP not found")
 
-    return FileResponse(
-        zip_path,
-        media_type='application/zip',
-        filename=f"cnn_analysis_{run_id}_{analysis_id}.zip"
-    )
+    return stream_file_response(zip_path, f"cnn_analysis_{run_id}_{analysis_id}.zip", "application/zip")
 
 @app.get("/trainer/runs/{run_id}/analysis/{analysis_id}/images/{filename}")
-async def get_analysis_image(run_id: str, analysis_id: str, filename: str):
+async def get_analysis_image(analysis_id: str, filename: str, run_id: str = Depends(require_owned_run)):
     """Serve individual analysis images"""
     run_dir = get_run_dir(run_id)
     if not os.path.exists(run_dir):
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    analysis_dir = os.path.join(run_dir, "analysis", analysis_id)
-    image_path = os.path.join(analysis_dir, filename)
-
-    if not os.path.exists(image_path):
+    image_path = _analysis_file(run_dir, analysis_id, filename)
+    if image_path is None or not image_path.is_file():
         raise HTTPException(status_code=404, detail="Image not found")
 
-    return FileResponse(image_path)
+    return FileResponse(str(image_path))
 
 
 @app.get("/trainer/runs/{run_id}/analysis/{analysis_id}/artifacts/{filename}")
-async def get_analysis_artifact(run_id: str, analysis_id: str, filename: str):
+async def get_analysis_artifact(analysis_id: str, filename: str, run_id: str = Depends(require_owned_run)):
     """Serve analysis JSON manifest, matrix bundles, or other artifacts (same folder as PNGs)."""
-    if filename != os.path.basename(filename) or ".." in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-
     run_dir = get_run_dir(run_id)
     if not os.path.exists(run_dir):
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    analysis_dir = os.path.join(run_dir, "analysis", analysis_id)
-    file_path = os.path.join(analysis_dir, filename)
-
-    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+    resolved = _analysis_file(run_dir, analysis_id, filename)
+    if resolved is None or not resolved.is_file():
         raise HTTPException(status_code=404, detail="Artifact not found")
+    file_path = str(resolved)
 
     media = "application/octet-stream"
     lower = filename.lower()
@@ -3187,18 +3774,33 @@ async def get_analysis_artifact(run_id: str, analysis_id: str, filename: str):
 backtester_runs = {}  # In-memory storage
 
 @app.post("/runs/backtester/start", response_model=RunResponse)
-async def start_backtester_run(request: BacktesterStartRequest, background_tasks: BackgroundTasks):
+async def start_backtester_run(
+    request: BacktesterStartRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+):
     """Start a backtester run"""
+    uid = get_current_user_id(http_request)
+    assert_cross_owned(uid, dataset_id=request.dataset_id, model_id=request.model_id)
     run_id = generate_run_id()
 
     # Register run globally
-    register_run(run_id, "backtester", f"/tools/backtester/runs/{run_id}")
+    register_run(
+        run_id,
+        "backtester",
+        f"/tools/backtester/runs/{run_id}",
+        user_id=uid,
+    )
 
     # Resolve model path (canonical resolver + existence check)
     try:
         if request.model_id:
-            model_path = require_existing_model_file(f"backend/models/{request.model_id}.keras")
+            model_path = require_existing_model_file(
+                f"backend/models/{request.model_id}.keras", user_id=uid
+            )
         elif request.model_path:
+            if AUTH_REQUIRED:
+                raise HTTPException(status_code=404, detail="Model not found")
             model_path = require_existing_model_file(request.model_path)
         else:
             raise HTTPException(status_code=400, detail="Either model_path or model_id must be provided")
@@ -3208,14 +3810,14 @@ async def start_backtester_run(request: BacktesterStartRequest, background_tasks
     # Resolve dataset path
     dataset_path = None
     if request.dataset_id:
-        # Construct path relative to project root (where the script will run)
-        dataset_images_dir = os.path.join("backend", "datasets", request.dataset_id, "images")
-        # Check if it exists using absolute path
-        abs_dataset_path = os.path.join(datasets_dir, request.dataset_id, "images")
-        if not os.path.exists(abs_dataset_path):
+        located = _locate_dataset_dir(request.dataset_id, uid)
+        abs_dataset_path = os.path.join(located, "images") if located else ""
+        if not located or not os.path.exists(abs_dataset_path):
             raise HTTPException(status_code=400, detail=f"Dataset {request.dataset_id} not found")
-        dataset_path = dataset_images_dir
+        dataset_path = abs_dataset_path
     elif request.chart_folder:
+        if AUTH_REQUIRED:
+            raise HTTPException(status_code=404, detail="Dataset not found")
         dataset_path = request.chart_folder
     else:
         raise HTTPException(status_code=400, detail="Either dataset_id or chart_folder must be provided")
@@ -3277,7 +3879,7 @@ def update_backtester_progress(run_id: str, phase: str, percent: float, data: Di
         update_run_progress(run_id, percent, phase, data.get("message", ""), status)
 
 @app.get("/runs/backtester/{run_id}/status", response_model=BacktesterStatusResponse)
-async def get_backtester_status(run_id: str):
+async def get_backtester_status(run_id: str = Depends(require_owned_run)):
     """Get backtester run status"""
     run_dir = get_run_dir(run_id)
     if not os.path.exists(run_dir):
@@ -3293,7 +3895,7 @@ async def get_backtester_status(run_id: str):
     )
 
 @app.get("/runs/backtester/{run_id}/result", response_model=BacktesterResultResponse)
-async def get_backtester_result(run_id: str):
+async def get_backtester_result(run_id: str = Depends(require_owned_run)):
     """Get backtester run results"""
     # Check if run directory exists (don't rely on in-memory backtester_runs)
     run_dir = get_run_dir(run_id)
@@ -3326,7 +3928,7 @@ async def get_backtester_result(run_id: str):
     )
 
 @app.get("/runs/backtester/{run_id}/charts/{filename}")
-async def get_backtester_chart(run_id: str, filename: str):
+async def get_backtester_chart(filename: str, run_id: str = Depends(require_owned_run)):
     """Serve backtester chart files"""
     run_dir = get_run_dir(run_id)
     if not os.path.exists(run_dir):
@@ -3340,12 +3942,14 @@ async def get_backtester_chart(run_id: str, filename: str):
     return FileResponse(chart_path)
 
 @app.get("/runs/backtester/{run_id}/download.zip")
-async def download_backtester_zip(run_id: str):
+async def download_backtester_zip(run_id: str = Depends(require_owned_run)):
     """Download backtester results ZIP"""
-    if run_id not in backtester_runs:
+    if run_id in backtester_runs:
+        run_dir = Path(backtester_runs[run_id]["run_dir"])
+    else:
+        run_dir = Path(get_run_dir(run_id))
+    if not run_dir.is_dir():
         raise HTTPException(status_code=404, detail="Backtester run not found")
-
-    run_dir = backtester_runs[run_id]["run_dir"]
     output_dir = run_dir / "backtest_output"
 
     if not output_dir.exists():
@@ -3360,19 +3964,39 @@ async def download_backtester_zip(run_id: str):
             if file_path.is_file():
                 zip_file.write(file_path, file_path.relative_to(output_dir))
 
-    return FileResponse(zip_path, media_type="application/zip", filename=f"backtester_results_{run_id}.zip")
+    return stream_file_response(zip_path, f"backtester_results_{run_id}.zip", "application/zip")
 
 # ===== NEW BACKTESTER ENDPOINTS WITH REAL-TIME LOGGING =====
 
 @app.post("/api/backtests/run", response_model=RunResponse)
-async def start_backtest_run(request: BacktestRunRequest, background_tasks: BackgroundTasks):
+async def start_backtest_run(
+    request: BacktestRunRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+):
     """Start a new backtest run with real-time progress tracking"""
     run_id = str(uuid.uuid4())
+    uid = get_current_user_id(http_request)
 
     payload = request.model_dump()
+    raw_ds = str(payload.get("dataset_path") or "").strip()
+    dataset_id_from_path = None
+    m = _DATASET_PATH_RE.search(raw_ds.replace("\\", "/")) if raw_ds else None
+    if m:
+        dataset_id_from_path = m.group(1)
+    elif raw_ds and not raw_ds.startswith("/") and "/" not in raw_ds.replace("\\", "/"):
+        dataset_id_from_path = raw_ds
+    assert_cross_owned(
+        uid,
+        model_id=payload.get("model_id"),
+        trainer_run_id=payload.get("trainer_run_id"),
+        dataset_id=dataset_id_from_path,
+    )
+    if AUTH_REQUIRED and payload.get("model_path") and not payload.get("model_id") and not payload.get("trainer_run_id"):
+        raise HTTPException(status_code=404, detail="Model not found")
+
     try:
         if payload.get("trainer_run_id"):
-            # Internal trained model: resolve the artifact inside the trainer run dir
             trainer_dir = get_run_dir(str(payload["trainer_run_id"]))
             model_file = _find_trained_model_file(trainer_dir) if os.path.isdir(trainer_dir) else None
             if not model_file:
@@ -3380,10 +4004,11 @@ async def start_backtest_run(request: BacktestRunRequest, background_tasks: Back
                     status_code=404,
                     detail=f"No model artifact found in trainer run {payload['trainer_run_id']}",
                 )
-            payload["model_path"] = require_existing_model_file(os.path.join(trainer_dir, model_file))
+            payload["model_path"] = require_existing_model_file(os.path.join(trainer_dir, model_file), user_id=uid)
         elif payload.get("model_id"):
             payload["model_path"] = require_existing_model_file(
-                f"backend/models/{payload['model_id']}.keras"
+                f"backend/models/{payload['model_id']}.keras",
+                user_id=uid,
             )
         elif payload.get("model_path"):
             payload["model_path"] = require_existing_model_file(payload["model_path"])
@@ -3399,21 +4024,24 @@ async def start_backtest_run(request: BacktestRunRequest, background_tasks: Back
 
     # Resolve dataset_path to an absolute on-disk folder. Clients often send
     # "backend/datasets/<id>/images" which breaks when the script cwd is not the repo root.
-    raw_ds = str(payload.get("dataset_path") or "").strip()
     if not raw_ds:
         raise HTTPException(status_code=422, detail="dataset_path is required")
     ds_path = Path(raw_ds)
-    if not ds_path.is_absolute():
-        # Accept "backend/datasets/<id>/images", "datasets/<id>/images", or bare dataset ids.
-        m = _DATASET_PATH_RE.search(raw_ds.replace("\\", "/"))
-        if m:
-            ds_path = Path(datasets_dir) / m.group(1) / "images"
-        elif (Path(datasets_dir) / raw_ds / "images").is_dir():
+    if dataset_id_from_path:
+        located = _locate_dataset_dir(dataset_id_from_path, uid)
+        if located:
+            ds_path = Path(located) / "images"
+    elif not ds_path.is_absolute():
+        if (Path(datasets_dir) / raw_ds / "images").is_dir() and not AUTH_REQUIRED:
             ds_path = Path(datasets_dir) / raw_ds / "images"
-        else:
+        elif not AUTH_REQUIRED:
             ds_path = (_BACKEND_ROOT.parent / raw_ds).resolve()
             if not ds_path.is_dir():
                 ds_path = (Path(datasets_dir).parent.parent / raw_ds).resolve()
+        else:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+    elif AUTH_REQUIRED:
+        raise HTTPException(status_code=404, detail="Dataset not found")
     if not ds_path.is_dir():
         raise HTTPException(
             status_code=404,
@@ -3423,13 +4051,22 @@ async def start_backtest_run(request: BacktestRunRequest, background_tasks: Back
 
     print(f"Starting backtest run {run_id} with config: {payload}")
 
+    uid = get_current_user_id(http_request)
+    register_run(
+        run_id,
+        "backtester",
+        f"/tools/backtester/runs/{run_id}",
+        user_id=uid,
+    )
+    payload["user_id"] = uid
+
     # Start the backtester in background
     background_tasks.add_task(run_backtester_realtime, run_id, payload)
 
     return {"run_id": run_id}
 
 @app.get("/api/backtests/{run_id}", response_model=BacktestStatusResponse)
-async def get_backtest_status(run_id: str):
+async def get_backtest_status(run_id: str = Depends(require_owned_run)):
     """Get backtest run status with logs and progress"""
     from runners.new_backtester_runner import get_run_info
 
@@ -3453,7 +4090,7 @@ async def get_backtest_status(run_id: str):
     }
 
 @app.get("/api/backtests/{run_id}/results", response_model=BacktestResultResponse)
-async def get_backtest_results(run_id: str):
+async def get_backtest_results(run_id: str = Depends(require_owned_run)):
     """Get backtest results when ready"""
     from runners.new_backtester_runner import get_run_info
 
@@ -3504,7 +4141,7 @@ async def get_backtest_results(run_id: str):
     }
 
 @app.get("/api/backtests/{run_id}/files/{path:path}")
-async def get_backtest_file(run_id: str, path: str):
+async def get_backtest_file(path: str, run_id: str = Depends(require_owned_run)):
     """Serve backtest files (charts, logs, etc.)"""
     from runners.new_backtester_runner import get_run_info
 
@@ -3513,9 +4150,8 @@ async def get_backtest_file(run_id: str, path: str):
         raise HTTPException(status_code=404, detail="Run not found")
 
     output_dir = Path(info["output_dir"])
-    file_path = output_dir / path
-
-    if not file_path.exists():
+    file_path = safe_resolve_under(output_dir, path)
+    if file_path is None or not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
     return FileResponse(file_path)
@@ -3524,28 +4160,47 @@ async def get_backtest_file(run_id: str, path: str):
 testdata_runs = {}  # In-memory storage
 
 @app.post("/runs/testdata/start", response_model=RunResponse)
-async def start_testdata_run(request: TestDataGeneratorRequest, background_tasks: BackgroundTasks):
+async def start_testdata_run(
+    request: TestDataGeneratorRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+):
     """Start a test data generation run"""
+    uid = get_current_user_id(http_request)
+    assert_cross_owned(
+        uid,
+        model_id=request.model_id,
+        trainer_run_id=request.training_run_id,
+        run_id=request.generator_run_id,
+    )
     run_id = generate_run_id()
 
     # Register run globally
-    register_run(run_id, "testdata", f"/tools/backtester?runId={run_id}")  # No dedicated results page
+    register_run(
+        run_id,
+        "testdata",
+        f"/tools/backtester?runId={run_id}",
+        user_id=uid,
+    )
 
     # Create run directory
     run_dir = Path(get_run_dir(run_id))
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    cfg = request.dict()
+    cfg["user_id"] = uid
+
     # Persist request for recovery / linkage (model_id, training_run_id, periods)
     try:
         with open(run_dir / "testdata_config.json", "w") as f:
-            json.dump(request.dict(), f, indent=2)
+            json.dump(cfg, f, indent=2)
     except OSError as exc:
         logger.warning("Could not write testdata_config.json for %s: %s", run_id, exc)
 
     # Store run info
     testdata_runs[run_id] = {
         "run_dir": run_dir,
-        "config": request.dict(),
+        "config": cfg,
         "status": "running",
         "progress": {"phase": "starting", "percent": 0.05, "message": "Initializing test data generator..."},
     }
@@ -3554,7 +4209,7 @@ async def start_testdata_run(request: TestDataGeneratorRequest, background_tasks
     # Start the testdata generator in background
     background_tasks.add_task(
         run_testdata_generator,
-        request.dict(),
+        cfg,
         run_dir,
         lambda phase, percent, data: update_testdata_progress(run_id, phase, percent, data),
         run_id,
@@ -3642,13 +4297,13 @@ def _maybe_recover_testdata_run(run_id: str, run_dir: Path) -> Optional[Dict[str
 
 
 @app.post("/runs/testdata/{run_id}/cancel")
-async def cancel_testdata_run(run_id: str):
+async def cancel_testdata_run(run_id: str = Depends(require_owned_run)):
     """Cancel a running testdata generator job"""
     return cancel_run_process(run_id, "Test data generation cancelled by user")
 
 
 @app.get("/runs/testdata/{run_id}/status", response_model=TestDataGeneratorStatusResponse)
-async def get_testdata_status(run_id: str):
+async def get_testdata_status(run_id: str = Depends(require_owned_run)):
     """Get testdata run status (in-memory, with disk fallback after restarts)"""
     run_dir = Path(get_run_dir(run_id))
     if run_id in testdata_runs:
@@ -3698,7 +4353,7 @@ async def get_testdata_status(run_id: str):
     )
 
 @app.get("/runs/testdata/{run_id}/result", response_model=TestDataGeneratorResultResponse)
-async def get_testdata_result(run_id: str):
+async def get_testdata_result(run_id: str = Depends(require_owned_run)):
     """Get testdata run results"""
     run_dir = Path(get_run_dir(run_id))
     if run_id in testdata_runs:
@@ -3720,7 +4375,7 @@ async def get_testdata_result(run_id: str):
     )
 
 @app.get("/runs/testdata/{run_id}/config")
-async def get_testdata_config(run_id: str) -> Dict[str, Any]:
+async def get_testdata_config(run_id: str = Depends(require_owned_run)) -> Dict[str, Any]:
     """Saved request for this test dataset run (linkage / history UI)."""
     path = Path(get_run_dir(run_id)) / "testdata_config.json"
     if not path.is_file():
@@ -3732,7 +4387,7 @@ async def get_testdata_config(run_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Could not read configuration: {exc}") from exc
 
 @app.get("/runs/testdata/{run_id}/download.zip")
-async def download_testdata_zip(run_id: str):
+async def download_testdata_zip(run_id: str = Depends(require_owned_run)):
     """Download testdata results ZIP (prebuilt on finalize; rebuilt on demand if missing)."""
     run_dir = Path(get_run_dir(run_id))
     if run_id in testdata_runs:
@@ -3750,18 +4405,22 @@ async def download_testdata_zip(run_id: str):
                 if file_path.is_file():
                     zip_file.write(file_path, file_path.relative_to(output_dir))
 
-    return FileResponse(zip_path, media_type="application/zip", filename=f"testdata_{run_id}.zip")
+    return stream_file_response(zip_path, f"testdata_{run_id}.zip", "application/zip")
 
 # Global run management endpoints
 @app.get("/runs/active")
-async def get_active_runs_endpoint():
+async def get_active_runs_endpoint(http_request: Request):
     """Active (running/queued) runs, merged from disk + memory."""
-    rows = discover_runs_merged_from_disk_and_memory(400)
+    user_id = get_current_user_id(http_request)
+    rows = discover_runs_merged_from_disk_and_memory(400, user_id)
+    if AUTH_REQUIRED and user_id:
+        owned = owned_run_ids(user_id)
+        rows = [r for r in rows if r.id in owned]
     active_runs = [r for r in rows if r.status in ("running", "queued")]
     return {"runs": [r.model_dump() for r in active_runs]}
 
 @app.get("/runs/{run_id}")
-async def get_run_endpoint(run_id: str):
+async def get_run_endpoint(run_id: str = Depends(require_owned_run)):
     """Get details for a specific run"""
     run = get_run(run_id) or try_resolve_run_from_disk(run_id)
     if not run:
@@ -3769,9 +4428,13 @@ async def get_run_endpoint(run_id: str):
     return run.model_dump()
 
 @app.get("/runs")
-async def get_all_runs_endpoint(limit: int = 200):
-    """Recent runs: in-memory registry merged with disk (manifest, progress, backtests). Memory wins on conflicts."""
-    rows = discover_runs_merged_from_disk_and_memory(limit)
+async def get_all_runs_endpoint(http_request: Request, limit: int = 200):
+    """Recent runs: in-memory registry merged with disk. When auth is on, only this user's runs."""
+    user_id = get_current_user_id(http_request)
+    rows = discover_runs_merged_from_disk_and_memory(limit, user_id)
+    if AUTH_REQUIRED and user_id:
+        owned = owned_run_ids(user_id)
+        rows = [r for r in rows if r.id in owned]
     return {"runs": [r.model_dump() for r in rows]}
 
 
@@ -3787,20 +4450,22 @@ def _read_json_dict(path: str) -> Optional[Dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Library labels — user-editable organization overlay for models & datasets.
+# Library labels — user-editable organization overlay for models, datasets and runs.
 #
-# We keep this as ONE small JSON registry (backend/library_labels.json) keyed by
-# "model:<id>" / "dataset:<id>" instead of mutating each artifact. That way the
-# existing (good) discovery system is untouched — labels are overlaid on top of
-# the machine-derived metadata whenever we list models/datasets/overview.
+# Authenticated users' labels live in the ``asset_labels`` table. The legacy JSON
+# registry (backend/library_labels.json) is still read underneath as a fallback, and
+# remains the store for the auth-off single-user mode. Artifacts are never touched.
 # ---------------------------------------------------------------------------
 _LIBRARY_LABELS_PATH = os.path.join(os.path.dirname(__file__), "..", "library_labels.json")
 _LIBRARY_LABEL_FIELDS = ("display_name", "tags", "favorite", "archived", "notes")
 
 
-def _load_library_labels() -> Dict[str, Dict[str, Any]]:
+def _load_library_labels(user_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     data = _read_json_dict(_LIBRARY_LABELS_PATH) or {}
-    return data if isinstance(data, dict) else {}
+    store = data if isinstance(data, dict) else {}
+    if user_id and asset_labels.supports_db_labels(user_id):
+        store = {**store, **asset_labels.load_user_labels(user_id)}
+    return store
 
 
 def _save_library_labels(data: Dict[str, Dict[str, Any]]) -> None:
@@ -3810,14 +4475,21 @@ def _save_library_labels(data: Dict[str, Dict[str, Any]]) -> None:
     os.replace(tmp, _LIBRARY_LABELS_PATH)
 
 
-def _label_key(kind: str, entity_id: str) -> str:
+def _label_key(kind: str, entity_id: str, user_id: Optional[str] = None) -> str:
+    if user_id:
+        return f"{user_id}:{kind}:{entity_id}"
     return f"{kind}:{entity_id}"
 
 
-def _labels_for(kind: str, entity_id: str, labels: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+def _labels_for(
+    kind: str,
+    entity_id: str,
+    labels: Optional[Dict[str, Dict[str, Any]]] = None,
+    user_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Return the user label overlay for one entity (empty dict when none)."""
-    store = labels if labels is not None else _load_library_labels()
-    entry = store.get(_label_key(kind, entity_id)) or {}
+    store = labels if labels is not None else _load_library_labels(user_id)
+    entry = store.get(_label_key(kind, entity_id, user_id)) or {}
     out: Dict[str, Any] = {
         "display_name": entry.get("display_name"),
         "tags": entry.get("tags") if isinstance(entry.get("tags"), list) else [],
@@ -3828,9 +4500,15 @@ def _labels_for(kind: str, entity_id: str, labels: Optional[Dict[str, Dict[str, 
     return out
 
 
-def _apply_label_overlay(item: Dict[str, Any], kind: str, entity_id: str, labels: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def _apply_label_overlay(
+    item: Dict[str, Any],
+    kind: str,
+    entity_id: str,
+    labels: Dict[str, Dict[str, Any]],
+    user_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Merge user labels into a listing item. `display_name` (when set) wins for `name`."""
-    overlay = _labels_for(kind, entity_id, labels)
+    overlay = _labels_for(kind, entity_id, labels, user_id=user_id)
     item["display_name"] = overlay["display_name"]
     item["tags"] = overlay["tags"]
     item["favorite"] = overlay["favorite"]
@@ -3843,12 +4521,15 @@ def _apply_label_overlay(item: Dict[str, Any], kind: str, entity_id: str, labels
     return item
 
 
-def _update_library_label(kind: str, entity_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+def _update_library_label(
+    kind: str, entity_id: str, patch: Dict[str, Any], user_id: Optional[str] = None
+) -> Dict[str, Any]:
     """Apply a partial update to one entity's label entry and persist. Returns the new overlay."""
-    if kind not in ("model", "dataset"):
-        raise ValueError("kind must be 'model' or 'dataset'")
-    store = _load_library_labels()
-    key = _label_key(kind, entity_id)
+    if kind not in asset_labels.LABEL_KINDS:
+        raise ValueError(f"kind must be one of {asset_labels.LABEL_KINDS}")
+    use_db = asset_labels.supports_db_labels(user_id)
+    store = _load_library_labels(user_id if use_db else None)
+    key = _label_key(kind, entity_id, user_id)
     entry = dict(store.get(key) or {})
     if "display_name" in patch:
         dn = patch["display_name"]
@@ -3871,12 +4552,15 @@ def _update_library_label(kind: str, entity_id: str, patch: Dict[str, Any]) -> D
             entry["tags"] = seen[:24]
     # Drop empties so the file stays tidy.
     entry = {k: v for k, v in entry.items() if v not in (None, [], "")}
+    if use_db:
+        asset_labels.save_user_label(str(user_id), kind, entity_id, entry)
+        return _labels_for(kind, entity_id, {key: entry}, user_id=user_id)
     if entry:
         store[key] = entry
     else:
         store.pop(key, None)
     _save_library_labels(store)
-    return _labels_for(kind, entity_id, store)
+    return _labels_for(kind, entity_id, store, user_id=user_id)
 
 
 _DATASET_PATH_RE = re.compile(r"datasets[/\\]([A-Za-z0-9_.-]+)[/\\]")
@@ -3917,25 +4601,202 @@ def _find_trained_model_file(run_dir: str) -> Optional[str]:
     return None
 
 
-def _collect_internal_models() -> List[Dict[str, Any]]:
+def _library_scope(user_id: Optional[str]) -> Optional[str]:
+    """None means every row (auth off). Authenticated lists stay on one user."""
+    if AUTH_REQUIRED:
+        return user_id
+    return None
+
+
+def _append_models_from_catalog(models: List[Dict[str, Any]], user_id: Optional[str]) -> None:
+    """Add models that exist only as database metadata. Does not download weights."""
+    if AUTH_REQUIRED and not user_id:
+        return
+    seen = {str(m.get("model_id")) for m in models}
+    catalog = fetch_library_catalog(_library_scope(user_id))
+    for row in catalog["trainers"]:
+        if row["id"] in seen:
+            continue
+        models.append(_model_row_from_trainer(row))
+        seen.add(row["id"])
+    for row in catalog["models"]:
+        if row["id"] in seen:
+            continue
+        if row.get("source") == "trainer":
+            # Succeeded trainer rows already carry metrics. This covers a weights
+            # record whose pipeline row has no durable summary.
+            item = _model_row_from_upload(row)
+            item["kind"] = "trained"
+            item["training_run_id"] = row["id"]
+            item["name"] = os.path.basename(str(row.get("storage_key") or "")) or row["id"]
+            item["download_url"] = f"/trainer/runs/{row['id']}/download/model"
+            models.append(item)
+        else:
+            models.append(_model_row_from_upload(row))
+        seen.add(row["id"])
+
+
+def _model_row_from_trainer(row: Dict[str, Any]) -> Dict[str, Any]:
+    extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+    durable = extra.get("durable") if isinstance(extra.get("durable"), dict) else {}
+    summary = durable.get("metadata") if isinstance(durable.get("metadata"), dict) else {}
+    files = durable.get("files") if isinstance(durable.get("files"), list) else []
+    model_file = None
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        rel = str(item.get("rel") or "")
+        if "/" in rel or "\\" in rel:
+            continue
+        if rel.lower().endswith((".keras", ".h5", ".pkl", ".joblib")):
+            model_file = rel
+            break
+    config = summary.get("config") if isinstance(summary.get("config"), dict) else {}
+    final = review_meta.saved_model_metrics(summary)
+    metrics = {
+        k: final.get(k)
+        for k in ("accuracy", "val_accuracy", "loss", "val_loss")
+        if final.get(k) is not None
+    }
+    if summary.get("epochs_trained") is not None:
+        metrics["epochs_trained"] = summary.get("epochs_trained")
+    dataset_id = config.get("dataset_id")
+    return {
+        "model_id": row["id"],
+        "kind": "trained",
+        "name": model_file or row["id"],
+        "model_path": f"backend/runs/{row['id']}/{model_file}" if model_file else None,
+        "training_run_id": row["id"],
+        "dataset_id": str(dataset_id) if dataset_id else None,
+        "generator_run_id": None,
+        "symbols": None,
+        "timeframe": None,
+        "timespan_unit": None,
+        "timespan_count": None,
+        "horizon_bars": None,
+        "take_profit_fraction": None,
+        "stop_loss_fraction": None,
+        "image_dimension": None,
+        "metrics": metrics or None,
+        "created_at": row.get("created_at"),
+        "metadata_available": bool(metrics or dataset_id),
+        "download_url": f"/trainer/runs/{row['id']}/download/model",
+    }
+
+
+def _model_row_from_upload(row: Dict[str, Any]) -> Dict[str, Any]:
+    extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+    key = str(row.get("storage_key") or "")
+    filename = extra.get("original_filename") or (os.path.basename(key) if key else None) or row["id"]
+    return {
+        "model_id": row["id"],
+        "kind": "uploaded",
+        "name": filename,
+        "model_path": None,
+        "training_run_id": extra.get("training_run_id"),
+        "dataset_id": extra.get("dataset_id"),
+        "generator_run_id": extra.get("generator_run_id"),
+        "symbols": extra.get("symbols"),
+        "timeframe": extra.get("timeframe"),
+        "timespan_unit": extra.get("timespanUnit"),
+        "timespan_count": extra.get("timespanCount"),
+        "horizon_bars": extra.get("horizonBars"),
+        "take_profit_fraction": extra.get("takeProfitFraction"),
+        "stop_loss_fraction": extra.get("stopLossFraction"),
+        "image_dimension": extra.get("imageDimension"),
+        "metrics": None,
+        "created_at": extra.get("uploaded_at") or row.get("created_at"),
+        "metadata_available": bool(extra.get("training_run_id") or extra.get("generator_run_id")),
+        "download_url": None,
+    }
+
+
+def _append_datasets_from_catalog(
+    out: List[Dict[str, Any]],
+    user_id: Optional[str],
+    labels: Dict[str, Dict[str, Any]],
+    test_index: Dict[str, Dict[str, Any]],
+) -> None:
+    """Add datasets recorded in the database whose files are not on this machine."""
+    if AUTH_REQUIRED and not user_id:
+        return
+    seen = {str(item.get("dataset_id")) for item in out}
+    for row in fetch_library_catalog(_library_scope(user_id))["datasets"]:
+        if row["id"] in seen:
+            continue
+        out.append(_dataset_row_from_catalog(row, labels, test_index, user_id))
+        seen.add(row["id"])
+
+
+def _dataset_row_from_catalog(
+    row: Dict[str, Any],
+    labels: Dict[str, Dict[str, Any]],
+    test_index: Dict[str, Dict[str, Any]],
+    user_id: Optional[str],
+) -> Dict[str, Any]:
+    extra = row.get("extra") if isinstance(row.get("extra"), dict) else {}
+    durable = extra.get("durable") if isinstance(extra.get("durable"), dict) else {}
+    summary = durable.get("summary") if isinstance(durable.get("summary"), dict) else {}
+    did = row["id"]
+    test_info = test_index.get(did)
+    source = str(row.get("source") or summary.get("source") or "").lower()
+    kind_hint = str(row.get("kind") or summary.get("kind") or "").lower()
+    total = summary.get("total_images")
+    symbols = summary.get("symbols") or (test_info or {}).get("symbols")
+    gen_run = summary.get("generator_run_id") or extra.get("generator_run_id")
+    period_start = summary.get("period_start")
+    period_end = summary.get("period_end")
+    if kind_hint == "test" or source == "testdata" or test_info:
+        kind = "test"
+        name = (
+            summary.get("dataset_name")
+            or (test_info or {}).get("name")
+            or (f"Test set · {symbols}" if symbols else did)
+        )
+        period_start = period_start or (test_info or {}).get("test_period_start")
+        period_end = period_end or (test_info or {}).get("test_period_end")
+    elif gen_run or source == "generator" or kind_hint == "training":
+        kind = "training"
+        bits = [b for b in (symbols, f"{total} imgs" if total else None) if b]
+        name = summary.get("dataset_name") or (" · ".join(bits) if bits else did)
+    else:
+        kind = "unknown"
+        name = summary.get("dataset_name") or (f"{symbols} · {total} imgs" if symbols else did)
+    created = summary.get("created_at")
+    if created is None:
+        created = row.get("created_at")
+    item = {
+        "dataset_id": did,
+        "name": name,
+        "kind": kind,
+        "total_images": total,
+        "symbols": symbols,
+        "timeframe": summary.get("timeframe"),
+        "period_start": period_start,
+        "period_end": period_end,
+        "generator_run_id": gen_run,
+        "created_at": created,
+        "example_filenames": summary.get("example_filenames") or [],
+    }
+    return _apply_label_overlay(item, "dataset", did, labels, user_id=user_id)
+
+
+def _collect_internal_models(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """All models known to this workspace: trained (trainer run dirs) + uploaded (.keras storage).
 
     Trained models keep their full provenance (training run, dataset, generator config);
     uploaded models only carry what their sidecar recorded. Nothing is guessed.
     """
-    models: List[Dict[str, Any]] = []
+    models: List[Dict[str, Any]]
+    models = []
+    owned_runs = owned_run_ids(user_id) if AUTH_REQUIRED and user_id else None
+    owned_models = owned_model_ids(user_id) if AUTH_REQUIRED and user_id else None
 
-    # Trained models: any trainer run dir containing a model artifact
-    try:
-        run_names = os.listdir(runs_dir)
-    except OSError:
-        run_names = []
-    for name in run_names:
-        if name == "backtests":
-            continue
-        run_dir = os.path.join(runs_dir, name)
-        if not os.path.isdir(run_dir):
-            continue
+    for name, run_dir_p, owner in iter_run_dirs():
+        if AUTH_REQUIRED and user_id:
+            if name not in (owned_runs or set()) and owner != user_id:
+                continue
+        run_dir = str(run_dir_p)
         model_file = _find_trained_model_file(run_dir)
         if not model_file:
             continue
@@ -3948,13 +4809,15 @@ def _collect_internal_models() -> List[Dict[str, Any]]:
         dataset_id = (tconf or {}).get("dataset_id") or meta.get("dataset_id")
         generator_run_id = meta.get("generator_run_id")
         if not generator_run_id and dataset_id:
-            generator_run_id = _resolve_generator_run_id_for_dataset(str(dataset_id))
+            generator_run_id = _resolve_generator_run_id_for_dataset(
+                str(dataset_id), user_id, restore=False
+            )
         derived: Dict[str, Any] = {}
         if generator_run_id:
             gen_cfg = _load_generator_config_from_disk(str(generator_run_id))
             if gen_cfg:
                 derived = _derive_model_fields_from_generator_config(gen_cfg)
-        final = summary.get("final_metrics") if isinstance(summary.get("final_metrics"), dict) else {}
+        final = review_meta.saved_model_metrics(summary)
         metrics = {
             k: (final or {}).get(k)
             for k in ("accuracy", "val_accuracy", "loss", "val_loss")
@@ -3996,41 +4859,53 @@ def _collect_internal_models() -> List[Dict[str, Any]]:
     # Uploaded models: .keras files in the upload storage root (+ optional sidecars)
     try:
         storage_root = Path(MODEL_STORAGE_ROOT)
+        keras_files: List[Path] = []
         if storage_root.is_dir():
-            for f in sorted(storage_root.glob("*.keras")):
-                mid = f.stem
-                sidecar = _read_json_dict(str(storage_root / f"{mid}.metadata.json")) or {}
-                try:
-                    mtime: Optional[float] = f.stat().st_mtime
-                except OSError:
-                    mtime = None
-                models.append(
-                    {
-                        "model_id": mid,
-                        "kind": "uploaded",
-                        "name": sidecar.get("original_filename") or f.name,
-                        "model_path": None,
-                        "training_run_id": sidecar.get("training_run_id"),
-                        "dataset_id": sidecar.get("dataset_id"),
-                        "generator_run_id": sidecar.get("generator_run_id"),
-                        "symbols": sidecar.get("symbols"),
-                        "timeframe": sidecar.get("timeframe"),
-                        "timespan_unit": sidecar.get("timespanUnit"),
-                        "timespan_count": sidecar.get("timespanCount"),
-                        "horizon_bars": sidecar.get("horizonBars"),
-                        "take_profit_fraction": sidecar.get("takeProfitFraction"),
-                        "stop_loss_fraction": sidecar.get("stopLossFraction"),
-                        "image_dimension": sidecar.get("imageDimension"),
-                        "metrics": None,
-                        "created_at": sidecar.get("uploaded_at") or mtime,
-                        "metadata_available": bool(
-                            sidecar.get("training_run_id") or sidecar.get("generator_run_id")
-                        ),
-                        "download_url": None,
-                    }
-                )
+            if AUTH_REQUIRED and user_id and is_user_uuid(user_id):
+                nested = storage_root / user_id
+                if nested.is_dir():
+                    keras_files.extend(nested.glob("*.keras"))
+            else:
+                keras_files.extend(storage_root.glob("*.keras"))
+                keras_files.extend(storage_root.glob("*/*.keras"))
+        for f in sorted(set(keras_files)):
+            mid = f.stem
+            if AUTH_REQUIRED and owned_models is not None and mid not in owned_models:
+                continue
+            sidecar = _read_json_dict(str(f.with_name(f"{mid}.metadata.json"))) or {}
+            try:
+                mtime: Optional[float] = f.stat().st_mtime
+            except OSError:
+                mtime = None
+            models.append(
+                {
+                    "model_id": mid,
+                    "kind": "uploaded",
+                    "name": sidecar.get("original_filename") or f.name,
+                    "model_path": None,
+                    "training_run_id": sidecar.get("training_run_id"),
+                    "dataset_id": sidecar.get("dataset_id"),
+                    "generator_run_id": sidecar.get("generator_run_id"),
+                    "symbols": sidecar.get("symbols"),
+                    "timeframe": sidecar.get("timeframe"),
+                    "timespan_unit": sidecar.get("timespanUnit"),
+                    "timespan_count": sidecar.get("timespanCount"),
+                    "horizon_bars": sidecar.get("horizonBars"),
+                    "take_profit_fraction": sidecar.get("takeProfitFraction"),
+                    "stop_loss_fraction": sidecar.get("stopLossFraction"),
+                    "image_dimension": sidecar.get("imageDimension"),
+                    "metrics": None,
+                    "created_at": sidecar.get("uploaded_at") or mtime,
+                    "metadata_available": bool(
+                        sidecar.get("training_run_id") or sidecar.get("generator_run_id")
+                    ),
+                    "download_url": None,
+                }
+            )
     except OSError as exc:
         logger.warning("Internal models: could not scan model storage root: %s", exc)
+
+    _append_models_from_catalog(models, user_id)
 
     def _created_sort_key(model: Dict[str, Any]) -> float:
         v = model.get("created_at")
@@ -4044,18 +4919,18 @@ def _collect_internal_models() -> List[Dict[str, Any]]:
         return 0.0
 
     models.sort(key=_created_sort_key, reverse=True)
-    labels = _load_library_labels()
+    labels = _load_library_labels(user_id)
     for m in models:
-        _apply_label_overlay(m, "model", str(m.get("model_id")), labels)
+        _apply_label_overlay(m, "model", str(m.get("model_id")), labels, user_id=user_id)
     # Favorites first, then newest.
     models.sort(key=lambda m: (1 if m.get("favorite") else 0, _created_sort_key(m)), reverse=True)
     return models
 
 
 @app.get("/api/models")
-async def list_internal_models() -> Dict[str, Any]:
-    """Unified model registry: trained models (selectable without download/reupload) + uploads."""
-    return {"models": _collect_internal_models()}
+async def list_internal_models(http_request: Request) -> Dict[str, Any]:
+    """Unified model registry. Metadata only; weights download when a tool opens the model."""
+    return {"models": _collect_internal_models(get_current_user_id(http_request))}
 
 
 class LibraryLabelPatch(BaseModel):
@@ -4067,28 +4942,28 @@ class LibraryLabelPatch(BaseModel):
 
 
 @app.patch("/api/models/{model_id}/label")
-async def update_model_label(model_id: str, patch: LibraryLabelPatch) -> Dict[str, Any]:
+async def update_model_label(model_id: str, patch: LibraryLabelPatch, http_request: Request) -> Dict[str, Any]:
     """Rename / tag / favorite / archive a model (overlay only — never touches artifacts)."""
-    overlay = _update_library_label("model", model_id, patch.dict(exclude_unset=True))
+    uid = get_current_user_id(http_request)
+    assert_cross_owned(uid, model_id=model_id)
+    overlay = _update_library_label("model", model_id, patch.dict(exclude_unset=True), user_id=uid)
     return {"model_id": model_id, **overlay}
 
 
 @app.patch("/api/datasets/{dataset_id}/label")
-async def update_dataset_label(dataset_id: str, patch: LibraryLabelPatch) -> Dict[str, Any]:
+async def update_dataset_label(dataset_id: str, patch: LibraryLabelPatch, http_request: Request) -> Dict[str, Any]:
     """Rename / tag / favorite / archive a dataset (overlay only — never touches artifacts)."""
-    overlay = _update_library_label("dataset", dataset_id, patch.dict(exclude_unset=True))
+    uid = get_current_user_id(http_request)
+    assert_cross_owned(uid, dataset_id=dataset_id)
+    overlay = _update_library_label("dataset", dataset_id, patch.dict(exclude_unset=True), user_id=uid)
     return {"dataset_id": dataset_id, **overlay}
 
 
 def _testdata_dataset_index() -> Dict[str, Dict[str, Any]]:
     """Map dataset_id -> test-run metadata (customer-given name, periods) from testdata runs."""
     index: Dict[str, Dict[str, Any]] = {}
-    try:
-        entries = os.listdir(runs_dir)
-    except OSError:
-        return index
-    for name in entries:
-        res = _read_json_dict(os.path.join(runs_dir, name, "testdata_results.json"))
+    for name, path, _owner in iter_run_dirs():
+        res = _read_json_dict(os.path.join(str(path), "testdata_results.json"))
         if not res:
             continue
         did = res.get("dataset_id")
@@ -4105,22 +4980,22 @@ def _testdata_dataset_index() -> Dict[str, Dict[str, Any]]:
 
 
 @app.get("/api/datasets")
-async def list_datasets() -> Dict[str, Any]:
-    """List extracted datasets under datasets/ with friendly names for pickers.
+async def list_datasets(http_request: Request) -> Dict[str, Any]:
+    """List datasets from local files and database metadata.
 
-    Each entry can be used directly by analysis/backtest (images live at
-    datasets/<id>/images). Test datasets surface the customer-given name; generated
-    training datasets surface symbols + size. Purely best-effort from on-disk files.
+    Does not download chart images. Training and other consumers restore files
+    when they open a dataset id.
     """
     test_index = _testdata_dataset_index()
-    labels = _load_library_labels()
+    uid = get_current_user_id(http_request)
+    labels = _load_library_labels(uid)
     out: List[Dict[str, Any]] = []
-    try:
-        entries = os.listdir(datasets_dir)
-    except OSError:
-        return {"datasets": []}
-    for did in entries:
-        ddir = os.path.join(datasets_dir, did)
+    owned_ds = owned_dataset_ids(uid) if AUTH_REQUIRED and uid else None
+    for did, ddir_p, owner in iter_dataset_dirs():
+        if AUTH_REQUIRED and uid:
+            if did not in (owned_ds or set()) and owner != uid:
+                continue
+        ddir = str(ddir_p)
         images_dir = os.path.join(ddir, "images")
         if not os.path.isdir(images_dir):
             continue
@@ -4139,7 +5014,7 @@ async def list_datasets() -> Dict[str, Any]:
                 created = os.path.getmtime(os.path.join(ddir, "summary.json"))
             except OSError:
                 created = None
-        meta = _dataset_meta_from_disk(did)
+        meta = _dataset_meta_from_disk(did, restore=False)
         symbols = summary.get("symbols") or meta.get("symbols")
         gen_run = summary.get("generator_run_id")
         test_info = test_index.get(did)
@@ -4182,34 +5057,81 @@ async def list_datasets() -> Dict[str, Any]:
             "created_at": created,
             "example_filenames": summary.get("example_filenames") or [],
         }
-        out.append(_apply_label_overlay(item, "dataset", did, labels))
+        out.append(_apply_label_overlay(item, "dataset", did, labels, user_id=uid))
+    _append_datasets_from_catalog(out, uid, labels, test_index)
     # Favorites float to the top, then newest first.
     out.sort(key=lambda d: (1 if d.get("favorite") else 0, d.get("created_at") or 0), reverse=True)
     return {"datasets": out}
 
 
 @app.get("/api/review/overview")
-async def get_review_overview() -> Dict[str, Any]:
-    """Aggregate runs, models, datasets and their best-effort lineage from on-disk metadata.
+async def get_review_overview(http_request: Request) -> Dict[str, Any]:
+    """Aggregate runs, models, datasets, bots and their provenance edges for the Review workspace.
 
-    Only relationships explicitly recorded somewhere (configs, manifests, sidecars,
-    recorded paths) are surfaced — missing links stay null for the UI to label.
+    Only relationships recorded somewhere (configs, manifests, sidecars, recorded paths,
+    bot provenance columns) become edges. Each edge says whether it was recorded or
+    recovered heuristically (chart-filename match), and on what basis.
     """
-    runs = discover_runs_merged_from_disk_and_memory(500)
+    user_id = get_current_user_id(http_request)
+    return await run_in_threadpool(_build_review_overview, user_id)
+
+
+_FAILED_STATUSES = ("failed", "cancelled", "interrupted")
+
+
+def _dataset_generator_link(dataset_id: str, user_id: Optional[str]) -> Optional[str]:
+    """'recorded' | 'recovered' for a dataset's stored generator link, None when it has none."""
+    located = _locate_dataset_dir(str(dataset_id), user_id, restore=False)
+    if not located:
+        return None
+    summary = _read_json_dict(os.path.join(located, "summary.json")) or {}
+    if not summary.get("generator_run_id"):
+        return None
+    return "recovered" if summary.get("generator_link_recovered_by") else "recorded"
+
+
+def _review_model_from_internal(m: Dict[str, Any]) -> Dict[str, Any]:
+    """Map an /api/models catalog row onto the Review model shape."""
+    return {
+        "id": m["model_id"],
+        "name": m.get("name"),
+        "source": m.get("kind") or "unknown",
+        "created_at": m.get("created_at") if isinstance(m.get("created_at"), (int, float)) else None,
+        "training_run_id": m.get("training_run_id"),
+        "dataset_id": m.get("dataset_id"),
+        "generator_run_id": m.get("generator_run_id"),
+        "symbols": m.get("symbols"),
+        "timeframe": m.get("timeframe"),
+        "take_profit_fraction": m.get("take_profit_fraction"),
+        "stop_loss_fraction": m.get("stop_loss_fraction"),
+        "horizon_bars": m.get("horizon_bars"),
+        "image_dimension": m.get("image_dimension"),
+        "metrics": m.get("metrics"),
+        "download_url": m.get("download_url"),
+        "metadata_available": bool(m.get("metadata_available")),
+        "status": "succeeded" if m.get("kind") == "trained" else None,
+        "catalog_only": True,
+    }
+
+
+def _build_review_overview(user_id: Optional[str]) -> Dict[str, Any]:
+    runs = discover_runs_merged_from_disk_and_memory(500, user_id)
+    owned: Optional[set] = owned_run_ids(user_id) if AUTH_REQUIRED and user_id else None
+    if owned is not None:
+        runs = [r for r in runs if r.id in owned]
     runs_by_id: Dict[str, GlobalRun] = {r.id: r for r in runs}
 
-    # Backtests: read directly from the runner's storage root (authoritative location)
+    # Backtests: namespaced + legacy dirs; never surface another user's run.
     backtest_infos: Dict[str, Dict[str, Any]] = {}
+    backtest_dirs: Dict[str, Path] = {}
     try:
-        from runners.new_backtester_runner import get_backtests_root
-
-        bt_root = get_backtests_root()
-        if bt_root.is_dir():
-            for child in sorted(bt_root.iterdir()):
-                if child.is_dir():
-                    info = _read_json_dict(str(child / "run_info.json"))
-                    if info:
-                        backtest_infos[child.name] = info
+        for name, child, owner in iter_backtest_dirs():
+            if owned is not None and name not in owned and owner != user_id:
+                continue
+            info = _read_json_dict(str(child / "run_info.json"))
+            if info:
+                backtest_infos[name] = info
+                backtest_dirs[name] = child
     except Exception as exc:  # noqa: BLE001 — overview must degrade gracefully
         logger.warning("Review overview: could not scan backtests root: %s", exc)
 
@@ -4232,6 +5154,17 @@ async def get_review_overview() -> Dict[str, Any]:
             route=f"/tools/backtester/runs/{rid}",
         )
 
+    if owned is not None:
+        owned = owned_run_ids(user_id)
+        runs_by_id = {rid: row for rid, row in runs_by_id.items() if rid in owned}
+
+    scope = user_id if AUTH_REQUIRED and user_id else None
+    try:
+        persisted_states = {s["id"]: s for s in list_pipeline_run_states(scope, limit=1000)}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Review overview: could not load pipeline run states: %s", exc)
+        persisted_states = {}
+
     run_rows: List[Dict[str, Any]] = []
     models: List[Dict[str, Any]] = []
     datasets_by_key: Dict[str, Dict[str, Any]] = {}
@@ -4241,6 +5174,22 @@ async def get_review_overview() -> Dict[str, Any]:
     generator_runs: Dict[str, Dict[str, Any]] = {}
     trainer_dataset_usage: Dict[str, List[str]] = {}
 
+    edges: List[Dict[str, Any]] = []
+    edge_index: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+
+    def add_edge(source: str, target: str, relation: str, provenance: str, basis: str) -> None:
+        key = (source, target, relation)
+        existing = edge_index.get(key)
+        if existing is not None:
+            # Two sources disagree: keep the weaker claim so a recovered link never reads as verified.
+            if provenance == "recovered" and existing["provenance"] != "recovered":
+                existing["provenance"] = "recovered"
+                existing["basis"] = basis
+            return
+        edge = {"source": source, "target": target, "relation": relation, "provenance": provenance, "basis": basis}
+        edge_index[key] = edge
+        edges.append(edge)
+
     # Lazily-built index of generator outputs, used to backtrace datasets/models that
     # predate explicit generator linkage. Built at most once per request, and only when
     # something actually needs it (write-back makes future requests hit the fast path).
@@ -4248,51 +5197,52 @@ async def get_review_overview() -> Dict[str, Any]:
 
     def _generator_index() -> Dict[str, set]:
         if "idx" not in _gen_index_holder:
-            _gen_index_holder["idx"] = _build_generator_output_index()
+            _gen_index_holder["idx"] = _build_generator_output_index(user_id)
         return _gen_index_holder["idx"]
 
-    def _resolve_or_match_generator(dataset_id: Optional[str]) -> Optional[str]:
-        """Generator run for a dataset: recorded link first, else match by chart filenames."""
+    def _resolve_or_match_generator(dataset_id: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+        """(generator run, 'recorded'|'recovered') for a dataset: recorded link first, else chart match."""
         if not dataset_id:
-            return None
-        gid = _resolve_generator_run_id_for_dataset(str(dataset_id))
+            return None, None
+        gid = _resolve_generator_run_id_for_dataset(str(dataset_id), user_id, restore=False)
         if gid:
-            return gid
-        gid = _match_generator_run_for_dataset(str(dataset_id), _generator_index())
+            return gid, _dataset_generator_link(str(dataset_id), user_id) or "recorded"
+        gid = _match_generator_run_for_dataset(str(dataset_id), _generator_index(), user_id)
         if gid:
-            _persist_dataset_generator_link(str(dataset_id), gid)
-        return gid
+            _persist_dataset_generator_link(str(dataset_id), gid, user_id)
+            return gid, "recovered"
+        return None, None
 
     for run in sorted(runs_by_id.values(), key=lambda r: r.updated_at, reverse=True):
         row = run.model_dump()
+        row.pop("user_id", None)
         links: Dict[str, Any] = {}
         details: Dict[str, Any] = {}
         run_dir = get_run_dir(run.id)
+        node = f"run:{run.id}"
+
+        state = persisted_states.get(run.id) or {}
+        terminal = run.status in TERMINAL_RUN_STATUSES
+        finished_at = state.get("finished_at") or (run.updated_at if terminal else None)
+        row["finished_at"] = finished_at
+        row["duration_s"] = (
+            round(finished_at - run.created_at, 3)
+            if finished_at and run.created_at and finished_at >= run.created_at
+            else None
+        )
+        row["error"] = (
+            (state.get("error_summary") or run.message or None) if run.status in _FAILED_STATUSES else None
+        )
 
         if run.tool == "training-chart-generator":
             cfg = _read_json_dict(os.path.join(run_dir, "generator_config.json")) or {}
             stats = _read_json_dict(os.path.join(run_dir, "artifacts", "dataset_stats.json")) or {}
             has_zip = os.path.isfile(os.path.join(run_dir, f"training-dataset-{run.id}.zip"))
-            details = {
-                k: cfg.get(k)
-                for k in (
-                    "symbols",
-                    "timeframe",
-                    "timespanUnit",
-                    "timespanCount",
-                    "chartsPerLabel",
-                    "horizonBars",
-                    "takeProfitFraction",
-                    "stopLossFraction",
-                    "imageDimension",
-                    "volumeMode",
-                    "trainingStartIso",
-                    "referenceEndIso",
-                )
-                if cfg.get(k) is not None
-            }
+            gsum = review_meta.generator_summary(cfg, stats)
+            details = {k: v for k, v in (gsum.get("config") or {}).items()}
             if stats.get("total_charts") is not None:
                 details["total_charts"] = stats.get("total_charts")
+            row["generator"] = gsum
             generator_runs[run.id] = {"config": cfg, "stats": stats, "has_zip": has_zip, "run": run}
             if has_zip or cfg:
                 key = f"generated:{run.id}"
@@ -4302,8 +5252,10 @@ async def get_review_overview() -> Dict[str, Any]:
                     "name": f"training-dataset-{run.id}.zip" if has_zip else f"Generator run {run.id}",
                     "kind": "training",
                     "source": "generated",
+                    "representation": "archive",
                     "created_at": run.created_at,
                     "generator_run_id": run.id,
+                    "generator_link": "recorded",
                     "symbols": cfg.get("symbols"),
                     "timeframe": cfg.get("timeframe"),
                     "period_start": cfg.get("trainingStartIso") if cfg.get("volumeMode") == "by_period" else None,
@@ -4313,29 +5265,25 @@ async def get_review_overview() -> Dict[str, Any]:
                     "take_profit_fraction": cfg.get("takeProfitFraction"),
                     "stop_loss_fraction": cfg.get("stopLossFraction"),
                     "horizon_bars": cfg.get("horizonBars"),
+                    "image_dimension": cfg.get("imageDimension"),
                     "total_images": stats.get("total_charts"),
-                    "label_distribution": None,
+                    "label_distribution": gsum.get("label_distribution"),
                     "download_url": f"/api/training-chart-generator/download/{run.id}" if has_zip else None,
                 }
+                add_edge(node, f"dataset:{key}", "produced", "recorded", "Generator run output archive")
 
         elif run.tool == "trainer":
             meta = _read_json_dict(os.path.join(run_dir, "model_metadata.json")) or {}
             summary = _read_json_dict(os.path.join(run_dir, "summary.json")) or {}
-            model_file = None
-            try:
-                for fn in sorted(os.listdir(run_dir)):
-                    if fn.endswith((".keras", ".h5")):
-                        model_file = fn
-                        break
-            except OSError:
-                pass
+            model_file = _find_trained_model_file(run_dir)
             tconf = summary.get("config") if isinstance(summary.get("config"), dict) else {}
             dataset_id = (tconf or {}).get("dataset_id") or meta.get("dataset_id")
-            generator_run_id = meta.get("generator_run_id")
+            generator_run_id = meta.get("generator_run_id") or (tconf or {}).get("generator_run_id")
+            generator_link = "recorded" if generator_run_id else None
             if not generator_run_id and dataset_id:
                 # Older metadata files may predate the link; recover it from the dataset
                 # summary or, failing that, by matching the dataset's charts to a generator run.
-                generator_run_id = _resolve_or_match_generator(str(dataset_id))
+                generator_run_id, generator_link = _resolve_or_match_generator(str(dataset_id))
             # Read-time enrichment: mirror generator settings when the metadata file
             # lacks them but the linked generator config is on disk (recorded, not guessed)
             gen_fields: Dict[str, Any] = {
@@ -4361,7 +5309,7 @@ async def get_review_overview() -> Dict[str, Any]:
             # Last-resort recovery: parse symbols + covered period from the dataset's
             # chart filenames when no generator config is linked (older runs).
             if gen_fields.get("symbols") is None and dataset_id:
-                ds_meta = _dataset_meta_from_disk(str(dataset_id))
+                ds_meta = _dataset_meta_from_disk(str(dataset_id), restore=False)
                 if ds_meta.get("symbols"):
                     gen_fields["symbols"] = ds_meta["symbols"]
                 if gen_fields.get("training_period_start") is None and ds_meta.get("period_start"):
@@ -4371,16 +5319,31 @@ async def get_review_overview() -> Dict[str, Any]:
             if dataset_id:
                 links["dataset_id"] = str(dataset_id)
                 trainer_dataset_usage.setdefault(str(dataset_id), []).append(run.id)
+                add_edge(f"dataset:{dataset_id}", node, "trained_on", "recorded", "Trainer config dataset_id")
+                if generator_run_id:
+                    ds_link = _dataset_generator_link(str(dataset_id), user_id) or generator_link or "recorded"
+                    add_edge(
+                        f"run:{generator_run_id}",
+                        f"dataset:{dataset_id}",
+                        "produced",
+                        ds_link,
+                        "Chart filename overlap ≥ 90%"
+                        if ds_link == "recovered"
+                        else "Generator link recorded with the dataset / model metadata",
+                    )
+            elif generator_run_id:
+                add_edge(
+                    f"dataset:generated:{generator_run_id}",
+                    node,
+                    "trained_on",
+                    generator_link or "recorded",
+                    "model_metadata.json generator_run_id",
+                )
             if generator_run_id:
                 links["generator_run_id"] = generator_run_id
-            final = summary.get("final_metrics") if isinstance(summary.get("final_metrics"), dict) else {}
-            metrics = {
-                k: (final or {}).get(k)
-                for k in ("accuracy", "val_accuracy", "loss", "val_loss", "val_label_1_recall")
-                if (final or {}).get(k) is not None
-            }
-            if summary.get("epochs_trained") is not None:
-                metrics["epochs_trained"] = summary.get("epochs_trained")
+            training = review_meta.trainer_summary(summary)
+            metrics = dict(training.get("metrics") or {})
+            row["training"] = training
             if model_file or summary:
                 models.append(
                     {
@@ -4391,6 +5354,7 @@ async def get_review_overview() -> Dict[str, Any]:
                         "training_run_id": run.id,
                         "dataset_id": str(dataset_id) if dataset_id else None,
                         "generator_run_id": generator_run_id,
+                        "generator_link": generator_link,
                         "symbols": gen_fields.get("symbols"),
                         "timeframe": gen_fields.get("timeframe"),
                         "take_profit_fraction": gen_fields.get("takeProfitFraction"),
@@ -4400,17 +5364,20 @@ async def get_review_overview() -> Dict[str, Any]:
                         "training_period_start": gen_fields.get("training_period_start"),
                         "training_period_end": gen_fields.get("training_period_end"),
                         "metrics": metrics or None,
+                        "training": {k: v for k, v in training.items() if k != "metrics"} or None,
                         "download_url": f"/trainer/runs/{run.id}/download/model" if model_file else None,
                         "metadata_available": bool(meta) or gen_fields.get("symbols") is not None,
                         "status": run.status,
                     }
                 )
+                add_edge(node, f"model:{run.id}", "produced", "recorded", "Trainer run artifact")
             details = {
                 k: v
                 for k, v in {
                     "model_name": summary.get("model_name"),
                     "dataset_id": str(dataset_id) if dataset_id else None,
                     "epochs_trained": summary.get("epochs_trained"),
+                    "val_accuracy": metrics.get("val_accuracy"),
                 }.items()
                 if v is not None
             }
@@ -4426,9 +5393,17 @@ async def get_review_overview() -> Dict[str, Any]:
                 v = cfg.get(src_key) or res.get(src_key)
                 if v:
                     links[dst_key] = v
+            src_model = links.get("model_id") or links.get("trainer_run_id")
+            if src_model:
+                add_edge(f"model:{src_model}", node, "test_set_for", "recorded", "Test-data config model reference")
+            elif links.get("generator_run_id"):
+                add_edge(
+                    f"run:{links['generator_run_id']}", node, "configured_from", "recorded", "Test-data config generator_run_id"
+                )
             ds_id = res.get("dataset_id")
             if ds_id:
                 links["dataset_id"] = str(ds_id)
+                add_edge(node, f"dataset:{ds_id}", "produced", "recorded", "Test-data run result")
             details = {
                 k: cfg.get(k)
                 for k in ("symbols", "timeframe", "dataset_name", "test_period_start", "test_period_end")
@@ -4443,6 +5418,7 @@ async def get_review_overview() -> Dict[str, Any]:
                     "name": cfg.get("dataset_name") or str(ds_id),
                     "kind": "test",
                     "source": "generated",
+                    "representation": "extracted",
                     "created_at": run.created_at,
                     "testdata_run_id": run.id,
                     "model_id": cfg.get("model_id"),
@@ -4468,11 +5444,46 @@ async def get_review_overview() -> Dict[str, Any]:
                 for k in ("model_id", "trainer_run_id", "dataset_id"):
                     if parsed.get(k):
                         links[k] = parsed[k]
-                details = {
-                    k: cfg.get(k)
-                    for k in ("confidence_threshold", "tp_pct", "sl_pct", "sample_size")
-                    if cfg.get(k) is not None
-                }
+                explicit = bool(cfg.get("model_id") or cfg.get("trainer_run_id"))
+                src_model = parsed.get("trainer_run_id") or parsed.get("model_id")
+                if src_model:
+                    add_edge(
+                        f"model:{src_model}",
+                        node,
+                        "backtested",
+                        "recorded",
+                        "Backtest config model reference" if explicit else "Model path recorded in backtest config",
+                    )
+                if parsed.get("dataset_id"):
+                    add_edge(
+                        f"dataset:{parsed['dataset_id']}",
+                        node,
+                        "evaluated_on",
+                        "recorded",
+                        "Dataset path recorded in backtest config",
+                    )
+            results = None
+            bdir = backtest_dirs.get(run.id)
+            if bdir is not None and run.status == "succeeded":
+                results = review_meta.read_json_dict_cached(str(bdir / "output" / "backtest_results.json"))
+                if results is None and info.get("output_dir"):
+                    results = review_meta.read_json_dict_cached(
+                        os.path.join(str(info["output_dir"]), "backtest_results.json")
+                    )
+            bsum = review_meta.backtest_summary(info, results)
+            row["backtest"] = bsum
+            perf = bsum.get("performance") or {}
+            details = {
+                k: v
+                for k, v in {
+                    "return_pct": perf.get("return_pct"),
+                    "trades": perf.get("trades"),
+                    "confidence_threshold": cfg.get("confidence_threshold"),
+                    "tp_pct": cfg.get("tp_pct"),
+                    "sl_pct": cfg.get("sl_pct"),
+                }.items()
+                if v is not None
+            }
             backtest_rows.append({"run": run, "links": dict(links)})
 
         elif run.tool == "analysis":
@@ -4480,18 +5491,55 @@ async def get_review_overview() -> Dict[str, Any]:
                 links["trainer_run_id"] = run.trainer_run_id
             if run.analysis_id:
                 links["analysis_id"] = run.analysis_id
-            ctx = (
-                _read_json_dict(os.path.join(get_run_dir(str(run.trainer_run_id)), "analysis_context.json"))
-                if run.trainer_run_id
-                else None
-            )
+            # Lab sessions have no trainer_run_id; their analysis_context.json is in their own run directory.
+            ctx_run = run.trainer_run_id or (run.id if not run.analysis_id else None)
+            ctx = _read_json_dict(os.path.join(get_run_dir(str(ctx_run)), "analysis_context.json")) if ctx_run else None
             if ctx:
-                if ctx.get("model_id"):
-                    links["model_id"] = ctx["model_id"]
+                ctx_model = ctx.get("model_id") or ctx.get("source_trainer_run_id")
+                if ctx_model:
+                    links["model_id"] = ctx_model
+                    add_edge(f"model:{ctx_model}", node, "analyzed", "recorded", "analysis_context.json model_id")
                 if ctx.get("dataset_id"):
                     links["dataset_id"] = ctx["dataset_id"]
+                    add_edge(
+                        f"dataset:{ctx['dataset_id']}", node, "analysis_input", "recorded", "analysis_context.json dataset_id"
+                    )
                 details["standalone"] = True
+            elif run.trainer_run_id:
+                add_edge(f"model:{run.trainer_run_id}", node, "analyzed", "recorded", "Analysis of trainer run")
+            if run.trainer_run_id and run.analysis_id:
+                delivery = _read_json_dict(
+                    os.path.join(
+                        get_run_dir(str(run.trainer_run_id)), "analysis", str(run.analysis_id), "delivery_summary.json"
+                    )
+                )
+                asum = review_meta.analysis_summary(delivery)
+                if asum:
+                    details["artifact_count"] = asum.get("artifact_count")
+                    row["analysis"] = {"artifact_count": asum.get("artifact_count")}
             analysis_rows.append({"run": run, "links": dict(links)})
+
+        elif run.tool == "labeling-optimizer":
+            ocfg = _read_json_dict(os.path.join(run_dir, "optimizer_config.json"))
+            ometrics = review_meta.read_json_dict_cached(os.path.join(run_dir, "artifacts", "metrics.json"))
+            osum = review_meta.optimizer_summary(ocfg, ometrics)
+            row["optimizer"] = osum
+            oc = osum.get("config") or {}
+            best = osum.get("best") or {}
+            details = {
+                k: v
+                for k, v in {
+                    "symbol": oc.get("symbol"),
+                    "timeframe": oc.get("timeframe"),
+                    "start": oc.get("start"),
+                    "end": oc.get("end"),
+                    "objective": oc.get("objective"),
+                    "best_tp": best.get("best_tp"),
+                    "best_sl": best.get("best_sl"),
+                    "best_h": best.get("best_h"),
+                }.items()
+                if v is not None
+            }
 
         row["links"] = links
         row["details"] = details
@@ -4500,49 +5548,70 @@ async def get_review_overview() -> Dict[str, Any]:
     # Uploaded models (.keras under the upload storage root + optional metadata sidecars)
     try:
         storage_root = Path(MODEL_STORAGE_ROOT)
+        keras_files: List[Path] = []
         if storage_root.is_dir():
-            for f in sorted(storage_root.glob("*.keras")):
-                mid = f.stem
-                sidecar = _read_json_dict(str(storage_root / f"{mid}.metadata.json")) or {}
-                try:
-                    mtime: Optional[float] = f.stat().st_mtime
-                except OSError:
-                    mtime = None
-                has_provenance = bool(sidecar.get("training_run_id") or sidecar.get("generator_run_id"))
-                models.append(
-                    {
-                        "id": mid,
-                        "name": sidecar.get("original_filename") or f.name,
-                        "source": "uploaded",
-                        "created_at": mtime,
-                        "uploaded_at": sidecar.get("uploaded_at"),
-                        "training_run_id": sidecar.get("training_run_id"),
-                        "dataset_id": sidecar.get("dataset_id"),
-                        "generator_run_id": sidecar.get("generator_run_id"),
-                        "symbols": sidecar.get("symbols"),
-                        "timeframe": sidecar.get("timeframe"),
-                        "take_profit_fraction": sidecar.get("takeProfitFraction"),
-                        "stop_loss_fraction": sidecar.get("stopLossFraction"),
-                        "horizon_bars": sidecar.get("horizonBars"),
-                        "image_dimension": sidecar.get("imageDimension"),
-                        "training_period_start": sidecar.get("training_period_start"),
-                        "training_period_end": sidecar.get("training_period_end"),
-                        "metrics": None,
-                        "byte_size": sidecar.get("byte_size"),
-                        "download_url": None,
-                        "metadata_available": has_provenance,
-                        "status": None,
-                    }
+            if AUTH_REQUIRED and user_id and is_user_uuid(user_id):
+                nested = storage_root / user_id
+                if nested.is_dir():
+                    keras_files.extend(nested.glob("*.keras"))
+            else:
+                keras_files.extend(storage_root.glob("*.keras"))
+                keras_files.extend(storage_root.glob("*/*.keras"))
+        owned_m = owned_model_ids(user_id) if AUTH_REQUIRED and user_id else None
+        for f in sorted(set(keras_files)):
+            mid = f.stem
+            if owned_m is not None and mid not in owned_m:
+                continue
+            sidecar = _read_json_dict(str(f.with_name(f"{mid}.metadata.json"))) or {}
+            try:
+                mtime: Optional[float] = f.stat().st_mtime
+            except OSError:
+                mtime = None
+            has_provenance = bool(sidecar.get("training_run_id") or sidecar.get("generator_run_id"))
+            if sidecar.get("dataset_id"):
+                add_edge(
+                    f"dataset:{sidecar['dataset_id']}", f"model:{mid}", "trained_on", "recorded", "Upload metadata sidecar"
                 )
+            if sidecar.get("training_run_id"):
+                add_edge(
+                    f"run:{sidecar['training_run_id']}", f"model:{mid}", "exported_as", "recorded", "Upload metadata sidecar"
+                )
+            models.append(
+                {
+                    "id": mid,
+                    "name": sidecar.get("original_filename") or f.name,
+                    "source": "uploaded",
+                    "created_at": mtime,
+                    "uploaded_at": sidecar.get("uploaded_at"),
+                    "training_run_id": sidecar.get("training_run_id"),
+                    "dataset_id": sidecar.get("dataset_id"),
+                    "generator_run_id": sidecar.get("generator_run_id"),
+                    "symbols": sidecar.get("symbols"),
+                    "timeframe": sidecar.get("timeframe"),
+                    "take_profit_fraction": sidecar.get("takeProfitFraction"),
+                    "stop_loss_fraction": sidecar.get("stopLossFraction"),
+                    "horizon_bars": sidecar.get("horizonBars"),
+                    "image_dimension": sidecar.get("imageDimension"),
+                    "training_period_start": sidecar.get("training_period_start"),
+                    "training_period_end": sidecar.get("training_period_end"),
+                    "metrics": None,
+                    "byte_size": sidecar.get("byte_size"),
+                    "download_url": None,
+                    "metadata_available": has_provenance,
+                    "status": None,
+                }
+            )
     except OSError as exc:
         logger.warning("Review overview: could not scan model storage root: %s", exc)
 
     # Extracted datasets (backend/datasets/*/summary.json)
     try:
-        for name in sorted(os.listdir(datasets_dir)):
-            ddir = os.path.join(datasets_dir, name)
-            if not os.path.isdir(ddir):
-                continue
+        owned_ds = owned_dataset_ids(user_id) if AUTH_REQUIRED and user_id else None
+        for name, ddir_p, owner in iter_dataset_dirs():
+            if AUTH_REQUIRED and user_id:
+                if name not in (owned_ds or set()) and owner != user_id:
+                    continue
+            ddir = str(ddir_p)
             summary = _read_json_dict(os.path.join(ddir, "summary.json"))
             if not summary:
                 continue
@@ -4558,14 +5627,17 @@ async def get_review_overview() -> Dict[str, Any]:
                     existing.setdefault("symbols", fb.get("symbols"))
                     if not existing.get("period_start"):
                         existing["period_start"] = fb.get("period_start")
+                        if fb.get("period_start"):
+                            existing["period_source"] = "sample_filenames"
                     if not existing.get("period_end"):
                         existing["period_end"] = fb.get("period_end")
                 existing["extracted"] = True
                 continue
             gen_run = summary.get("generator_run_id")
+            gen_link = ("recovered" if summary.get("generator_link_recovered_by") else "recorded") if gen_run else None
             if not gen_run:
                 # Backtrace the source generator run by matching the dataset's charts.
-                gen_run = _resolve_or_match_generator(ds_id)
+                gen_run, gen_link = _resolve_or_match_generator(ds_id)
             is_generated = bool(gen_run) or summary.get("source") == "generator"
             # Recover symbols/period from filenames when the summary lacks a generator link.
             fb = _parse_meta_from_chart_filenames(summary.get("example_filenames") or [])
@@ -4574,22 +5646,107 @@ async def get_review_overview() -> Dict[str, Any]:
             datasets_by_key[ds_id] = {
                 "id": ds_id,
                 "dataset_id": ds_id,
-                "name": ds_id,
-                "kind": "training" if is_generated else "unknown",
+                "name": summary.get("dataset_name") or ds_id,
+                "kind": str(summary.get("kind") or "") if summary.get("kind") in ("training", "test") else (
+                    "training" if is_generated else "unknown"
+                ),
                 "source": "generated" if is_generated else "uploaded",
+                "representation": "extracted",
                 "created_at": summary.get("created_at"),
                 "generator_run_id": gen_run,
+                "generator_link": gen_link,
                 "symbols": summary.get("symbols") or gen_derived.get("symbols") or fb.get("symbols"),
                 "timeframe": summary.get("timeframe") or gen_derived.get("timeframe"),
-                "period_start": fb.get("period_start") or gen_derived.get("training_period_start"),
-                "period_end": fb.get("period_end") or gen_derived.get("training_period_end"),
+                # Recorded generator config first; sample filenames only cover a handful of charts.
+                "period_start": gen_derived.get("training_period_start") or fb.get("period_start"),
+                "period_end": gen_derived.get("training_period_end") or fb.get("period_end"),
+                "period_source": (
+                    "generator_config"
+                    if gen_derived.get("training_period_start")
+                    else ("sample_filenames" if fb.get("period_start") else None)
+                ),
+                "take_profit_fraction": gen_derived.get("takeProfitFraction"),
+                "stop_loss_fraction": gen_derived.get("stopLossFraction"),
+                "horizon_bars": gen_derived.get("horizonBars"),
+                "image_dimension": gen_derived.get("imageDimension"),
                 "total_images": summary.get("total_images"),
                 "label_distribution": summary.get("label_distribution"),
                 "download_url": None,
                 "extracted": True,
             }
+            if gen_run:
+                add_edge(
+                    f"run:{gen_run}",
+                    f"dataset:{ds_id}",
+                    "produced",
+                    gen_link or "recorded",
+                    "Chart filename overlap ≥ 90%" if gen_link == "recovered" else "Dataset summary generator_run_id",
+                )
     except OSError as exc:
         logger.warning("Review overview: could not scan datasets dir: %s", exc)
+
+    # Database catalog: assets persisted for this user whose files are not on this machine
+    # (cloud workers, durable storage). Metadata only; nothing is downloaded.
+    catalog_used = False
+    if not (AUTH_REQUIRED and not user_id):
+        try:
+            seen_models = {str(m["id"]) for m in models}
+            catalog_models: List[Dict[str, Any]] = []
+            _append_models_from_catalog(catalog_models, user_id)
+            for cm in catalog_models:
+                if str(cm.get("model_id")) in seen_models:
+                    continue
+                models.append(_review_model_from_internal(cm))
+                seen_models.add(str(cm["model_id"]))
+                catalog_used = True
+                if cm.get("kind") == "trained" and cm.get("training_run_id"):
+                    add_edge(
+                        f"run:{cm['training_run_id']}", f"model:{cm['model_id']}", "produced", "recorded", "Trainer run artifact"
+                    )
+                if cm.get("dataset_id"):
+                    add_edge(
+                        f"dataset:{cm['dataset_id']}",
+                        f"run:{cm['training_run_id']}" if cm.get("training_run_id") else f"model:{cm['model_id']}",
+                        "trained_on",
+                        "recorded",
+                        "Persisted trainer config dataset_id",
+                    )
+            seen_ds = {str(d.get("dataset_id") or d["id"]) for d in datasets_by_key.values()}
+            for row in fetch_library_catalog(_library_scope(user_id))["datasets"]:
+                if row["id"] in seen_ds:
+                    continue
+                item = _dataset_row_from_catalog(row, {}, {}, user_id)
+                datasets_by_key[row["id"]] = {
+                    "id": row["id"],
+                    "dataset_id": row["id"],
+                    "name": item.get("name") or row["id"],
+                    "kind": item.get("kind") or "unknown",
+                    "source": "generated" if item.get("generator_run_id") else (row.get("source") or "unknown"),
+                    "representation": "extracted",
+                    "created_at": item.get("created_at"),
+                    "generator_run_id": item.get("generator_run_id"),
+                    "generator_link": "recorded" if item.get("generator_run_id") else None,
+                    "symbols": item.get("symbols"),
+                    "timeframe": item.get("timeframe"),
+                    "period_start": item.get("period_start"),
+                    "period_end": item.get("period_end"),
+                    "total_images": item.get("total_images"),
+                    "label_distribution": None,
+                    "download_url": None,
+                    "catalog_only": True,
+                }
+                seen_ds.add(row["id"])
+                catalog_used = True
+                if item.get("generator_run_id"):
+                    add_edge(
+                        f"run:{item['generator_run_id']}",
+                        f"dataset:{row['id']}",
+                        "produced",
+                        "recorded",
+                        "Persisted dataset summary generator_run_id",
+                    )
+        except Exception as exc:  # noqa: BLE001 — catalog is additive context
+            logger.warning("Review overview: could not read library catalog: %s", exc)
 
     # Mark datasets actually used for training
     for ds_id, trainer_ids in trainer_dataset_usage.items():
@@ -4599,7 +5756,14 @@ async def get_review_overview() -> Dict[str, Any]:
             if ds_row.get("kind") == "unknown":
                 ds_row["kind"] = "training"
 
-    # ---- Lineages (only explicitly recorded edges) ----
+    # Archive ↔ extracted copy of the same generator output: grouped, never merged.
+    for ds in datasets_by_key.values():
+        gid = ds.get("generator_run_id")
+        if ds.get("representation") == "extracted" and gid and f"generated:{gid}" in datasets_by_key:
+            ds["archive_key"] = f"generated:{gid}"
+            datasets_by_key[f"generated:{gid}"].setdefault("extracted_as", []).append(ds["id"])
+
+    # ---- Lineages (table fallback; only explicitly recorded edges) ----
     lineages: List[Dict[str, Any]] = []
     consumed_generator_runs: set = set()
     consumed_testdata: set = set()
@@ -4619,6 +5783,59 @@ async def get_review_overview() -> Dict[str, Any]:
             ):
                 out.append(t)
         return out
+
+    # Deployed bots. Provenance is only what was recorded at deploy time.
+    bots_summary: List[Dict[str, Any]] = []
+    try:
+        from app.db import SessionLocal
+        from app.models import Bot
+
+        db = SessionLocal()
+        try:
+            q = db.query(Bot)
+            if AUTH_REQUIRED and user_id:
+                q = q.filter(Bot.user_id == user_id)
+            for b in q.order_by(Bot.created_at.desc()).limit(100).all():
+                src_model = b.source_model_id or b.source_training_run_id
+                if src_model:
+                    add_edge(f"model:{src_model}", f"bot:{b.id}", "deployed_as", "recorded", "Recorded at deploy")
+                if b.source_backtest_run_id:
+                    add_edge(
+                        f"run:{b.source_backtest_run_id}", f"bot:{b.id}", "informed", "recorded", "Recorded at deploy"
+                    )
+                bots_summary.append(
+                    {
+                        "id": b.id,
+                        "name": b.name,
+                        "symbol": b.symbol,
+                        "model_filename": b.model_filename,
+                        "is_active": bool(b.is_active),
+                        "lifecycle_state": b.lifecycle_state,
+                        "created_at": b.created_at.timestamp() if b.created_at else None,
+                        "tp_pct": b.tp_pct,
+                        "sl_pct": b.sl_pct,
+                        "confidence_threshold": b.confidence_threshold,
+                        "starting_capital": b.starting_capital,
+                        "commission_pct": b.commission_pct,
+                        "slippage_pct": b.slippage_pct,
+                        "last_signal": b.last_signal,
+                        "last_run_at": b.last_run_at.timestamp() if b.last_run_at else None,
+                        "provenance": b.provenance or "unknown",
+                        "source_model_id": b.source_model_id,
+                        "source_training_run_id": b.source_training_run_id,
+                        "source_backtest_run_id": b.source_backtest_run_id,
+                    }
+                )
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001 — bots are optional context
+        logger.warning("Review overview: could not load bots: %s", exc)
+
+    bots_by_model: Dict[str, Dict[str, Any]] = {}
+    for b in bots_summary:
+        src = b.get("source_model_id") or b.get("source_training_run_id")
+        if src:
+            bots_by_model.setdefault(str(src), b)
 
     for model_row in models:
         is_trained = model_row["source"] == "trained"
@@ -4664,6 +5881,7 @@ async def get_review_overview() -> Dict[str, Any]:
                 "symbols": syms,
             }
 
+        bot = bots_by_model.get(str(model_row["id"]))
         lineages.append(
             {
                 "key": f"model:{model_row['id']}",
@@ -4696,7 +5914,7 @@ async def get_review_overview() -> Dict[str, Any]:
                     for a in ana
                 ],
                 "backtests": [{"run_id": b["run"].id, "status": b["run"].status} for b in bts],
-                "bot": None,
+                "bot": {"id": bot["id"], "name": bot.get("name"), "symbol": bot.get("symbol")} if bot else None,
                 "updated_at": model_row.get("created_at") or 0,
             }
         )
@@ -4740,50 +5958,30 @@ async def get_review_overview() -> Dict[str, Any]:
     models.sort(key=lambda m: m.get("created_at") or 0, reverse=True)
     dataset_rows = sorted(datasets_by_key.values(), key=lambda d: d.get("created_at") or 0, reverse=True)
 
-    # Deployed bots (best effort; lineage links stay empty until explicit bot↔model metadata exists)
-    bots_summary: List[Dict[str, Any]] = []
-    try:
-        from app.db import SessionLocal
-        from app.models import Bot
-
-        db = SessionLocal()
-        try:
-            for b in db.query(Bot).order_by(Bot.created_at.desc()).limit(50).all():
-                bots_summary.append(
-                    {
-                        "id": b.id,
-                        "name": b.name,
-                        "symbol": b.symbol,
-                        "model_filename": b.model_filename,
-                        "is_active": bool(b.is_active),
-                        "lifecycle_state": b.lifecycle_state,
-                    }
-                )
-        finally:
-            db.close()
-    except Exception as exc:  # noqa: BLE001 — bots are optional context
-        logger.warning("Review overview: could not load bots: %s", exc)
-
     statuses = [r["status"] for r in run_rows]
-    # Overlay user labels (rename/tags/favorite/archive) onto models & datasets so the
-    # library reflects the user's organization without touching artifacts.
-    _labels = _load_library_labels()
+    # Overlay user labels (rename/tags/favorite/archive/notes) without touching artifacts.
+    _labels = _load_library_labels(user_id)
     for _m in models:
-        _apply_label_overlay(_m, "model", str(_m.get("id")), _labels)
+        _apply_label_overlay(_m, "model", str(_m.get("id")), _labels, user_id=user_id)
     for _d in dataset_rows:
-        _apply_label_overlay(_d, "dataset", str(_d.get("dataset_id") or _d.get("id")), _labels)
+        _apply_label_overlay(
+            _d, "dataset", str(_d.get("dataset_id") or _d.get("id")), _labels, user_id=user_id
+        )
+    for _r in run_rows:
+        _apply_label_overlay(_r, "run", str(_r.get("id")), _labels, user_id=user_id)
 
     return {
         "summary": {
             "totalRuns": len(run_rows),
             "runningRuns": sum(1 for s in statuses if s in ("running", "queued")),
             "completedRuns": sum(1 for s in statuses if s == "succeeded"),
-            "failedRuns": sum(1 for s in statuses if s in ("failed", "cancelled")),
+            "failedRuns": sum(1 for s in statuses if s in _FAILED_STATUSES),
             "totalModels": len(models),
             "totalDatasets": len(dataset_rows),
             "totalTrainingRuns": sum(1 for r in run_rows if r["tool"] == "trainer"),
             "totalBacktests": sum(1 for r in run_rows if r["tool"] == "backtester"),
             "totalAnalyses": sum(1 for r in run_rows if r["tool"] == "analysis"),
+            "totalOptimizerRuns": sum(1 for r in run_rows if r["tool"] == "labeling-optimizer"),
             "totalBots": len(bots_summary),
         },
         "runs": run_rows,
@@ -4791,7 +5989,210 @@ async def get_review_overview() -> Dict[str, Any]:
         "datasets": dataset_rows,
         "lineages": lineages,
         "bots": bots_summary,
+        "edges": edges,
+        "sources": {"filesystem": True, "catalog": catalog_used},
+        "generated_at": time.time(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Review asset inspector: one compact, sanitized payload per asset.
+# ---------------------------------------------------------------------------
+
+_REVIEW_ASSET_KINDS = ("model", "dataset", "run")
+
+
+def _review_run_detail(run_id: str, user_id: Optional[str]) -> Dict[str, Any]:
+    run = try_resolve_run_from_disk(run_id)
+    bt_dir = find_backtest_dir(run_id, user_id) if run is None or run.tool == "backtester" else None
+    if run is None and bt_dir is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    tool = run.tool if run else "backtester"
+    out: Dict[str, Any] = {"kind": "run", "id": run_id, "tool": tool}
+    if run:
+        out["run"] = {k: v for k, v in run.model_dump().items() if k != "user_id"}
+    run_dir = get_run_dir(run_id)
+
+    if tool == "training-chart-generator":
+        cfg = _read_json_dict(os.path.join(run_dir, "generator_config.json"))
+        stats = _read_json_dict(os.path.join(run_dir, "artifacts", "dataset_stats.json"))
+        out["generator"] = review_meta.generator_summary(cfg, stats)
+    elif tool == "trainer":
+        out.update(_review_trained_model_detail(run_id))
+    elif tool == "backtester":
+        bdir = bt_dir or find_backtest_dir(run_id, user_id)
+        info = _read_json_dict(str(bdir / "run_info.json")) if bdir else None
+        info = info or {}
+        results = None
+        if bdir is not None:
+            results = review_meta.read_json_dict_cached(str(bdir / "output" / "backtest_results.json"))
+            if results is None and info.get("output_dir"):
+                results = review_meta.read_json_dict_cached(os.path.join(str(info["output_dir"]), "backtest_results.json"))
+        cfg = info.get("config") if isinstance(info.get("config"), dict) else {}
+        out["backtest"] = review_meta.backtest_summary(info, results)
+        out["backtest"]["links"] = _parse_backtest_links(cfg) if cfg else {}
+        out["backtest"]["equity"] = review_meta.backtest_equity(results)
+        out["backtest"]["benchmark"] = (
+            {k: v for k, v in (results or {}).get("benchmark", {}).items() if k in ("spy_ticker", "underlying_ticker", "phase_start", "phase_end", "error")}
+            if isinstance((results or {}).get("benchmark"), dict)
+            else None
+        )
+        out["backtest"]["trade_count"] = len(results.get("trades") or []) if results else None
+        out["backtest"]["status"] = info.get("status")
+    elif tool == "labeling-optimizer":
+        ocfg = _read_json_dict(os.path.join(run_dir, "optimizer_config.json"))
+        ometrics = review_meta.read_json_dict_cached(os.path.join(run_dir, "artifacts", "metrics.json"))
+        out["optimizer"] = review_meta.optimizer_summary(ocfg, ometrics)
+        yearly = _read_json_dict(os.path.join(run_dir, "artifacts", "yearly_compounded.json"))
+        if yearly:
+            out["optimizer"]["yearly"] = {
+                k: yearly.get(k) for k in ("years", "strategy_compounded_pct", "price_compounded_pct") if yearly.get(k) is not None
+            }
+    elif tool == "testdata":
+        cfg = _read_json_dict(os.path.join(run_dir, "testdata_config.json")) or {}
+        res = _read_json_dict(os.path.join(run_dir, "testdata_results.json")) or {}
+        out["testdata"] = {
+            "config": review_meta.sanitize_config(cfg),
+            "dataset_id": res.get("dataset_id"),
+            "summary": review_meta.sanitize_config(res.get("summary") if isinstance(res.get("summary"), dict) else {}),
+        }
+    elif tool == "analysis" and run and run.trainer_run_id and run.analysis_id:
+        tdir = get_run_dir(str(run.trainer_run_id))
+        delivery = _read_json_dict(os.path.join(tdir, "analysis", str(run.analysis_id), "delivery_summary.json"))
+        asum = review_meta.analysis_summary(delivery)
+        base = f"/trainer/runs/{run.trainer_run_id}/analysis/{run.analysis_id}/images/"
+        asum["image_urls"] = {f: base + f for f in asum.get("images", [])}
+        ctx = _read_json_dict(os.path.join(tdir, "analysis_context.json"))
+        if ctx:
+            asum["context"] = {k: ctx.get(k) for k in ("source", "model_id", "dataset_id", "created_at") if ctx.get(k)}
+        out["analysis"] = asum
+    return out
+
+
+def _review_trained_model_detail(run_id: str) -> Dict[str, Any]:
+    run_dir = get_run_dir(run_id)
+    summary = _read_json_dict(os.path.join(run_dir, "summary.json")) or {}
+    meta = _read_json_dict(os.path.join(run_dir, "model_metadata.json")) or {}
+    history = review_meta.read_json_cached(os.path.join(run_dir, "history.json"))
+    gen_cfg = meta.get("generator_config") if isinstance(meta.get("generator_config"), dict) else None
+    gid = meta.get("generator_run_id")
+    if gen_cfg is None and gid:
+        gen_cfg = _load_generator_config_from_disk(str(gid))
+    return {
+        "training": review_meta.trainer_summary(summary),
+        "training_config": review_meta.sanitize_config(
+            meta.get("training_config") if isinstance(meta.get("training_config"), dict) else summary.get("config")
+        ),
+        "generator_config": {k: gen_cfg.get(k) for k in review_meta.GENERATOR_CONFIG_KEYS if gen_cfg.get(k) is not None}
+        if gen_cfg
+        else None,
+        "history": review_meta.history_series(history),
+        "model_file": _find_trained_model_file(run_dir),
+        "metadata_schema_version": meta.get("schema_version"),
+    }
+
+
+@app.get("/api/review/assets/{kind}/{asset_id}")
+async def get_review_asset(kind: str, asset_id: str, http_request: Request) -> Dict[str, Any]:
+    """Inspector payload for one owned asset. Paths are stripped; large series are thinned."""
+    if kind not in _REVIEW_ASSET_KINDS:
+        raise HTTPException(status_code=404, detail="Unknown asset kind")
+    uid = get_current_user_id(http_request)
+    if AUTH_REQUIRED and not uid:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    def _build() -> Dict[str, Any]:
+        if kind == "run":
+            validate_id(asset_id, kind="run")
+            assert_cross_owned(uid, run_id=asset_id)
+            return _review_run_detail(asset_id, uid)
+        if kind == "model":
+            validate_id(asset_id, kind="model")
+            run_dir = get_run_dir(asset_id)
+            if os.path.isdir(run_dir) and (AUTH_REQUIRED and uid) and asset_id in owned_run_ids(uid):
+                return {"kind": "model", "id": asset_id, "source": "trained", **_review_trained_model_detail(asset_id)}
+            if not AUTH_REQUIRED and os.path.isfile(os.path.join(run_dir, "summary.json")):
+                return {"kind": "model", "id": asset_id, "source": "trained", **_review_trained_model_detail(asset_id)}
+            assert_cross_owned(uid, model_id=asset_id)
+            sidecar_path = find_keras_sidecar(Path(MODEL_STORAGE_ROOT), asset_id, uid)
+            sidecar = _read_json_dict(str(sidecar_path)) if sidecar_path else None
+            return {
+                "kind": "model",
+                "id": asset_id,
+                "source": "uploaded",
+                "sidecar": review_meta.sanitize_config(sidecar) if sidecar else None,
+            }
+        # dataset
+        if asset_id.startswith("generated:"):
+            gid = asset_id.split(":", 1)[1]
+            validate_id(gid, kind="run")
+            assert_cross_owned(uid, run_id=gid)
+            run_dir = get_run_dir(gid)
+            cfg = _read_json_dict(os.path.join(run_dir, "generator_config.json"))
+            stats = _read_json_dict(os.path.join(run_dir, "artifacts", "dataset_stats.json"))
+            return {
+                "kind": "dataset",
+                "id": asset_id,
+                "representation": "archive",
+                "generator_run_id": gid,
+                "generator": review_meta.generator_summary(cfg, stats),
+            }
+        validate_id(asset_id, kind="dataset")
+        assert_cross_owned(uid, dataset_id=asset_id)
+        located = _locate_dataset_dir(asset_id, uid, restore=False)
+        summary = _read_json_dict(os.path.join(located, "summary.json")) if located else None
+        out: Dict[str, Any] = {"kind": "dataset", "id": asset_id, "representation": "extracted", "on_disk": bool(located)}
+        if summary:
+            out["summary"] = {
+                k: summary.get(k)
+                for k in (
+                    "total_images",
+                    "label_distribution",
+                    "created_at",
+                    "symbols",
+                    "timeframe",
+                    "period_start",
+                    "period_end",
+                    "dataset_name",
+                    "kind",
+                    "source",
+                    "generator_run_id",
+                    "generator_link_recovered_by",
+                )
+                if summary.get(k) is not None
+            }
+            out["example_filenames"] = [str(x) for x in (summary.get("example_filenames") or [])[:12]]
+            gid = summary.get("generator_run_id")
+            if gid:
+                out["generator_link"] = "recovered" if summary.get("generator_link_recovered_by") else "recorded"
+                gcfg = _load_generator_config_from_disk(str(gid))
+                if gcfg:
+                    out["generator"] = review_meta.generator_summary(gcfg, None)
+        meta = _dataset_meta_from_disk(asset_id, restore=False) if located else {}
+        if meta:
+            out["filename_coverage"] = meta
+        return out
+
+    return await run_in_threadpool(_build)
+
+
+class ReviewLabelPatch(BaseModel):
+    display_name: Optional[str] = None
+    tags: Optional[List[str]] = None
+    favorite: Optional[bool] = None
+    archived: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+@app.patch("/api/review/labels/run/{run_id}")
+async def update_run_label(run_id: str, patch: ReviewLabelPatch, http_request: Request) -> Dict[str, Any]:
+    """Tag / annotate / favorite a run (backtest, analysis, …). Overlay only."""
+    uid = get_current_user_id(http_request)
+    validate_id(run_id, kind="run")
+    assert_cross_owned(uid, run_id=run_id)
+    overlay = _update_library_label("run", run_id, patch.dict(exclude_unset=True), user_id=uid)
+    return {"run_id": run_id, **overlay}
+
 
 @app.head("/datasets/test")
 async def test_datasets_endpoint():

@@ -10,10 +10,13 @@ through GCS (MODEL_BUCKET). DB rows persist a "gcs://{bucket}/{key}" reference;
 download-on-demand happens in app.services.model_paths.
 """
 
+from pathlib import Path
+
 from fastapi import UploadFile
 
 from app.config import APP_PROFILE, MODEL_BUCKET, MODEL_STORAGE_ROOT
 from app.storage.local import LocalKerasModelStorage
+from app.storage.local import save_bot_keras_file as _local_save_bot_keras_file
 from app.storage.local import save_bot_keras_upload as _local_save_bot_keras_upload
 from app.storage.protocol import KerasModelStorage
 from app.storage.types import StoredKerasModel
@@ -43,7 +46,7 @@ def get_keras_model_storage() -> KerasModelStorage:
 
 
 async def save_bot_keras_upload(
-    upload: UploadFile, bot_id: str
+    upload: UploadFile, bot_id: str, user_id: str | None = None
 ) -> StoredKerasModel:
     """
     Bot-owned upload entry point used by POST /api/bots.
@@ -62,5 +65,14 @@ async def save_bot_keras_upload(
             raise RuntimeError(
                 "Active cloud storage backend does not implement save_bot_upload"
             )
-        return await save_bot_upload(upload, bot_id)
-    return await _local_save_bot_keras_upload(upload, bot_id)
+        return await save_bot_upload(upload, bot_id, user_id=user_id)
+    return await _local_save_bot_keras_upload(upload, bot_id, user_id=user_id)
+
+
+def save_bot_keras_file(
+    src: Path, original_filename: str, bot_id: str, user_id: str | None = None
+) -> StoredKerasModel:
+    """Bot-owned copy of a file already on disk (a finalized direct upload)."""
+    if APP_PROFILE == "cloud":
+        return get_keras_model_storage().save_bot_file(src, original_filename, bot_id, user_id=user_id)
+    return _local_save_bot_keras_file(src, original_filename, bot_id, user_id=user_id)

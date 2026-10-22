@@ -54,13 +54,20 @@ def _find_model_file(run_dir: str) -> Optional[str]:
 def find_trainer_match_by_filename(
     original_filename: str,
     runs_dir: str,
+    user_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Find the most recently trained Convolve model whose saved name matches
     ``original_filename`` (the name the user downloaded / re-uploaded).
 
-    Returns a flat metadata dict suitable for an upload sidecar, or None.
+    When ``user_id`` is a UUID and AUTH_REQUIRED, only that user's trainer
+    runs are considered. Returns a flat metadata dict suitable for an upload
+    sidecar, or None.
     """
+    from app.config import AUTH_REQUIRED
+    from app.ownership import owned_run_ids
+    from app.paths import iter_run_dirs, is_user_uuid
+
     target = normalize_model_filename(original_filename)
     if not target:
         return None
@@ -68,17 +75,14 @@ def find_trainer_match_by_filename(
 
     matches: List[Tuple[float, str, Dict[str, Any], str]] = []
 
-    try:
-        run_names = os.listdir(runs_dir)
-    except OSError:
-        return None
+    owned: Optional[set] = None
+    if AUTH_REQUIRED and user_id and is_user_uuid(user_id):
+        owned = owned_run_ids(user_id)
 
-    for name in run_names:
-        if name == "backtests":
+    for name, run_dir_p, owner in iter_run_dirs():
+        if owned is not None and name not in owned and owner != user_id:
             continue
-        run_dir = os.path.join(runs_dir, name)
-        if not os.path.isdir(run_dir):
-            continue
+        run_dir = str(run_dir_p)
 
         model_file = _find_model_file(run_dir)
         meta = _read_json(os.path.join(run_dir, "model_metadata.json"))

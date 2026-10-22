@@ -9,6 +9,8 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
+    Uuid,
     func,
 )
 from sqlalchemy.orm import declarative_base, relationship
@@ -47,6 +49,11 @@ class Bot(Base):
     last_confidence = Column(Float, nullable=True)
     last_chart_date = Column(DateTime(timezone=True), nullable=True)
     last_error = Column(Text, nullable=True)
+    # Provenance recorded when the bot was created. NULL on bots that predate it: unknown, never inferred.
+    provenance = Column(String, nullable=True)  # "library" | "upload"
+    source_model_id = Column(String, nullable=True, index=True)
+    source_training_run_id = Column(String, nullable=True, index=True)
+    source_backtest_run_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -126,3 +133,140 @@ class BotEquitySnapshot(Base):
     bot_run_id = Column(String, ForeignKey("bot_runs.id", ondelete="SET NULL"), nullable=True)
 
     bot = relationship("Bot", back_populates="equity_snapshots")
+
+
+class Profile(Base):
+    """App user row. id is the Supabase Auth UUID (auth.users.id)."""
+
+    __tablename__ = "profiles"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True)
+    email = Column(String, nullable=True)
+    display_name = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    credit_account = relationship("CreditAccount", back_populates="profile", uselist=False)
+    ledger_entries = relationship("CreditLedgerEntry", back_populates="profile")
+    pipeline_runs = relationship("PipelineRun", back_populates="profile")
+    datasets = relationship("UserDataset", back_populates="profile")
+    models = relationship("UserModel", back_populates="profile")
+
+
+class CreditAccount(Base):
+    __tablename__ = "credit_accounts"
+
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    balance = Column(Integer, nullable=False, default=0)
+    version = Column(Integer, nullable=False, default=1)
+
+    profile = relationship("Profile", back_populates="credit_account")
+
+
+class CreditLedgerEntry(Base):
+    __tablename__ = "credit_ledger"
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_credit_ledger_idempotency_key"),)
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    delta = Column(Integer, nullable=False)
+    balance_after = Column(Integer, nullable=False)
+    reason = Column(String, nullable=False)
+    idempotency_key = Column(Text, nullable=False)
+    run_id = Column(String, nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    profile = relationship("Profile", back_populates="ledger_entries")
+
+
+class PipelineRun(Base):
+    """Ownership record for Generator / trainer / backtest / analysis / optimizer runs."""
+
+    __tablename__ = "pipeline_runs"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    tool = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False, default="running")
+    progress = Column(Float, nullable=False, default=0.0)
+    stage = Column(String, nullable=True)
+    message = Column(Text, nullable=True)
+    error_summary = Column(Text, nullable=True)
+    artifact_ref = Column(Text, nullable=True)
+    worker_id = Column(String, nullable=True)
+    route = Column(String, nullable=True)
+    parent_run_id = Column(String, nullable=True)
+    extra_json = Column(Text, nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    profile = relationship("Profile", back_populates="pipeline_runs")
+
+
+class UserDataset(Base):
+    """Ownership metadata for generated and uploaded datasets. Disk layout may be namespaced."""
+
+    __tablename__ = "user_datasets"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    source = Column(String, nullable=True)
+    kind = Column(String, nullable=True)
+    path = Column(Text, nullable=True)
+    extra_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    profile = relationship("Profile", back_populates="datasets")
+
+
+class UserModel(Base):
+    """Ownership metadata for uploaded (and optionally trained) models."""
+
+    __tablename__ = "user_models"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    source = Column(String, nullable=True)
+    storage_key = Column(Text, nullable=True)
+    path = Column(Text, nullable=True)
+    extra_json = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    profile = relationship("Profile", back_populates="models")
+
+
+class AssetLabel(Base):
+    """User organization overlay (name, tags, favorite, archive, notes) for one research asset.
+
+    Never changes the artifact itself. ``kind`` is model | dataset | run.
+    """
+
+    __tablename__ = "asset_labels"
+    __table_args__ = (UniqueConstraint("user_id", "kind", "asset_id", name="uq_asset_labels_user_kind_asset"),)
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String, nullable=False)
+    asset_id = Column(String, nullable=False)
+    display_name = Column(String, nullable=True)
+    tags_json = Column(Text, nullable=True)
+    favorite = Column(Boolean, nullable=False, default=False)
+    archived = Column(Boolean, nullable=False, default=False)
+    notes = Column(Text, nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

@@ -18,6 +18,7 @@ import {
   Scatter,
 } from "recharts";
 import { realtimeBacktesterApi, apiUrl } from "@/lib/api";
+import { AuthorizedImage } from "@/components/AuthorizedImage";
 import { cn } from "@/lib/utils";
 
 /* —— Monochrome tokens (white / black / gray) —— */
@@ -2345,11 +2346,9 @@ export default function BacktesterResults() {
                               const chartSrc = resolveChartSrc(result.charts || {}, row.filename);
                               if (!chartSrc) return null;
                               return (
-                                <a href={chartSrc} target="_blank" rel="noreferrer" className="mt-4 block">
-                                  <div className="rounded-xl border border-white/[0.08] bg-[#0a0a0a] p-3">
-                                    <img src={chartSrc} alt="" className="mx-auto max-h-64 w-full max-w-2xl rounded object-contain" />
+                                <div className="mt-4 rounded-xl border border-white/[0.08] bg-[#0a0a0a] p-3">
+                                    <AuthorizedImage src={chartSrc} alt="" className="mx-auto max-h-64 w-full max-w-2xl rounded object-contain" />
                                   </div>
-                                </a>
                               );
                             })()}
                           </td>

@@ -16,9 +16,13 @@ from dotenv import load_dotenv
 
 # Load backend/.env then backend/.env.local (override) so DATABASE_URL and other vars
 # are set without exporting manually. CWD-independent (works with uvicorn from repo root).
+# Tests set CONVOLVE_TEST=1 before import so a developer .env.local cannot override the
+# isolated sqlite URL / JWT secret used by pytest.
 _backend_root = Path(__file__).resolve().parent.parent
-load_dotenv(_backend_root / ".env")
-load_dotenv(_backend_root / ".env.local", override=True)
+_in_test = os.getenv("CONVOLVE_TEST", "").strip() in ("1", "true", "yes", "on")
+if not _in_test:
+    load_dotenv(_backend_root / ".env")
+    load_dotenv(_backend_root / ".env.local", override=True)
 
 
 def _get_env_list(name: str, default: str) -> List[str]:
@@ -53,6 +57,9 @@ MODEL_STORAGE_ROOT = Path(
     os.getenv("MODEL_STORAGE_ROOT", str(Path(BOT_DATA_DIR) / "models" / "keras"))
 )
 MAX_KERAS_UPLOAD_BYTES = _env_int("MAX_KERAS_UPLOAD_BYTES", 500 * 1024 * 1024)
+MAX_DATASET_UPLOAD_BYTES = _env_int("MAX_DATASET_UPLOAD_BYTES", 1024 * 1024 * 1024)
+# Cloud Run's filesystem is memory; extracted images count against instance RAM.
+MAX_DATASET_EXTRACTED_BYTES = _env_int("MAX_DATASET_EXTRACTED_BYTES", 2 * 1024 * 1024 * 1024)
 
 # --- Deployment profile (storage backend selection) ---
 # "local"  -> uploaded .keras files live on local disk under MODEL_STORAGE_ROOT / BOT_DATA_DIR
@@ -65,6 +72,8 @@ _raw_profile = os.getenv("APP_PROFILE", "local").strip().lower()
 APP_PROFILE = _raw_profile if _raw_profile in ("local", "cloud") else "local"
 
 # Required only when APP_PROFILE == "cloud". Empty string in local mode is fine.
+# Cloud mode also stores completed experiment files in this bucket under
+# users/{user_id}/... (models, datasets, and final result files). No second bucket.
 MODEL_BUCKET = os.getenv("MODEL_BUCKET", "").strip()
 
 # Cloud-only: where to materialise downloaded .keras files inside the runtime
@@ -79,7 +88,17 @@ DEFAULT_TIMEZONE = _default_tz
 BOT_SCHEDULE_TZ = DEFAULT_TIMEZONE
 
 # --- Identity & HTTP ---
+# Single-tenant bot scope until the Auth cutover assigns rows to a real UUID.
+# Do not remove: production Cloud Run still relies on this when AUTH_REQUIRED is false.
 USER_ID = os.getenv("USER_ID", "local-user")
+
+# Supabase Auth (FastAPI verifies JWTs; the SPA uses the anon key only).
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip()
+SUPABASE_JWT_AUDIENCE = os.getenv("SUPABASE_JWT_AUDIENCE", "authenticated").strip() or "authenticated"
+# Local/dev defaults on so the new SPA login actually gates the API.
+# Cloud/prod stays off until the explicit cutover (AUTH_REQUIRED=true on Cloud Run).
+AUTH_REQUIRED = _env_bool("AUTH_REQUIRED", APP_PROFILE != "cloud")
 API_PORT = _env_int("API_PORT", 8001)
 CORS_ORIGINS = _get_env_list(
     "CORS_ORIGINS",
@@ -94,6 +113,24 @@ CORS_ORIGINS = _get_env_list(
 # --- Process mode (documentation / sanity checks; job work uses `python -m app.jobs.run_due_bots`) ---
 # "api" = HTTP server. "job" = batch worker image (optional label; job entrypoint does not require this).
 APP_MODE = os.getenv("APP_MODE", "api").strip().lower()
+
+# --- CNN training execution ---
+# "inprocess" trains inside the API process (BackgroundTasks). Default, and the only
+# mode that works without pipeline_runs ownership rows and durable dataset storage.
+# "cloud_run_job" starts TRAINER_JOB_NAME through the Cloud Run Jobs API; the job runs
+# `python -m app.jobs.train_worker` and reads everything else from the database.
+_raw_trainer_execution = os.getenv("TRAINER_EXECUTION", "inprocess").strip().lower()
+TRAINER_EXECUTION = (
+    _raw_trainer_execution if _raw_trainer_execution in ("inprocess", "cloud_run_job") else "inprocess"
+)
+TRAINER_JOB_NAME = os.getenv("TRAINER_JOB_NAME", "convolve-trainer").strip()
+TRAINER_JOB_PROJECT = (os.getenv("TRAINER_JOB_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "").strip()
+TRAINER_JOB_REGION = os.getenv("TRAINER_JOB_REGION", "europe-west6").strip()
+# TensorFlow intra/inter-op and OpenMP threads inside the training job. Match the job's vCPU count.
+TRAINER_THREADS = max(1, _env_int("TRAINER_THREADS", 8))
+# A queued/running job row with no progress for this long is checked against the
+# Cloud Run execution so a crashed or timed-out job does not stay "running" forever.
+TRAINER_JOB_STALE_SECONDS = max(60, _env_int("TRAINER_JOB_STALE_SECONDS", 300))
 
 # --- API startup: one-shot due-bot batch (the in-process poller is separate) ---
 RUN_BOTS_ON_API_STARTUP = _env_bool("RUN_BOTS_ON_API_STARTUP", False)

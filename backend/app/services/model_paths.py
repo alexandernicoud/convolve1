@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import APP_PROFILE, BOT_DATA_DIR, MODEL_CACHE_DIR, MODEL_STORAGE_ROOT
+from app.paths import find_local_keras_file, is_user_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def _materialise_gcs_uri(uri: str) -> str:
 
     cache_dir = Path(MODEL_CACHE_DIR)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = Path(key).name  # e.g. keras/<bot_id>.keras -> <bot_id>.keras
+    safe_name = key.replace("/", "__")
     if not safe_name:
         raise FileNotFoundError(f"Could not derive cache filename from {uri!r}")
     local_path = cache_dir / safe_name
@@ -90,7 +91,7 @@ def _resolve_cloud_reference(model_path: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-def resolve_model_path_for_runner(model_path: str) -> str:
+def resolve_model_path_for_runner(model_path: str, user_id: Optional[str] = None) -> str:
     """
     Map a client or config string to a filesystem path string.
 
@@ -117,13 +118,20 @@ def resolve_model_path_for_runner(model_path: str) -> str:
 
     name = Path(raw).name
     if name.endswith(".keras"):
+        owned = find_local_keras_file(Path(MODEL_STORAGE_ROOT), Path(name).stem, user_id)
+        if owned and owned.exists():
+            return str(owned.resolve())
         candidate = MODEL_STORAGE_ROOT / name
-        if candidate.exists():
+        if candidate.exists() and not is_user_uuid(user_id):
             return str(candidate.resolve())
 
         bot_models = Path(BOT_DATA_DIR) / "models" / name
-        if bot_models.exists():
+        if bot_models.exists() and not is_user_uuid(user_id):
             return str(bot_models.resolve())
+        if is_user_uuid(user_id):
+            namespaced_bot = Path(BOT_DATA_DIR) / "models" / str(user_id) / name
+            if namespaced_bot.exists():
+                return str(namespaced_bot.resolve())
 
     return raw
 
@@ -138,7 +146,7 @@ def resolve_for_bot_inference(model_path: str) -> str:
     return resolve_model_path_for_runner(model_path)
 
 
-def require_existing_model_file(model_path: str) -> str:
+def require_existing_model_file(model_path: str, user_id: Optional[str] = None) -> str:
     """
     Resolve then require a readable file. Raises FileNotFoundError with a clear message.
     Use from FastAPI routes: map to HTTP 404.
@@ -150,7 +158,7 @@ def require_existing_model_file(model_path: str) -> str:
     if cloud is not None:
         return cloud
 
-    resolved = resolve_model_path_for_runner(model_path)
+    resolved = resolve_model_path_for_runner(model_path, user_id=user_id)
     p = Path(resolved)
     if not p.is_file():
         raise FileNotFoundError(

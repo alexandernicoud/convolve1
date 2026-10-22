@@ -100,6 +100,82 @@ def build_image_dataset(
     return ds
 
 
+def _metric_or_none(logs: Dict[str, Any], key: str) -> Optional[float]:
+    """Keras omits keys it did not compute (e.g. val_* without a validation split); keep that as null, never 0."""
+    value = logs.get(key)
+    if value is None:
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if np.isfinite(out) else None
+
+
+def best_val_loss_epoch(history: List[Dict[str, Any]]) -> Optional[int]:
+    """1-based epoch with the lowest val_loss; first occurrence wins, matching Keras EarlyStopping (strict <)."""
+    best_epoch: Optional[int] = None
+    best_value = float("inf")
+    for row in history:
+        value = row.get("val_loss")
+        if value is None:
+            continue
+        if value < best_value:
+            best_value = value
+            best_epoch = int(row["epoch"])
+    return best_epoch
+
+
+def build_training_summary(
+    *,
+    history: List[Dict[str, Any]],
+    model_name: str,
+    config: Dict[str, Any],
+    train_samples: int,
+    val_samples: int,
+    image_size: Tuple[int, int],
+    batch_size: int,
+    epochs_configured: int,
+    early_stop: Any = None,
+) -> Dict[str, Any]:
+    """summary.json. Keras 3 EarlyStopping(restore_best_weights=True) restores the best val_loss
+    weights at train end whether or not it stopped early, so the saved model is the best epoch."""
+    best_epoch = best_val_loss_epoch(history)
+    stopped_epoch = int(getattr(early_stop, "stopped_epoch", 0) or 0) if early_stop is not None else 0
+    restored = bool(
+        early_stop is not None
+        and getattr(early_stop, "restore_best_weights", False)
+        and getattr(early_stop, "best_weights", None) is not None
+    )
+    if restored:
+        keras_best = getattr(early_stop, "best_epoch", None)
+        if keras_best is not None:
+            best_epoch = int(keras_best) + 1
+    last_epoch = int(history[-1]["epoch"]) if history else 0
+    saved_epoch = best_epoch if (restored and best_epoch) else (last_epoch or None)
+    by_epoch = {int(row["epoch"]): row for row in history}
+    return {
+        "model_name": model_name,
+        "config": config,
+        "train_samples": train_samples,
+        "val_samples": val_samples,
+        "image_size": list(image_size),
+        "batch_size": batch_size,
+        "epochs_configured": epochs_configured,
+        "epochs_trained": len(history),
+        "stopped_early": stopped_epoch > 0,
+        "best_epoch": best_epoch,
+        "best_epoch_monitor": "val_loss" if best_epoch is not None else None,
+        "best_metrics": by_epoch.get(best_epoch) if best_epoch else None,
+        "saved_weights_epoch": saved_epoch,
+        "saved_weights_metrics": by_epoch.get(saved_epoch) if saved_epoch else None,
+        # Last epoch logged; kept for older readers. The saved model is saved_weights_epoch.
+        "final_metrics": history[-1] if history else None,
+        "summary_version": 2,
+        "completed_at": time.time(),
+    }
+
+
 def run_trainer(
     config: Dict[str, Any],
     run_dir: Path,
@@ -184,11 +260,41 @@ def run_trainer(
             f"train={train_samples} val={val_samples} batch={BATCH_SIZE}"
         )
 
+        split_info = {
+            "train_samples": train_samples,
+            "val_samples": val_samples,
+            "image_size": list(IMG_SIZE),
+            "batch_size": BATCH_SIZE,
+            "epochs": EPOCHS,
+            "val_split": VAL_SPLIT,
+            "random_seed": RANDOM_SEED,
+            "train_label_counts": {str(k): int(v) for k, v in zip(*np.unique(train_labels, return_counts=True))},
+            "val_label_counts": {str(k): int(v) for k, v in zip(*np.unique(val_labels, return_counts=True))}
+            if val_labels
+            else {},
+        }
+        try:
+            with open(run_dir / "training_state.json", "w") as f:
+                # Basenames of held-out images: os.listdir order is filesystem-dependent, so the
+                # split cannot be reliably reconstructed later from the seed alone.
+                json.dump(
+                    {
+                        **split_info,
+                        "data_ready_at": time.time(),
+                        "val_files": sorted(os.path.basename(p) for p in val_paths),
+                    },
+                    f,
+                    indent=2,
+                )
+        except OSError:
+            pass
+
         progress_cb(
             "loading",
             15,
             {
-                "message": f"Data ready: {train_samples} train, {val_samples} validation samples (tf.data)"
+                "message": f"Data ready: {train_samples} train, {val_samples} validation samples (tf.data)",
+                **split_info,
             },
         )
 
@@ -239,22 +345,20 @@ def run_trainer(
                 self._fit_t0 = time.perf_counter()
 
             def on_epoch_end(self, epoch, logs=None):
-                if self.cancel_event is not None and self.cancel_event.is_set():
-                    self.model.stop_training = True
-                    self.progress_cb("cancelled", 0, {"message": "Training cancelled"})
-                    return
+                cancelled = self.cancel_event is not None and self.cancel_event.is_set()
                 if logs:
+                    logs = dict(logs)
                     epoch_data = {
                         "epoch": epoch + 1,
                         "epochs": self.params["epochs"],
-                        "loss": float(logs.get("loss", 0)),
-                        "accuracy": float(logs.get("accuracy", 0)),
-                        "val_loss": float(logs.get("val_loss", 0)),
-                        "val_accuracy": float(logs.get("val_accuracy", 0)),
-                        "label_1_recall": float(logs.get("label_1_recall", 0)),
-                        "val_label_1_recall": float(logs.get("val_label_1_recall", 0)),
+                        "loss": _metric_or_none(logs, "loss"),
+                        "accuracy": _metric_or_none(logs, "accuracy"),
+                        "val_loss": _metric_or_none(logs, "val_loss"),
+                        "val_accuracy": _metric_or_none(logs, "val_accuracy"),
+                        "label_1_recall": _metric_or_none(logs, "label_1_recall"),
+                        "val_label_1_recall": _metric_or_none(logs, "val_label_1_recall"),
                         # Binary classifier: accuracy on true label-1 samples equals positive-class recall.
-                        "val_label_1_accuracy": float(logs.get("val_label_1_recall", 0)),
+                        "val_label_1_accuracy": _metric_or_none(logs, "val_label_1_recall"),
                         "timestamp": time.time(),
                     }
 
@@ -277,8 +381,13 @@ def run_trainer(
                             "val_loss": epoch_data["val_loss"],
                             "val_accuracy": epoch_data["val_accuracy"],
                             "val_label_1_recall": epoch_data.get("val_label_1_recall"),
+                            "label_1_recall": epoch_data.get("label_1_recall"),
+                            "timestamp": epoch_data["timestamp"],
                         },
                     )
+                if cancelled:
+                    self.model.stop_training = True
+                    self.progress_cb("cancelled", 0, {"message": "Training cancelled"})
 
             def on_train_end(self, logs=None):
                 if self.cancel_event is not None and self.cancel_event.is_set():
@@ -309,22 +418,17 @@ def run_trainer(
         model.save(str(model_path))
         print(f"✅ Model saved as {model_path}")
 
-        summary_data = {
-            "model_name": model_name,
-            "config": config,
-            "train_samples": train_samples,
-            "val_samples": val_samples,
-            "image_size": IMG_SIZE,
-            "batch_size": BATCH_SIZE,
-            "epochs_trained": len(progress_callback.history_data),
-            "best_epoch": len(progress_callback.history_data) - 5
-            if len(progress_callback.history_data) > 5
-            else len(progress_callback.history_data),
-            "final_metrics": progress_callback.history_data[-1]
-            if progress_callback.history_data
-            else None,
-            "completed_at": time.time(),
-        }
+        summary_data = build_training_summary(
+            history=progress_callback.history_data,
+            model_name=model_name,
+            config=config,
+            train_samples=train_samples,
+            val_samples=val_samples,
+            image_size=IMG_SIZE,
+            batch_size=BATCH_SIZE,
+            epochs_configured=EPOCHS,
+            early_stop=early_stop,
+        )
 
         with open(summary_file, "w") as f:
             json.dump(summary_data, f, indent=2)

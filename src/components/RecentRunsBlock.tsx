@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { ExternalLink, Download } from "lucide-react";
 import type { GlobalRun } from "@/lib/api";
-import { apiUrl } from "@/lib/api";
+import { AuthorizedDownloadLink } from "@/components/AuthorizedDownloadLink";
 import { useRunsStore } from "@/state/runsStore";
 
 type ToolFilter = "training-chart-generator" | "trainer" | "backtester";
@@ -94,15 +94,14 @@ export default function RecentRunsBlock({ tool, title = "Recent runs", maxItems 
                   </Link>
                 ) : null}
                 {dl && run.status === "succeeded" ? (
-                  <a
-                    href={apiUrl(dl)}
-                    target="_blank"
-                    rel="noreferrer"
+                  <AuthorizedDownloadLink
+                    path={dl}
+                    filename={`${run.id}.zip`}
                     className="inline-flex items-center gap-1 rounded-lg border border-white/20 px-2 py-1 text-xs text-white/90 transition hover:bg-white/10"
                   >
                     <Download className="h-3 w-3" />
                     ZIP
-                  </a>
+                  </AuthorizedDownloadLink>
                 ) : null}
               </div>
             </li>

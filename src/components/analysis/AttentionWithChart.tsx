@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { apiUrl, trainerApi } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { fetchApi, trainerApi } from "@/lib/api";
 import { HeatmapPlotCore, heatmapAspectRatio } from "./HeatmapPlotCore";
 import { HeatmapScaleChip } from "./AnalysisChartChrome";
 import { RasterChartPanel } from "./RasterChartPanel";
@@ -35,6 +35,7 @@ export function useAttentionPayload(
 ): AttentionPayload {
   const [raw, setRaw] = useState<AttentionJson | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [chartSrc, setChartSrc] = useState("");
 
   useEffect(() => {
     if (!filename) {
@@ -59,11 +60,34 @@ export function useAttentionPayload(
     };
   }, [runId, analysisId, filename]);
 
-  const chartSrc = useMemo(() => {
-    if (!raw?.chart_image_file) return "";
-    return apiUrl(
-      `/trainer/runs/${runId}/analysis/${analysisId}/images/${encodeURIComponent(raw.chart_image_file)}`,
-    );
+  useEffect(() => {
+    if (!raw?.chart_image_file) {
+      setChartSrc("");
+      return;
+    }
+    const path = `/trainer/runs/${runId}/analysis/${analysisId}/images/${encodeURIComponent(raw.chart_image_file)}`;
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetchApi(path);
+        if (!res.ok) throw new Error(String(res.status));
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        objectUrl = url;
+        setChartSrc(url);
+      } catch {
+        if (!cancelled) setChartSrc("");
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [runId, analysisId, raw]);
 
   if (error) return { status: "error", error };
