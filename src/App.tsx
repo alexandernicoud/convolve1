@@ -17,6 +17,8 @@ import ActiveRunBanner from "@/components/ActiveRunBanner";
 import Vision from "./pages/Vision";
 import VisionHome2 from "./pages/VisionHome2";
 import VisionHome3 from "./pages/VisionHome3";
+import Home2Page from "./features/marketing2/Home2Page";
+import About2Page from "./features/marketing2/About2Page";
 import Contact from "./pages/Contact";
 import Docs from "./pages/Docs";
 import NotFound from "./pages/NotFound";
@@ -99,12 +101,13 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 function AppShell() {
   const { pathname } = useLocation();
   const { headerContentPushPx } = useHeaderReveal();
-  const showFooter = !isCompactHeaderPathname(pathname);
+  const isMarketing2 = pathname === "/home2" || pathname === "/about2";
+  const showFooter = !isCompactHeaderPathname(pathname) && !isMarketing2;
   const isHomeLanding =
     pathname === "/" ||
     pathname === "/vision" ||
-    pathname === "/home2" ||
-    pathname === "/home3";
+    pathname === "/home3" ||
+    isMarketing2;
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
@@ -176,10 +179,11 @@ function AppShell() {
           {/* Main pages */}
           <Route path="/" element={<PageWrapper><VisionHome2 /></PageWrapper>} />
           <Route path="/vision" element={<PageWrapper><VisionHome2 /></PageWrapper>} />
-          <Route path="/home2" element={<PageWrapper><VisionHome2 /></PageWrapper>} />
+          <Route path="/home2" element={<PageWrapper><Home2Page /></PageWrapper>} />
           <Route path="/home3" element={<PageWrapper><VisionHome3 /></PageWrapper>} />
           <Route path="/founder" element={<Navigate to="/about" replace />} />
           <Route path="/about" element={<PageWrapper><Founders /></PageWrapper>} />
+          <Route path="/about2" element={<PageWrapper><About2Page /></PageWrapper>} />
           <Route path="/contact" element={<PageWrapper><Contact /></PageWrapper>} />
           <Route path="/docs" element={<PageWrapper><Docs /></PageWrapper>} />
           <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />

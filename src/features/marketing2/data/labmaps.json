@@ -1,0 +1,236 @@
+{
+ "provenance": "Computed locally with the Analysis Lab's explain code on the MSFT model used in the marketing backtest. Target class 1 (take-profit first).",
+ "model": "model_20261022_101617_0afb97e7.keras",
+ "layer": "conv2d_2",
+ "samples": [
+  {
+   "date": "2024-07-17",
+   "start": "2024-01-17",
+   "label": 0,
+   "p": 0.67,
+   "input": "hero_input_2024-07-17.png",
+   "gradcam": "lab_0_gradcam.png",
+   "saliency": "lab_0_saliency.png",
+   "smoothgrad": "lab_0_smoothgrad.png",
+   "occlusion": "lab_0_occlusion.png",
+   "gradcam_all_zero": false,
+   "gradcam_on_candles": 0.617,
+   "saliency_on_candles": 0.692,
+   "occlusion_range": [
+    -0.0685,
+    0.0189
+   ],
+   "foreground": 0.118
+  },
+  {
+   "date": "2024-12-31",
+   "start": "2024-07-01",
+   "label": 0,
+   "p": 0.555,
+   "input": "hero_input_2024-12-31.png",
+   "gradcam": "lab_1_gradcam.png",
+   "saliency": "lab_1_saliency.png",
+   "smoothgrad": "lab_1_smoothgrad.png",
+   "occlusion": "lab_1_occlusion.png",
+   "gradcam_all_zero": false,
+   "gradcam_on_candles": 0.597,
+   "saliency_on_candles": 0.683,
+   "occlusion_range": [
+    -0.0567,
+    0.0356
+   ],
+   "foreground": 0.13
+  },
+  {
+   "date": "2025-06-23",
+   "start": "2024-12-23",
+   "label": 1,
+   "p": 0.609,
+   "input": "hero_input_2025-06-23.png",
+   "gradcam": "lab_2_gradcam.png",
+   "saliency": "lab_2_saliency.png",
+   "smoothgrad": "lab_2_smoothgrad.png",
+   "occlusion": "lab_2_occlusion.png",
+   "gradcam_all_zero": false,
+   "gradcam_on_candles": 0.605,
+   "saliency_on_candles": 0.698,
+   "occlusion_range": [
+    -0.0931,
+    0.0248
+   ],
+   "foreground": 0.085
+  },
+  {
+   "date": "2025-11-18",
+   "start": "2025-05-18",
+   "label": 0,
+   "p": 0.609,
+   "input": "hero_input_2025-11-18.png",
+   "gradcam": "lab_3_gradcam.png",
+   "saliency": "lab_3_saliency.png",
+   "smoothgrad": "lab_3_smoothgrad.png",
+   "occlusion": "lab_3_occlusion.png",
+   "gradcam_all_zero": false,
+   "gradcam_on_candles": 0.581,
+   "saliency_on_candles": 0.724,
+   "occlusion_range": [
+    -0.1652,
+    0.0731
+   ],
+   "foreground": 0.103
+  },
+  {
+   "date": "2026-04-30",
+   "start": "2025-10-30",
+   "label": 0,
+   "p": 0.596,
+   "input": "hero_input_2026-04-30.png",
+   "gradcam": "lab_4_gradcam.png",
+   "saliency": "lab_4_saliency.png",
+   "smoothgrad": "lab_4_smoothgrad.png",
+   "occlusion": "lab_4_occlusion.png",
+   "gradcam_all_zero": false,
+   "gradcam_on_candles": 0.548,
+   "saliency_on_candles": 0.691,
+   "occlusion_range": [
+    -0.0744,
+    0.0514
+   ],
+   "foreground": 0.083
+  },
+  {
+   "date": "2026-09-21",
+   "start": "2026-03-21",
+   "label": 0,
+   "p": 0.521,
+   "input": "hero_input_2026-09-21.png",
+   "gradcam": "lab_5_gradcam.png",
+   "saliency": "lab_5_saliency.png",
+   "smoothgrad": "lab_5_smoothgrad.png",
+   "occlusion": "lab_5_occlusion.png",
+   "gradcam_all_zero": false,
+   "gradcam_on_candles": 0.631,
+   "saliency_on_candles": 0.667,
+   "occlusion_range": [
+    -0.0692,
+    0.033
+   ],
+   "foreground": 0.096
+  }
+ ],
+ "trace_index": 3,
+ "features": [
+  {
+   "name": "conv2d",
+   "h": 222,
+   "channels": 32,
+   "files": [
+    "feat_l1_00.png",
+    "feat_l1_01.png",
+    "feat_l1_02.png",
+    "feat_l1_03.png",
+    "feat_l1_04.png",
+    "feat_l1_05.png",
+    "feat_l1_06.png",
+    "feat_l1_07.png",
+    "feat_l1_08.png",
+    "feat_l1_09.png",
+    "feat_l1_10.png",
+    "feat_l1_11.png",
+    "feat_l1_12.png",
+    "feat_l1_13.png",
+    "feat_l1_14.png",
+    "feat_l1_15.png"
+   ]
+  },
+  {
+   "name": "conv2d_1",
+   "h": 109,
+   "channels": 64,
+   "files": [
+    "feat_l2_00.png",
+    "feat_l2_01.png",
+    "feat_l2_02.png",
+    "feat_l2_03.png",
+    "feat_l2_04.png",
+    "feat_l2_05.png",
+    "feat_l2_06.png",
+    "feat_l2_07.png",
+    "feat_l2_08.png",
+    "feat_l2_09.png",
+    "feat_l2_10.png",
+    "feat_l2_11.png"
+   ]
+  },
+  {
+   "name": "conv2d_2",
+   "h": 52,
+   "channels": 128,
+   "files": [
+    "feat_l3_00.png",
+    "feat_l3_01.png",
+    "feat_l3_02.png",
+    "feat_l3_03.png",
+    "feat_l3_04.png",
+    "feat_l3_05.png",
+    "feat_l3_06.png",
+    "feat_l3_07.png",
+    "feat_l3_08.png",
+    "feat_l3_09.png",
+    "feat_l3_10.png",
+    "feat_l3_11.png"
+   ]
+  }
+ ],
+ "notes": {
+  "gradcam": "Divided by this image's maximum (0 = no positive evidence)",
+  "saliency": "Divided by this image's 99.5th percentile (top 0.5% clipped)",
+  "smoothgrad": "Divided by this image's 99.5th percentile (top 0.5% clipped)",
+  "occlusion": "Symmetric: mid-grey = no change; scale \u00b1max |\u0394p|",
+  "occlusion_patch": "32 px patch, stride 16, filled with white background (1.0)"
+ },
+ "colormaps": {
+  "sequential": {
+   "name": "inferno",
+   "stops": [
+    "#000003",
+    "#200c4a",
+    "#570f6d",
+    "#892269",
+    "#bb3754",
+    "#e45a31",
+    "#f98e08",
+    "#f8cb34",
+    "#fcfea4"
+   ]
+  },
+  "diverging": {
+   "name": "berlin",
+   "stops": [
+    "#9eaffe",
+    "#519fd3",
+    "#276785",
+    "#13303e",
+    "#190b08",
+    "#401200",
+    "#7d331e",
+    "#bd6f63",
+    "#feadad"
+   ]
+  },
+  "features": {
+   "name": "viridis",
+   "stops": [
+    "#440154",
+    "#472c7b",
+    "#3a528b",
+    "#2c728e",
+    "#20908c",
+    "#28ae7f",
+    "#5ec961",
+    "#addc30",
+    "#fde724"
+   ]
+  }
+ }
+}

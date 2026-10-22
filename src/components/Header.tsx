@@ -10,7 +10,7 @@ import { PRODUCT_PIPELINE_ITEMS } from "@/components/products/productPipelineLin
 function HeaderCta({ isHomeLanding }: { isHomeLanding: boolean }) {
   const { session, loading } = useAuth();
   const className = cn(
-    "inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-xs transition-all duration-200 sm:px-4 sm:py-2 sm:text-sm",
+    "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition-all duration-200 sm:px-4 sm:py-2 sm:text-sm",
     isHomeLanding
       ? "border-white/20 bg-transparent text-white/85 hover:border-white/35 hover:text-white"
       : "border-white/25 bg-white/[0.06] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-sm hover:border-white/40 hover:bg-white/[0.1] focus:outline-none focus:ring-2 focus:ring-white/20",
@@ -29,6 +29,30 @@ function HeaderCta({ isHomeLanding }: { isHomeLanding: boolean }) {
     <Link to="/login" className={className}>
       {isHomeLanding ? "Sign in" : "Sign in"}
     </Link>
+  );
+}
+
+/** Comparison links to the redesigned marketing pages; the originals stay on Home / About. */
+function PreviewLinks({ pathname }: { pathname: string }) {
+  if (isCompactHeaderPathname(pathname)) return null;
+  const link = (to: string, label: string, className?: string) => (
+    <Link
+      to={to}
+      className={cn(
+        "whitespace-nowrap rounded-full px-2 py-1 transition-colors",
+        pathname === to ? "bg-white/[0.1] text-white" : "text-white/50 hover:text-white",
+        className
+      )}
+    >
+      {label}
+    </Link>
+  );
+  return (
+    <div className="flex shrink-0 items-center rounded-full max-[379px]:hidden border border-white/[0.1] p-0.5 font-mono text-[10px] uppercase tracking-[0.1em] sm:text-[11px] sm:tracking-[0.14em]">
+      <span className="hidden pl-2 pr-1 text-white/30 lg:inline">Preview</span>
+      {link("/home2", "Home 2", pathname === "/home2" ? "hidden sm:inline" : undefined)}
+      {link("/about2", "About 2", pathname !== "/home2" ? "hidden sm:inline" : undefined)}
+    </div>
   );
 }
 
@@ -54,7 +78,8 @@ function MainNav({
     location.pathname === "/" ||
     location.pathname === "/vision" ||
     location.pathname === "/home2" ||
-    location.pathname === "/home3";
+    location.pathname === "/home3" ||
+    location.pathname === "/about2";
 
   return (
     <nav className="flex h-20 w-full items-center justify-between gap-3 md:grid md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-4">
@@ -188,6 +213,7 @@ function MainNav({
       </div>
 
       <div className="flex items-center justify-end gap-2 sm:gap-3 md:justify-self-end">
+        <PreviewLinks pathname={location.pathname} />
         <HeaderCta isHomeLanding={isHomeLanding} />
       </div>
     </nav>
