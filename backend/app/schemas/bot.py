@@ -129,6 +129,9 @@ class BotPerformanceSectionOut(BaseModel):
     total_return_pct: float
     """Winning (TP) trades / all closed trades."""
     accuracy_winning_trades_over_total_closed: Optional[float] = None
+    # Unified with the fleet Overview: closed trades with net P&L > 0 / all closed trades.
+    trade_win_rate: Optional[float] = None
+    trade_win_sample: int = 0
     closed_trades_count: int
     open_trades_count: int
     predictions_count: int

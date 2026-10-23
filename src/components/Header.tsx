@@ -32,26 +32,21 @@ function HeaderCta({ isHomeLanding }: { isHomeLanding: boolean }) {
   );
 }
 
-/** Comparison links to the redesigned marketing pages; the originals stay on Home / About. */
+/** Link to the redesigned products page while the original stays on /products. */
 function PreviewLinks({ pathname }: { pathname: string }) {
   if (isCompactHeaderPathname(pathname)) return null;
-  const link = (to: string, label: string, className?: string) => (
-    <Link
-      to={to}
-      className={cn(
-        "whitespace-nowrap rounded-full px-2 py-1 transition-colors",
-        pathname === to ? "bg-white/[0.1] text-white" : "text-white/50 hover:text-white",
-        className
-      )}
-    >
-      {label}
-    </Link>
-  );
   return (
-    <div className="flex shrink-0 items-center rounded-full max-[379px]:hidden border border-white/[0.1] p-0.5 font-mono text-[10px] uppercase tracking-[0.1em] sm:text-[11px] sm:tracking-[0.14em]">
+    <div className="hidden shrink-0 items-center rounded-full border border-white/[0.1] p-0.5 font-mono text-[10px] uppercase tracking-[0.1em] sm:flex sm:text-[11px] sm:tracking-[0.14em]">
       <span className="hidden pl-2 pr-1 text-white/30 lg:inline">Preview</span>
-      {link("/home2", "Home 2", pathname === "/home2" ? "hidden sm:inline" : undefined)}
-      {link("/about2", "About 2", pathname !== "/home2" ? "hidden sm:inline" : undefined)}
+      <Link
+        to="/products2"
+        className={cn(
+          "whitespace-nowrap rounded-full px-2 py-1 transition-colors",
+          pathname === "/products2" ? "bg-white/[0.1] text-white" : "text-white/50 hover:text-white"
+        )}
+      >
+        Products 2
+      </Link>
     </div>
   );
 }
@@ -77,9 +72,9 @@ function MainNav({
   const isHomeLanding =
     location.pathname === "/" ||
     location.pathname === "/vision" ||
-    location.pathname === "/home2" ||
     location.pathname === "/home3" ||
-    location.pathname === "/about2";
+    location.pathname === "/about" ||
+    location.pathname === "/products2";
 
   return (
     <nav className="flex h-20 w-full items-center justify-between gap-3 md:grid md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-4">
@@ -223,7 +218,7 @@ function MainNav({
 export default function Header() {
   const [productsOpen, setProductsOpen] = useState(false);
   const location = useLocation();
-  const { headerRevealed, setHeaderRevealed, revealMode } = useHeaderReveal();
+  const { headerRevealed, setHeaderRevealed, revealMode, headerOverlay } = useHeaderReveal();
 
   const compact = isCompactHeaderPathname(location.pathname);
   const expanded = !revealMode || headerRevealed;
@@ -239,7 +234,8 @@ export default function Header() {
         <div
           className={cn(
             "pointer-events-auto rounded-2xl border border-transparent bg-transparent shadow-none transition-[height] duration-200 ease-out",
-            expanded ? "h-20 overflow-visible" : "h-3 overflow-hidden"
+            expanded ? "h-20 overflow-visible" : "h-3 overflow-hidden",
+            headerOverlay && expanded && "border-white/[0.1] bg-[#050505] shadow-[0_18px_40px_rgba(0,0,0,0.7)]"
           )}
           onMouseEnter={() => revealMode && setHeaderRevealed(true)}
           onMouseLeave={() => revealMode && setHeaderRevealed(false)}

@@ -201,7 +201,7 @@ function SensResults({ res, job }: { res: SensResult; job: Parameters<typeof Job
               <MapCanvas map={res.occlusion.map} palette="diverging" thirds label="Mean occlusion effect" />
             </div>
             <div className="space-y-3 md:col-span-8">
-              <MapScale palette="diverging" min={res.occlusion.map.min} max={res.occlusion.map.max} format={(v) => fmtPp(v, 2)} lowLabel="lowers p" highLabel="raises p" note={res.occlusion.map.normalization} />
+              <MapScale surface="dark" palette="diverging" min={res.occlusion.map.min} max={res.occlusion.map.max} format={(v) => fmtPp(v, 2)} lowLabel="lowers p" highLabel="raises p" note={res.occlusion.map.normalization} />
               <p className="text-[12.5px] leading-relaxed text-white/40">
                 Coarse ({res.occlusion.grid.join(" × ")} positions). Blue cells are where removing candles lowers the model's confidence in its own prediction.
               </p>

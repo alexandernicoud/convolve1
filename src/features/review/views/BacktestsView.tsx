@@ -33,6 +33,13 @@ export function BacktestsView() {
     },
     { id: "name", header: "Backtest", sort: (r) => names.run.get(r.id), cell: (r) => <div className="max-w-[260px]"><AssetTitle refv={{ kind: "run", id: r.id }} archived={r.archived} /></div> },
     {
+      id: "method",
+      header: "Method",
+      hint: "Price simulation (v2) trades stored market bars. Legacy (v1) values chart labels at a synthetic price and is not a trading simulation.",
+      sort: (r) => methodRank(r),
+      cell: (r) => <MethodTag r={r} />,
+    },
+    {
       id: "model",
       header: "Model",
       cell: (r) => {
@@ -53,13 +60,25 @@ export function BacktestsView() {
       align: "right",
       hint: "Net of the modelled commission and slippage of this backtest.",
       sort: (r) => perf(r)?.return_pct,
-      cell: (r) => <span className={cx((perf(r)?.return_pct ?? 0) < 0 ? "text-red-300/85" : "text-white")}>{pctUnits(perf(r)?.return_pct, 2, true)}</span>,
+      cell: (r) =>
+        perf(r)?.estimate ? (
+          <span className="text-white/40" title="Legacy label-payoff estimate, not a trading result">{pctUnits(perf(r)?.return_pct, 2, true)} est.</span>
+        ) : (
+          <span className={cx((perf(r)?.return_pct ?? 0) < 0 ? "text-red-300/85" : "text-white")}>{pctUnits(perf(r)?.return_pct, 2, true)}</span>
+        ),
     },
-    { id: "pnl", header: "Net P&L", align: "right", hideBelow: "xl", sort: (r) => perf(r)?.pnl, cell: (r) => money(perf(r)?.pnl) },
-    { id: "dd", header: "Max DD", align: "right", sort: (r) => perf(r)?.max_drawdown_pct, cell: (r) => pctUnits(perf(r)?.max_drawdown_pct, 2) },
-    { id: "sharpe", header: "Sharpe", align: "right", hint: "Per-trade Sharpe ratio, not annualised.", sort: (r) => perf(r)?.sharpe_ratio, cell: (r) => num(perf(r)?.sharpe_ratio) },
+    { id: "pnl", header: "Net P&L", align: "right", hideBelow: "xl", sort: (r) => perf(r)?.pnl, cell: (r) => <span className={perf(r)?.estimate ? "text-white/40" : undefined}>{money(perf(r)?.pnl)}</span> },
+    {
+      id: "dd",
+      header: "Max DD",
+      align: "right",
+      hint: "Peak to trough on daily marked-to-market equity (price simulation only). Legacy runs measured a different quantity and show —.",
+      sort: (r) => perf(r)?.max_drawdown_pct,
+      cell: (r) => pctUnits(perf(r)?.max_drawdown_pct, 2),
+    },
+    { id: "sharpe", header: "Sharpe", align: "right", hint: "Daily returns, annualized (252), rf = 0. Price simulation only; withheld for legacy runs.", sort: (r) => perf(r)?.sharpe_ratio, cell: (r) => num(perf(r)?.sharpe_ratio) },
     { id: "pf", header: "PF", align: "right", hint: "Profit factor: gross wins / gross losses.", sort: (r) => perf(r)?.profit_factor, cell: (r) => num(perf(r)?.profit_factor) },
-    { id: "win", header: "Win", align: "right", sort: (r) => perf(r)?.win_rate, cell: (r) => pctUnits(perf(r)?.win_rate, 1) },
+    { id: "win", header: "Win", align: "right", hint: "Closed trades with net P&L > 0 after costs. Legacy runs only had label precision and show —.", sort: (r) => perf(r)?.win_rate, cell: (r) => pctUnits(perf(r)?.win_rate, 1) },
     {
       id: "trades",
       header: "Trades",
@@ -127,8 +146,35 @@ export function BacktestsView() {
         minWidth={1080}
       />
       <p className="mt-3 text-[13px] leading-relaxed text-white/40">
-        Trading metrics are simulated on each run's test set, net of its own cost assumptions. Classification accuracy measures label agreement and says nothing about profitability.
+        Price-simulation results are net of each run's own cost assumptions. Legacy results are label-payoff estimates, not trading simulations, and are not comparable with them. Classification accuracy measures label agreement and says nothing about profitability.
       </p>
     </div>
+  );
+}
+
+function methodRank(r: ReviewRun): number {
+  const m = r.backtest?.methodology;
+  if (!m) return 0;
+  if (m.id !== "price_sim_v2") return 1;
+  return m.evaluation_class === "independent_test" ? 4 : m.evaluation_class === "exploratory" ? 3 : 2;
+}
+
+function MethodTag({ r }: { r: ReviewRun }) {
+  const m = r.backtest?.methodology;
+  if (!m) return <Missing />;
+  if (m.id !== "price_sim_v2")
+    return (
+      <span className="whitespace-nowrap rounded-md border border-dashed border-white/20 px-1.5 py-0.5 text-[12px] text-white/50" title={m.label}>
+        Legacy estimate
+      </span>
+    );
+  const independent = m.evaluation_class === "independent_test";
+  return (
+    <span
+      className={cx("whitespace-nowrap rounded-md px-1.5 py-0.5 text-[12px]", independent ? "bg-white/[0.1] text-white/85" : "border border-white/15 text-white/60")}
+      title={`Price-based simulation · ${m.threshold_source === "validation_locked" ? "threshold locked on validation data" : "threshold fixed by the user"}`}
+    >
+      {independent ? "Independent test" : m.evaluation_class === "blocked" ? "Blocked" : "Exploratory"}
+    </span>
   );
 }

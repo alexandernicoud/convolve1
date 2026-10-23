@@ -20,7 +20,13 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl-m2")
 
 import numpy as np
 from matplotlib import colormaps
+from matplotlib.colors import LinearSegmentedColormap
 from PIL import Image
+
+# Zero activation stays on the page's charcoal so feature maps never read as flat colour blocks.
+INK = LinearSegmentedColormap.from_list("convolve_ink", ["#08090b", "#112038", "#1f5d99", "#2fa3b0", "#8fe0c0", "#f2fbf6"])
+if "convolve_ink" not in colormaps:
+    colormaps.register(INK)
 
 BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
@@ -31,7 +37,7 @@ sys.path.insert(0, str(BACKEND))
 BACKTEST_RUN = "982d2b6b-b86c-4d65-b334-681efe252dd6"
 SEQ = "inferno"
 DIV = "berlin"
-FEAT = "viridis"
+FEAT = "convolve_ink"
 
 
 def r(x: float, n: int = 4) -> float:

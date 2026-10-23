@@ -202,16 +202,109 @@ BACKTEST_ASSUMPTION_KEYS = (
 )
 
 
+PRICE_SIM_V2 = "price_sim_v2"
+LABEL_PAYOFF_V1 = "label_payoff_v1"
+V1_LABEL = "Legacy label-payoff estimate — not a price-based trading simulation."
+# Per-chart ratio on label payoffs, clipped; not a time-series Sharpe (see backtest_api.V1_WITHHELD).
+V1_WITHHELD_PERF = ("sharpe_ratio", "sharpe_ratio_annualized_hint")
+
+
+def _mv(m: Any) -> Any:
+    return m.get("value") if isinstance(m, dict) else None
+
+
+def _pct100(v: Any) -> Optional[float]:
+    return v * 100.0 if isinstance(v, (int, float)) else None
+
+
+def is_price_sim(results: Optional[Dict[str, Any]]) -> bool:
+    m = (results or {}).get("methodology")
+    return isinstance(m, dict) and m.get("id") == PRICE_SIM_V2
+
+
+def backtest_methodology(results: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if is_price_sim(results):
+        thr = results.get("threshold") if isinstance(results.get("threshold"), dict) else {}
+        return {
+            "id": PRICE_SIM_V2,
+            "label": "Price-based portfolio simulation",
+            "evaluation_class": results.get("evaluation_class"),
+            "threshold_source": thr.get("source"),
+        }
+    return {"id": LABEL_PAYOFF_V1, "label": V1_LABEL, "evaluation_class": None, "threshold_source": None}
+
+
+def _v2_backtest_summary(out: Dict[str, Any], results: Dict[str, Any]) -> Dict[str, Any]:
+    tm = results.get("trading_metrics") if isinstance(results.get("trading_metrics"), dict) else {}
+    perf = {
+        "return_pct": _pct100(_mv(tm.get("total_return"))),
+        "pnl": _mv(tm.get("net_pnl")),
+        "win_rate": _pct100(_mv(tm.get("win_rate"))),
+        "profit_factor": _mv(tm.get("profit_factor")),
+        "sharpe_ratio": _mv(tm.get("sharpe")),
+        "max_drawdown_pct": _pct100(_mv(tm.get("max_drawdown"))),
+        "trades": tm.get("executed_trades"),
+        "metrics_insufficient_sample": _mv(tm.get("sharpe")) is None,
+    }
+    perf = {k: v for k, v in perf.items() if v is not None}
+    if perf:
+        perf["costs_included"] = True
+        perf["definitions"] = {
+            "sharpe_ratio": "Daily returns, annualized (252), rf = 0",
+            "max_drawdown_pct": "Peak to trough on marked-to-market equity",
+            "win_rate": "Closed trades with net P&L > 0 after costs",
+        }
+        out["performance"] = perf
+    cm = results.get("classification_metrics") if isinstance(results.get("classification_metrics"), dict) else {}
+    cls = {k: _mv(cm.get(src)) for k, src in (("accuracy", "accuracy"), ("precision", "precision_label1"),
+                                              ("recall", "recall_label1"), ("f1", "f1_label1"))}
+    cls = {k: v for k, v in cls.items() if v is not None}
+    if cls:
+        out["classification"] = cls
+    ds = results.get("dataset") if isinstance(results.get("dataset"), dict) else {}
+    if ds.get("first_decision") or ds.get("last_decision"):
+        out["period"] = {"start": str(ds.get("first_decision") or "")[:10] or None,
+                         "end": str(ds.get("last_decision") or "")[:10] or None}
+    if ds.get("symbols"):
+        out["symbol"] = ", ".join(ds["symbols"])
+    rc = results.get("config") if isinstance(results.get("config"), dict) else {}
+    for k, v in _pick(rc, BACKTEST_ASSUMPTION_KEYS).items():
+        out["assumptions"][k] = v
+    thr = results.get("threshold") if isinstance(results.get("threshold"), dict) else {}
+    if isinstance(thr.get("value"), (int, float)):
+        out["assumptions"]["confidence_threshold"] = thr["value"]
+    spec = (results.get("methodology") or {}).get("outcome_spec") or {}
+    for key, frac in (("tp_pct", "tp_frac"), ("sl_pct", "sl_frac")):
+        if isinstance(spec.get(frac), (int, float)):
+            out["assumptions"][key] = round(spec[frac] * 100.0, 6)
+    return out
+
+
 def backtest_summary(info: Dict[str, Any], results: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Headline performance, per-image classification and the assumptions behind them."""
     cfg = info.get("config") if isinstance(info.get("config"), dict) else {}
     out: Dict[str, Any] = {"assumptions": _pick(cfg, BACKTEST_ASSUMPTION_KEYS)}
     if not results:
         return out
+    out["methodology"] = backtest_methodology(results)
+    if is_price_sim(results):
+        for k in ("tp_pct", "sl_pct"):
+            out["assumptions"].pop(k, None)
+        return _v2_backtest_summary(out, results)
     kpis = results.get("kpis") if isinstance(results.get("kpis"), dict) else {}
     perf = _pick(kpis, BACKTEST_PERFORMANCE_KEYS)
+    for k in V1_WITHHELD_PERF:
+        perf.pop(k, None)
+    if "max_drawdown_pct" in perf:
+        # v1 measured the lowest point below starting capital, not peak to trough.
+        perf["drawdown_below_start_pct"] = perf.pop("max_drawdown_pct")
+        perf.pop("max_drawdown", None)
+    if "win_rate" in perf:
+        # v1 "win rate" is the share of selected charts labelled 1 (label precision).
+        perf["label_precision_pct"] = perf.pop("win_rate")
     if perf:
         perf["costs_included"] = True
+        perf["estimate"] = True
         out["performance"] = perf
     cm = results.get("classification_metrics")
     if isinstance(cm, dict):
@@ -227,9 +320,43 @@ def backtest_summary(info: Dict[str, Any], results: Optional[Dict[str, Any]]) ->
     return out
 
 
-def backtest_equity(results: Optional[Dict[str, Any]], max_points: int = 400) -> List[Dict[str, Any]]:
+def _v2_equity(results: Dict[str, Any], output_dir: Optional[str], max_points: int) -> List[Dict[str, Any]]:
+    import csv
+
+    if not output_dir:
+        return []
+    eq_path = os.path.join(output_dir, "equity_daily.csv")
+    if not os.path.isfile(eq_path):
+        return []
+    capital = (results.get("config") or {}).get("starting_capital")
+    bench: Dict[str, Dict[str, str]] = {}
+    b_path = os.path.join(output_dir, "benchmarks_daily.csv")
+    if os.path.isfile(b_path):
+        with open(b_path, newline="") as f:
+            bench = {r["date"]: r for r in csv.DictReader(f) if r.get("date")}
+
+    def idx(v: Any) -> Optional[float]:
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return None
+        return x / capital * 100.0 if isinstance(capital, (int, float)) and capital else None
+
+    rows: List[Dict[str, Any]] = []
+    with open(eq_path, newline="") as f:
+        for r in csv.DictReader(f):
+            b = bench.get(r.get("date", ""), {})
+            row = {"as_of_date": r.get("date"), "equity": float(r["equity"]), "strategy_indexed": idx(r.get("equity")),
+                   "spy_indexed": idx(b.get("spy")), "underlying_indexed": idx(b.get("underlying"))}
+            rows.append({k: v for k, v in row.items() if v is not None})
+    return downsample(rows, max_points)
+
+
+def backtest_equity(results: Optional[Dict[str, Any]], max_points: int = 400, output_dir: Optional[str] = None) -> List[Dict[str, Any]]:
     if not results:
         return []
+    if is_price_sim(results):
+        return _v2_equity(results, output_dir, max_points)
     series = results.get("series") if isinstance(results.get("series"), dict) else {}
     equity = series.get("equity") if isinstance(series.get("equity"), list) else []
     keep = ("as_of_date", "equity", "strategy_indexed", "spy_indexed", "underlying_indexed")

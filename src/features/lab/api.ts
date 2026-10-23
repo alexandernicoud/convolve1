@@ -167,7 +167,8 @@ export const labApi = {
   context: (ref: ModelRef) => request<LabContext>(`/api/lab/context?${qs(ref)}`),
   images: (ref: ModelRef, f: { label?: number | null; symbol?: string | null; split?: string; q?: string; offset?: number; limit?: number; predict?: boolean }) =>
     request<{ total: number; offset: number; items: LabImage[]; split_status: string }>(`/api/lab/images?${qs({ ...ref, ...f })}`),
-  imagePath: (ref: ModelRef, imageId: string) => `/api/lab/image?${qs({ ...ref, image_id: imageId })}`,
+  /** `alpha`: same RGB as the model input with the source chart's transparency re-attached. */
+  imagePath: (ref: ModelRef, imageId: string, alpha = false) => `/api/lab/image?${qs({ ...ref, image_id: imageId, ...(alpha ? { alpha: "true" } : {}) })}`,
   explain: (ref: ModelRef, body: { image_id: string; target?: string; layer?: string; methods: Method[]; channels?: number[]; top_channels?: number }) =>
     request<ExplainResult>("/api/lab/explain", { method: "POST", body: JSON.stringify({ ...ref, ...body }) }),
   intervene: (ref: ModelRef, body: { image_id: string; rect: [number, number, number, number]; baseline: string; target?: string }) =>

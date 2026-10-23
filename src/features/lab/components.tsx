@@ -6,7 +6,7 @@ import { CLASS_COLORS, SEMANTIC, VIZ } from "@/lib/viz/tokens";
 import type { EncodedMap, ExperimentKind, LabContext, LabJob, ModelRef, Prop } from "./api";
 import { labApi } from "./api";
 import { describeFilters, EMPTY_FILTERS, fmtProp, isActive, type Filters } from "./lib";
-import { MapCanvas, useAuthedObjectUrl, type Palette } from "./maps";
+import { ChartBackdropCtx, MapCanvas, useAuthedObjectUrl, type Palette } from "./maps";
 import type { LabSessionState } from "./useLabSession";
 
 // --------------------------------------------------------------------------- shared context
@@ -444,7 +444,8 @@ export function Thumb({
   opacity?: number;
 }) {
   const { ref } = useLab();
-  const path = useMemo(() => labApi.imagePath(ref, imageId), [ref, imageId]);
+  const dark = useContext(ChartBackdropCtx) === "dark";
+  const path = useMemo(() => labApi.imagePath(ref, imageId, dark), [ref, imageId, dark]);
   const url = useAuthedObjectUrl(path);
   const Tag = onClick ? "button" : "div";
   return (

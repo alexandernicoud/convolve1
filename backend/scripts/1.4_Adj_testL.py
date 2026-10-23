@@ -24,6 +24,10 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.lines import Line2D
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from app.services import trade_outcomes as outcomes  # noqa: E402
+from app.services.dataset_provenance import PRICE_ADJUSTMENT_YF, ProvenanceWriter  # noqa: E402
+
 
 class ProgressWriter:
     def __init__(self, path: str, timeseries_path: str | None = None, total_steps: int | None = None):
@@ -338,6 +342,22 @@ def generate_and_save_labeled_charts(
     want_sma = str(use_sma).lower() == "yes" and sma_length and int(sma_length) > 0
     ma_col = f"SMA{int(sma_length)}" if want_sma else None
 
+    spec = outcomes.OutcomeSpec(horizon_bars=int(w), tp_frac=float(f), sl_frac=float(s), timeframe=t)
+    prov = ProvenanceWriter(out_dir, {
+        "kind": "test",
+        "label_method": outcomes.LABEL_METHOD_V2,
+        "outcome": spec.as_dict(),
+        "timeframe": t,
+        "lookback": {"unit": u, "count": int(o)},
+        "image": {"dim": int(img_dim), "candles": str(use_candles).lower() == "yes", "sma": int(sma_length) if want_sma else None},
+        "period": {"units": int(x), "end_offset_units": int(i1), "step_unit": step_unit},
+        "price_adjustment": PRICE_ADJUSTMENT_YF,
+        "data_source": {"provider": "yfinance", "method": "Ticker.history", "version": getattr(yf, "__version__", None), "interval": t},
+        "symbols": symbols,
+    })
+    hist_start_all = None
+    hist_end_all = None
+
     for symbol_idx, symbol in enumerate(symbols):
         print(f"Starting symbol {symbol_idx + 1}/{len(symbols)}: {symbol}")
         if progress:
@@ -357,6 +377,15 @@ def generate_and_save_labeled_charts(
         if history.empty or "Close" not in history:
             print(f"No history available for {symbol}, skipping.")
             continue
+
+        if history.index.has_duplicates:
+            n_dup = int(history.index.duplicated(keep="last").sum())
+            prov.notes.append(f"{symbol}: dropped {n_dup} duplicate bar timestamp(s), keeping the last")
+            history = history[~history.index.duplicated(keep="last")]
+        history = history.sort_index()
+        prov.add_history(symbol, history, role="sample")
+        hist_start_all = history_start if hist_start_all is None else min(hist_start_all, history_start)
+        hist_end_all = history_end if hist_end_all is None else max(hist_end_all, history_end)
 
         if want_sma:
             history[ma_col] = history["Close"].rolling(window=int(sma_length)).mean()
@@ -393,13 +422,20 @@ def generate_and_save_labeled_charts(
 
                 future = history.loc[history_index > last_bar_ts].head(w)
                 if future.empty:
+                    prov.skip("no_future_bars")
                     continue
 
-                label, hit_price, which, hit_date = tp_first_else_zero_from_next_open(data, future, f, s)
+                outcome = outcomes.resolve_outcome(history, last_bar_ts, spec)
+                label = outcomes.label_for_method(outcome, outcomes.LABEL_METHOD_V2)
                 if label is None:
+                    prov.skip(f"outcome_{outcome.status}")
                     continue
+                which = outcome.exit_reason
+                hit_price = outcome.exit_price
+                hit_date = outcome.exit_ts
 
                 if data.empty or len(data) < 2 or "Close" not in data or data["Close"].empty:
+                    prov.skip("window_too_short")
                     continue
 
                 filename = f"{out_dir}/{symbol}_{current_start_req.date()}_to_{last_bar_date}_label{label}.png"
@@ -415,6 +451,25 @@ def generate_and_save_labeled_charts(
                     continue
 
                 charts_saved += 1
+                prov.add_sample({
+                    "image_id": os.path.basename(filename),
+                    "symbol": symbol,
+                    "timeframe": t,
+                    "observation_start": data.index[0].isoformat(),
+                    "observation_end": last_bar_ts.isoformat(),
+                    "requested_start": str(current_start_req.date()),
+                    "window_bars": int(len(data)),
+                    "decision_ts": last_bar_ts.isoformat(),
+                    "earliest_entry_ts": outcome.entry_ts.isoformat() if outcome.entry_ts is not None else None,
+                    "horizon_bars": int(w),
+                    "tp_frac": float(f),
+                    "sl_frac": float(s),
+                    "label": int(label),
+                    "label_method": outcomes.LABEL_METHOD_V2,
+                    "outcome_convention": outcomes.OUTCOME_CONVENTION,
+                    "outcome": outcome.to_record(),
+                    "price_adjustment": PRICE_ADJUSTMENT_YF,
+                })
 
                 if progress:
                     # i advances from i1 → i1+x; map into 5–95 across symbols
@@ -442,6 +497,17 @@ def generate_and_save_labeled_charts(
 
         total = len([f for f in os.listdir(out_dir) if f.endswith(".png") and symbol in f])
         print(f"Done for {symbol}. Period length: {x} {step_unit}. Charts saved: {total}")
+
+    if hist_start_all is not None and "SPY" not in prov.histories:
+        try:
+            spy = inclusive_history(yf.Ticker("SPY"), hist_start_all, hist_end_all, t)
+            if not spy.empty:
+                spy = spy[~spy.index.duplicated(keep="last")].sort_index()
+                prov.add_history("SPY", spy, role="benchmark")
+        except Exception as e:  # benchmark data is optional; its absence is reported, never filled in
+            prov.notes.append(f"SPY benchmark history unavailable: {e}")
+    prov.write()
+    print(f"Provenance written: {len(prov.samples)} samples, skipped={prov.skipped}")
 
     print("=== Test Chart Generator Completed ===")
     overall_total = len([f for f in os.listdir(out_dir) if f.endswith(".png")])

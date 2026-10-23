@@ -135,6 +135,20 @@ test("backtest comparison warns on differing assumptions and suppresses deltas",
   assert.deepEqual(same.rows.find((r) => r.def.key === "return_pct")!.deltas, [null, 2]);
 });
 
+test("backtest comparison refuses to mix legacy estimates with price simulations", () => {
+  const period = { start: "2025-01-01", end: "2025-12-31" };
+  const v1 = run({ id: "v1", backtest: { assumptions: {}, period, methodology: { id: "label_payoff_v1", label: "Legacy", evaluation_class: null, threshold_source: null }, performance: { return_pct: -5, estimate: true } } });
+  const v2 = run({ id: "v2", backtest: { assumptions: {}, period, methodology: { id: "price_sim_v2", label: "Price", evaluation_class: "independent_test", threshold_source: "validation_locked" }, performance: { return_pct: -9 } } });
+  const mixed = compareBacktests([v1, v2], () => "m");
+  assert.equal(mixed.comparable, false);
+  assert.ok(mixed.warnings.some((w) => w.field === "Method"));
+  assert.equal(mixed.rows.find((r) => r.def.key === "return_pct")!.deltas, null);
+
+  const legacyOnly = compareBacktests([v1, { ...v1, id: "v1b" }], () => "m");
+  assert.equal(legacyOnly.comparable, true);
+  assert.ok(legacyOnly.warnings.some((w) => w.field === "Legacy"));
+});
+
 test("model comparison separates train and validation metrics", () => {
   const c = compareModels([
     model({ id: "m1", dataset_id: "d1", metrics: { accuracy: 0.9, val_accuracy: 0.6 } }),

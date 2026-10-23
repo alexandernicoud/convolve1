@@ -1,9 +1,8 @@
-import { useMemo, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowRight } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, useInView, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { CHAIN, backtest, fleet, grid, training } from "../data";
-import { EASE, ProvenanceTag, linePath, scale } from "../ui";
+import { ProvenanceTag, linePath, scale } from "../ui";
 
 /* ------------------------------------------------------------------ demo fleet */
 
@@ -116,7 +115,7 @@ function Spark({ v, w = 84, h = 22, strong = false }: { v: number[]; w?: number;
 
 function FleetChart({ bot }: { bot: Bot }) {
   const W = 640;
-  const H = 150;
+  const H = 104;
   const d = useMemo(() => {
     const v = fleet.net_pnl.map((p) => p ?? 0);
     const x = scale(0, v.length - 1, 0, W);
@@ -127,7 +126,7 @@ function FleetChart({ bot }: { bot: Bot }) {
   const sel = useMemo(() => {
     const v = bot.spark;
     const x = scale(0, v.length - 1, 0, W);
-    const y = scale(Math.min(...v), Math.max(...v), H - 20, 20);
+    const y = scale(Math.min(...v), Math.max(...v), H - 18, 14);
     return linePath(v.map((p, i) => [x(i), y(p)]));
   }, [bot]);
   return (
@@ -135,33 +134,35 @@ function FleetChart({ bot }: { bot: Bot }) {
       <div className="flex items-baseline justify-between gap-3">
         <div>
           <div className="text-[11px] text-white/40">Fleet net P&L · 30 days</div>
-          <div className="text-[22px] font-medium tracking-tight text-white tabular-nums">+${d.last.toFixed(0)}</div>
+          <div className="text-[20px] font-medium tracking-tight text-white tabular-nums">+${d.last.toFixed(0)}</div>
         </div>
         <div className="flex gap-3 font-mono text-[9.5px] text-white/40">
-          <span>— fleet</span>
-          <span className="text-[#b9d3ff]">— {bot.name}</span>
+          <span className="text-[#8fd6d0]">— fleet</span>
+          <span className="text-white/75">┄ {bot.name}</span>
         </div>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 block h-auto w-full" role="img" aria-label="Demo fleet net profit and the selected bot's equity shape">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-2 block h-[96px] w-full" role="img" aria-label="Demo fleet net profit and the selected bot's equity shape">
         <defs>
           <linearGradient id="m2-ops-area" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="#fff" stopOpacity="0.12" />
-            <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.08" />
+            <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="m2-ops-line" x1="0" x2="1">
+            <stop offset="0%" stopColor="rgba(255,255,255,0.6)" />
+            <stop offset="100%" stopColor="#ffffff" />
           </linearGradient>
         </defs>
-        <line x1="0" x2={W} y1={d.zero} y2={d.zero} stroke="rgba(255,255,255,0.1)" strokeDasharray="3 4" />
+        <line x1="0" x2={W} y1={d.zero} y2={d.zero} stroke="rgba(255,255,255,0.1)" strokeDasharray="3 4" vectorEffect="non-scaling-stroke" />
         <path d={d.area} fill="url(#m2-ops-area)" />
-        <path d={d.line} fill="none" stroke="#fff" strokeWidth="1.5" />
+        <path d={d.line} fill="none" stroke="url(#m2-ops-line)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
         <AnimatePresence mode="wait">
-          <motion.path key={bot.name} d={sel} fill="none" stroke="#b9d3ff" strokeWidth="1.3" strokeDasharray="4 3" initial={{ opacity: 0 }} animate={{ opacity: 0.9 }} exit={{ opacity: 0 }} />
+          <motion.path key={bot.name} d={sel} fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="1.2" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" initial={{ opacity: 0 }} animate={{ opacity: 0.9 }} exit={{ opacity: 0 }} />
         </AnimatePresence>
-        <text x="0" y={H - 2} fill="rgba(255,255,255,0.3)" fontSize="9" fontFamily="ui-monospace, monospace">
-          {fmtT(fleet.t[0])}
-        </text>
-        <text x={W} y={H - 2} textAnchor="end" fill="rgba(255,255,255,0.3)" fontSize="9" fontFamily="ui-monospace, monospace">
-          {fmtT(fleet.t[fleet.t.length - 1])}
-        </text>
       </svg>
+      <div className="mt-1 flex justify-between font-mono text-[9.5px] text-white/30">
+        <span>{fmtT(fleet.t[0])}</span>
+        <span>{fmtT(fleet.t[fleet.t.length - 1])}</span>
+      </div>
     </div>
   );
 }
@@ -196,109 +197,125 @@ function chainFor(bot: Bot): ChainNode[] {
   ];
 }
 
+const FLOW_CSS = `@keyframes m2opsFlow{0%{left:0;opacity:0}12%{opacity:1}88%{opacity:1}100%{left:100%;opacity:0}}`;
+
 function Lineage({ bot }: { bot: Bot }) {
   const reduce = useReducedMotion();
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "0px 0px -15% 0px" });
+  const [lit, setLit] = useState(reduce ? 6 : 0);
   const [focus, setFocus] = useState<number | null>(null);
   const nodes = chainFor(bot);
-  const lit = (i: number) => focus == null || i <= focus;
+  useEffect(() => {
+    if (reduce || !inView) return;
+    setLit(0);
+    let i = 0;
+    const id = window.setInterval(() => {
+      i += 1;
+      setLit(i);
+      if (i >= nodes.length) window.clearInterval(id);
+    }, 260);
+    return () => window.clearInterval(id);
+  }, [inView, reduce, bot.name, nodes.length]);
+  const on = (i: number) => (focus == null ? i < lit : i <= focus);
   return (
-    <div>
+    <div ref={ref}>
+      <style>{FLOW_CSS}</style>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">
-          Lineage of <span className="text-white/80">{bot.name}</span>
+          Lineage · <span className="text-white/75">{bot.name}</span>
         </div>
         <div className="flex items-center gap-3 font-mono text-[9.5px] text-white/40">
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-4 rounded-[3px] border border-white/50" /> recorded run
+            <span className="h-2 w-3.5 rounded-[3px] border border-white/50" /> recorded run
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-4 rounded-[3px] border border-dashed border-white/40" /> demo
+            <span className="h-2 w-3.5 rounded-[3px] border border-dashed border-white/40" /> demo
           </span>
         </div>
       </div>
-      <ol className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 lg:gap-0" onMouseLeave={() => setFocus(null)}>
-        {nodes.map((n, i) => (
-          <li key={`${bot.name}-${n.kind}`} className="relative lg:pr-4">
-            <motion.button
-              type="button"
-              onMouseEnter={() => setFocus(i)}
-              onFocus={() => setFocus(i)}
-              onBlur={() => setFocus(null)}
-              initial={reduce ? false : { opacity: 0, y: 6 }}
-              animate={{ opacity: lit(i) ? 1 : 0.35, y: 0 }}
-              transition={{ duration: 0.35, ease: EASE, delay: reduce ? 0 : i * 0.05 }}
-              className={cn(
-                "w-full rounded-[10px] border px-3 py-2.5 text-left transition-colors",
-                n.real ? "border-white/25 bg-white/[0.04]" : "border-dashed border-white/25",
-                focus === i && "border-white/70 bg-white/[0.07]"
-              )}
-            >
-              <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-white/40">{n.kind}</div>
-              <div className="mt-1 truncate text-[12.5px] text-white">{n.title}</div>
-              <div className="mt-0.5 truncate font-mono text-[9.5px] text-white/40">{n.id}</div>
-            </motion.button>
-            {i < nodes.length - 1 ? (
-              <ArrowRight className={cn("absolute right-0 top-1/2 hidden h-3.5 w-3.5 -translate-y-1/2 transition-colors lg:block", lit(i + 1) ? "text-white/55" : "text-white/15")} aria-hidden />
-            ) : null}
-          </li>
-        ))}
-      </ol>
-      <p className="mt-2 text-[11.5px] text-white/40">
-        {bot.realModel
-          ? "Hover a step to see its ancestry. Everything up to the backtest is a recorded local run; the bot itself is a demo."
-          : "Demo bot: its chain is illustrative. Select MSFT breakout to see a chain of recorded runs."}
-      </p>
+      <div className="relative mt-3 lg:pb-2.5">
+        <div aria-hidden className="absolute bottom-0 left-[6%] right-[6%] hidden h-px bg-gradient-to-r from-white/[0.04] via-white/[0.12] to-white/25 lg:block">
+          {!reduce && lit >= nodes.length ? (
+            <span className="absolute top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80" style={{ animation: "m2opsFlow 5.5s ease-in-out infinite" }} />
+          ) : null}
+        </div>
+        <ol className="relative grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 lg:gap-3" onMouseLeave={() => setFocus(null)}>
+          {nodes.map((n, i) => (
+            <li key={`${bot.name}-${n.kind}`}>
+              <button
+                type="button"
+                title={n.id}
+                onMouseEnter={() => setFocus(i)}
+                onFocus={() => setFocus(i)}
+                onBlur={() => setFocus(null)}
+                className={cn(
+                  "w-full rounded-[9px] border bg-[#08090b] px-2.5 py-2 text-left transition-[opacity,border-color,background-color] duration-500",
+                  n.real ? "border-white/25" : "border-dashed border-white/25",
+                  focus === i && "border-white/70 bg-white/[0.06]",
+                  i === nodes.length - 1 && on(i) && "border-white/50"
+                )}
+                style={{ opacity: on(i) ? 1 : 0.3 }}
+              >
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-white/40">{n.kind}</div>
+                <div className="mt-0.5 truncate text-[12px] text-white">{n.title}</div>
+                <div className="truncate font-mono text-[9px] text-white/35">{n.id}</div>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </div>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------- dashboard */
 
+const ROWS = 5;
+
 export function Operations() {
   const [sel, setSel] = useState(0);
+  const [all, setAll] = useState(false);
   const bot = BOTS[sel];
+  const shown = all ? BOTS : BOTS.slice(0, ROWS);
   return (
-    <div className="space-y-6">
-      <div className="rounded-[18px] border border-white/[0.09] bg-[#08090b] p-4 sm:p-5">
-        <Lineage bot={bot} />
-      </div>
-
+    <div>
       <div className="overflow-hidden rounded-[18px] border border-white/[0.09] bg-[#08090b]">
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-white/[0.07] px-4 py-3 sm:px-5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-white/[0.07] px-4 py-2.5 sm:px-5">
           <span className="text-[13px] font-medium text-white">Deploy · Bot operations</span>
-          <span className="rounded-full border border-dashed border-white/40 px-2.5 py-0.5 font-mono text-[9.5px] uppercase tracking-[0.14em] text-white/75">
-            Demo data · simulated paper bots
-          </span>
-          <div className="ml-auto flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10.5px] text-white/55">
+          <span className="rounded-full border border-dashed border-white/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-white/70">Demo data</span>
+          <div className="ml-auto flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[10px] text-white/50">
             {(Object.keys(COUNTS) as Status[]).map((k) => (
               <span key={k} className="inline-flex items-center gap-1.5">
                 <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_STYLE[k].dot)} />
                 {COUNTS[k]} {k}
               </span>
             ))}
-            <span className="text-white/35">
-              24 h: {fleet.runs_24h.ok} runs · {fleet.runs_24h.error} errors
-            </span>
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-12">
-          <div className="min-w-0 border-white/[0.07] p-4 sm:p-5 lg:col-span-8 lg:border-r">
+        <div className="border-b border-white/[0.07] px-4 py-3.5 sm:px-5">
+          <Lineage bot={bot} />
+        </div>
+
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 border-white/[0.07] p-4 sm:px-5 lg:border-r">
             <FleetChart bot={bot} />
-            <div className="mt-5 overflow-x-auto">
-              <table className="w-full text-left sm:min-w-[620px] text-[12px]">
-                <thead>
-                  <tr className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-white/35">
-                    <th className="pb-2 font-normal">Bot</th>
-                    <th className="pb-2 font-normal">Asset</th>
-                    <th className="hidden pb-2 font-normal sm:table-cell">Model</th>
-                    <th className="pb-2 font-normal">Status</th>
-                    <th className="pb-2 text-right font-normal">30 d</th>
-                    <th className="hidden w-[96px] pb-2 pl-4 font-normal sm:table-cell">Equity</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {BOTS.map((b, i) => (
+            <table className="mt-3 w-full text-left text-[12px]">
+              <thead>
+                <tr className="font-mono text-[9px] uppercase tracking-[0.12em] text-white/35">
+                  <th className="pb-1.5 font-normal">Bot</th>
+                  <th className="pb-1.5 font-normal">Asset</th>
+                  <th className="hidden pb-1.5 font-normal sm:table-cell">Model</th>
+                  <th className="pb-1.5 font-normal">Status</th>
+                  <th className="pb-1.5 text-right font-normal">30 d</th>
+                  <th className="hidden w-[84px] pb-1.5 pl-4 font-normal sm:table-cell">Equity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((b) => {
+                  const i = BOTS.indexOf(b);
+                  return (
                     <tr
                       key={b.name}
                       onClick={() => setSel(i)}
@@ -310,78 +327,76 @@ export function Operations() {
                         i === sel ? "bg-white/[0.06]" : "hover:bg-white/[0.03]"
                       )}
                     >
-                      <td className="py-2 pl-1 text-white">{b.name}</td>
-                      <td className="py-2 font-mono text-[11px] text-white/60">
+                      <td className="py-1.5 pl-1 text-white">{b.name}</td>
+                      <td className="py-1.5 font-mono text-[11px] text-white/55">
                         {b.symbol} · {b.tf}
                       </td>
-                      <td className="hidden py-2 font-mono text-[11px] text-white/60 sm:table-cell">
+                      <td className="hidden py-1.5 font-mono text-[11px] text-white/55 sm:table-cell">
                         {b.model}
                         {b.realModel ? <span className="ml-1.5 rounded bg-white/10 px-1 text-[9px] text-white/70">real model</span> : null}
                       </td>
-                      <td className={cn("py-2 text-[11.5px]", STATUS_STYLE[b.status].text)}>
+                      <td className={cn("py-1.5 text-[11.5px]", STATUS_STYLE[b.status].text)}>
                         <span className="inline-flex items-center gap-1.5">
                           <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_STYLE[b.status].dot)} />
                           {b.status}
                         </span>
                       </td>
-                      <td className={cn("py-2 text-right font-mono tabular-nums", b.ret >= 0 ? "text-white/85" : "text-[#e88a80]")}>{pct(b.ret)}</td>
-                      <td className="hidden py-2 pl-4 sm:table-cell">
-                        <Spark v={b.spark} strong={i === sel} />
+                      <td className={cn("py-1.5 text-right font-mono tabular-nums", b.ret >= 0 ? "text-white/85" : "text-[#e88a80]")}>{pct(b.ret)}</td>
+                      <td className="hidden py-1.5 pl-4 sm:table-cell">
+                        <Spark v={b.spark} strong={i === sel} h={18} />
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  );
+                })}
+              </tbody>
+            </table>
+            <button type="button" onClick={() => setAll((v) => !v)} className="mt-2 font-mono text-[10.5px] text-white/45 transition-colors hover:text-white">
+              {all ? "Show fewer" : `Show all ${BOTS.length} bots`}
+            </button>
           </div>
 
-          <div className="min-w-0 p-4 sm:p-5 lg:col-span-4">
+          <div className="min-w-0 p-4 sm:px-5">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div key={bot.name} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}>
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[17px] font-medium text-white">{bot.name}</div>
-                    <div className="font-mono text-[10.5px] text-white/45">
+                  <div className="min-w-0">
+                    <div className="truncate text-[16px] font-medium text-white">{bot.name}</div>
+                    <div className="truncate font-mono text-[10px] text-white/45">
                       {bot.symbol} · {bot.tf} · {bot.model}
                     </div>
                   </div>
-                  <span className={cn("inline-flex items-center gap-1.5 rounded-full border border-white/10 px-2 py-0.5 text-[11px]", STATUS_STYLE[bot.status].text)}>
+                  <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-2 py-0.5 text-[11px]", STATUS_STYLE[bot.status].text)}>
                     <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_STYLE[bot.status].dot)} />
                     {bot.status}
                   </span>
                 </div>
-
-                <dl className="mt-4 grid grid-cols-3 gap-3 border-y border-white/[0.07] py-3">
+                <dl className="mt-3 grid grid-cols-3 gap-3 border-y border-white/[0.07] py-2.5">
                   {[
                     ["Return", pct(bot.ret)],
                     ["Max DD", `−${(bot.maxDd * 100).toFixed(1)}%`],
                     ["Trades", String(bot.trades)],
                   ].map(([k, v]) => (
                     <div key={k}>
-                      <dt className="text-[10.5px] text-white/40">{k}</dt>
-                      <dd className="text-[15px] font-medium text-white tabular-nums">{v}</dd>
+                      <dt className="text-[10px] text-white/40">{k}</dt>
+                      <dd className="text-[14px] font-medium text-white tabular-nums">{v}</dd>
                     </div>
                   ))}
                 </dl>
-
-                <dl className="mt-3 space-y-1.5 text-[12px]">
+                <dl className="mt-2.5 space-y-1 text-[11.5px]">
                   {[
                     ["Schedule", bot.schedule],
-                    ["Entry threshold", `p ≥ ${bot.threshold.toFixed(2)}`],
-                    ["Wallet", "Paper · no brokerage"],
-                    ["Monitoring", bot.status === "error" ? "Data feed failed · retrying" : bot.status === "running" ? "Healthy · last run on time" : "Not scheduled"],
+                    ["Signal", `p ≥ ${bot.threshold.toFixed(2)} · paper wallet`],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-3">
                       <dt className="text-white/40">{k}</dt>
-                      <dd className={cn("text-right text-white/80", k === "Monitoring" && bot.status === "error" && "text-[#e88a80]")}>{v}</dd>
+                      <dd className="text-right text-white/75">{v}</dd>
                     </div>
                   ))}
                 </dl>
-
-                <div className="mt-4 font-mono text-[9.5px] uppercase tracking-[0.14em] text-white/35">Execution history</div>
-                <ul className="mt-1.5 divide-y divide-white/[0.05] font-mono text-[11px]">
-                  {bot.log.map((l) => (
-                    <li key={l.t} className="flex items-center justify-between gap-2 py-1.5">
+                <div className="mt-3 font-mono text-[9px] uppercase tracking-[0.14em] text-white/35">Last runs</div>
+                <ul className="mt-1 divide-y divide-white/[0.05] font-mono text-[10.5px]">
+                  {bot.log.slice(0, 3).map((l) => (
+                    <li key={l.t} className="flex items-center justify-between gap-2 py-1">
                       <span className="text-white/40">{fmtT(l.t)}</span>
                       <span className="text-white/50">p {l.p.toFixed(2)}</span>
                       <span
@@ -400,8 +415,9 @@ export function Operations() {
           </div>
         </div>
       </div>
-
-      <ProvenanceTag kind="illustrative" detail="Bots, P&L and executions are simulated demo data. The model and backtest in the MSFT chain are real." />
+      <div className="mt-3">
+        <ProvenanceTag kind="illustrative" detail="Bots, P&L and executions are simulated. The MSFT chain up to the backtest is real." />
+      </div>
     </div>
   );
 }

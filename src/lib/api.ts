@@ -402,8 +402,9 @@ export interface BacktestRunRequest {
   dataset_path: string;
   sample_size: string | number;
   confidence_threshold: number;
-  tp_pct: number;
-  sl_pct: number;
+  /** v1 only. v2 exits always follow the dataset's stored label definition. */
+  tp_pct?: number;
+  sl_pct?: number;
   img_size: number;
   starting_capital: number;
   position_size_pct: number;
@@ -411,14 +412,33 @@ export interface BacktestRunRequest {
   slippage_pct: number;
   max_drawdown_pct: number;
   max_trades_per_day?: number;
+  engine?: "auto" | "v1" | "v2";
+  threshold_mode?: "fixed" | "validation";
+  max_exposure_pct?: number;
+  max_concurrent_positions?: number;
+  embargo_bars?: number;
 }
 
 export interface BacktestStatusResponse {
-  status: "queued" | "running" | "succeeded" | "failed";
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "interrupted";
   progress: number; // 0.0 to 1.0
   message: string;
   log_tail: string;
   result_ready: boolean;
+  engine?: "v1" | "v2";
+  methodology?: { id: string; version: number; label: string };
+  terminal?: boolean;
+}
+
+export interface BacktestDatasetCapabilities {
+  dataset_id: string;
+  engine: "v1" | "v2";
+  reason: string | null;
+  label_definition: { horizon_bars: number | null; tp_frac: number | null; sl_frac: number | null; timeframe: string | null } | null;
+  n_samples?: number;
+  symbols?: string[];
+  benchmark_symbols?: string[];
+  price_adjustment?: string;
 }
 
 export interface BacktestResultResponse {
@@ -746,6 +766,10 @@ export const realtimeBacktesterApi = {
 
   getResult(runId: string): Promise<BacktestResultResponse> {
     return apiRequest<BacktestResultResponse>(`/api/backtests/${runId}/results`);
+  },
+
+  getDatasetCapabilities(datasetId: string): Promise<BacktestDatasetCapabilities> {
+    return apiRequest<BacktestDatasetCapabilities>(`/api/backtests/dataset-capabilities/${encodeURIComponent(datasetId)}`);
   },
 
   getFile(runId: string, path: string): string {
@@ -1121,6 +1145,9 @@ export interface BotTradingPerformance {
   unrealized_pnl?: number | null;
   total_return_pct: number;
   accuracy_winning_trades_over_total_closed?: number | null;
+  /** Closed trades with net P&L > 0 / all closed trades (shared with the fleet Overview). */
+  trade_win_rate?: number | null;
+  trade_win_sample?: number;
   closed_trades_count: number;
   open_trades_count: number;
   predictions_count: number;
@@ -1361,6 +1388,20 @@ export interface ReviewBacktestPerformance {
   metrics_insufficient_sample?: boolean;
   avg_confidence_trades?: number;
   costs_included?: boolean;
+  /** Legacy v1 only: lowest estimate below starting capital (not peak to trough). */
+  drawdown_below_start_pct?: number;
+  /** Legacy v1 only: share of selected charts labelled 1 (not a trading win rate). */
+  label_precision_pct?: number;
+  /** True for legacy label-payoff estimates. */
+  estimate?: boolean;
+  definitions?: Record<string, string>;
+}
+
+export interface ReviewBacktestMethodology {
+  id: "price_sim_v2" | "label_payoff_v1";
+  label: string;
+  evaluation_class: "independent_test" | "exploratory" | "blocked" | null;
+  threshold_source: "validation_locked" | "user_fixed" | null;
 }
 
 export interface ReviewBacktestAssumptions {
@@ -1379,6 +1420,7 @@ export interface ReviewBacktestAssumptions {
 
 export interface ReviewBacktestSummary {
   assumptions: ReviewBacktestAssumptions;
+  methodology?: ReviewBacktestMethodology;
   performance?: ReviewBacktestPerformance;
   /** Per-image label agreement (fractions 0–1); independent of trade P&L. */
   classification?: { accuracy?: number; precision?: number; recall?: number; f1?: number };

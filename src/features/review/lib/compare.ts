@@ -94,12 +94,14 @@ function setupRow(label: string, values: string[]) {
 export const BACKTEST_METRICS: MetricDef[] = [
   { key: "return_pct", label: "Net return", unit: "pctUnits", group: "Trading (net of modelled costs)" },
   { key: "pnl", label: "Net P&L", unit: "money", group: "Trading (net of modelled costs)" },
-  { key: "max_drawdown_pct", label: "Max drawdown", unit: "pctUnits", group: "Trading (net of modelled costs)" },
-  { key: "sharpe_ratio", label: "Sharpe (per trade)", unit: "ratio", group: "Trading (net of modelled costs)" },
+  { key: "max_drawdown_pct", label: "Max drawdown (peak to trough)", unit: "pctUnits", group: "Trading (net of modelled costs)" },
+  { key: "sharpe_ratio", label: "Sharpe (daily, annualized)", unit: "ratio", group: "Trading (net of modelled costs)" },
   { key: "profit_factor", label: "Profit factor", unit: "ratio", group: "Trading (net of modelled costs)" },
-  { key: "win_rate", label: "Win rate", unit: "pctUnits", group: "Trading (net of modelled costs)" },
+  { key: "win_rate", label: "Net win rate", unit: "pctUnits", group: "Trading (net of modelled costs)" },
   { key: "trades", label: "Trades", unit: "int", group: "Trading (net of modelled costs)" },
-  { key: "total_charts_analyzed", label: "Charts evaluated", unit: "int", group: "Trading (net of modelled costs)" },
+  { key: "drawdown_below_start_pct", label: "Drawdown below start (legacy)", unit: "pctUnits", group: "Legacy label-payoff estimate only" },
+  { key: "label_precision_pct", label: "Label-1 precision (legacy)", unit: "pctUnits", group: "Legacy label-payoff estimate only" },
+  { key: "total_charts_analyzed", label: "Charts evaluated", unit: "int", group: "Legacy label-payoff estimate only" },
   { key: "cls_accuracy", label: "Accuracy", unit: "pctFrac", group: "Classification (label agreement, not P&L)" },
   { key: "cls_precision", label: "Precision", unit: "pctFrac", group: "Classification (label agreement, not P&L)" },
   { key: "cls_recall", label: "Recall", unit: "pctFrac", group: "Classification (label agreement, not P&L)" },
@@ -126,7 +128,14 @@ const ASSUMPTION_LABELS: [keyof ReviewBacktestSummary["assumptions"], string][] 
 
 export function compareBacktests(runs: ReviewRun[], modelTitle: (id?: string | null) => string): Comparison {
   const summaries = runs.map((r) => r.backtest);
+  const methodName = (b: ReviewBacktestSummary | undefined) =>
+    !b?.methodology
+      ? "—"
+      : b.methodology.id !== "price_sim_v2"
+        ? "Legacy label-payoff estimate"
+        : `Price simulation · ${b.methodology.evaluation_class === "independent_test" ? "independent test" : b.methodology.evaluation_class ?? "exploratory"}`;
   const setup = [
+    setupRow("Method", summaries.map(methodName)),
     setupRow("Symbol", summaries.map((b) => formatValue(b?.symbol))),
     setupRow("Period", summaries.map((b) => formatPeriod(b?.period?.start, b?.period?.end))),
     setupRow("Model", runs.map((r) => {
@@ -152,13 +161,25 @@ export function compareBacktests(runs: ReviewRun[], modelTitle: (id?: string | n
   for (const s of setup) {
     if (s.differs && warnFor[s.label]) warnings.push({ field: s.label, message: warnFor[s.label], values: s.values });
   }
+  const ids = new Set(summaries.map((b) => (b?.methodology ? (b.methodology.id === "price_sim_v2" ? "v2" : "v1") : null)).filter(Boolean));
+  if (ids.size > 1)
+    warnings.push({
+      field: "Method",
+      message: "Mixes legacy label-payoff estimates with price-based simulations. Their returns, drawdowns and win rates measure different things and must not be compared.",
+      values: setup[0].values,
+    });
+  else if (ids.has("v1"))
+    warnings.push({ field: "Legacy", message: "Legacy label-payoff estimates: not price-based trading simulations.", values: [] });
+  const evalClasses = new Set(summaries.map((b) => (b?.methodology?.id === "price_sim_v2" ? b.methodology.evaluation_class : null)).filter(Boolean));
+  if (evalClasses.size > 1)
+    warnings.push({ field: "Evaluation", message: "Mixes independent tests with exploratory runs.", values: [] });
   runs.forEach((r, i) => {
     if (r.backtest?.performance?.metrics_insufficient_sample)
       warnings.push({ field: "Sample", message: `Column ${i + 1} has too few trades for stable ratios.`, values: [] });
     if (!r.backtest?.performance)
       warnings.push({ field: "Results", message: `Column ${i + 1} has no recorded results (status ${r.status}).`, values: [] });
   });
-  const comparable = !warnings.some((w) => w.field !== "Sample" && w.field !== "Model");
+  const comparable = !warnings.some((w) => w.field !== "Sample" && w.field !== "Model" && w.field !== "Legacy");
   return {
     setup,
     warnings,

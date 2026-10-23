@@ -231,15 +231,18 @@ def lab_images(
 
 
 @router.get("/image")
-def lab_image(request: Request, model_kind: ModelKind, model_id: str, dataset_id: str, image_id: str) -> Response:
-    """The image exactly as the model receives it (decoded RGB, resized with AREA)."""
+def lab_image(request: Request, model_kind: ModelKind, model_id: str, dataset_id: str, image_id: str, alpha: bool = False) -> Response:
+    """The image exactly as the model receives it (decoded RGB, resized with AREA).
+
+    With ``alpha=true`` the same RGB is returned with the source chart's transparency re-attached.
+    """
     uid = get_current_user_id(request)
     r = _resolve(uid, model_kind, model_id, dataset_id)
     lm = _load_model(r)
     path = core.image_path(_require_dataset(r), image_id)
     if path is None:
         raise HTTPException(status_code=404, detail="Image not found")
-    png = core.input_png_bytes(core.load_model_input(path, lm.input_size))
+    png = core.display_png_bytes(path, lm.input_size) if alpha else core.input_png_bytes(core.load_model_input(path, lm.input_size))
     return Response(content=png, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
 
 

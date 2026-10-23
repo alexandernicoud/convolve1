@@ -60,6 +60,27 @@ def input_png_bytes(x: np.ndarray) -> bytes:
     return buf.getvalue()
 
 
+def display_png_bytes(path: str, size: Tuple[int, int]) -> bytes:
+    """Model input (RGB, byte-identical to ``input_png_bytes``) plus the source chart's own alpha.
+
+    The model decodes with ``channels=3``, which drops alpha and leaves the transparent chart
+    background as white. Re-attaching the source alpha (resized with the same AREA method) lets
+    the UI show transparent charts on a dark surface without thresholding any pixels. Sources
+    without an alpha channel decode as fully opaque, so they are returned unchanged.
+    """
+    from PIL import Image
+
+    tf = _tf()
+    raw = tf.io.read_file(path)
+    rgb = np.clip(np.round(load_model_input(path, size) * 255.0), 0, 255).astype(np.uint8)
+    alpha = tf.image.decode_png(raw, channels=4)[..., 3:]
+    alpha = tf.image.resize(alpha, [int(size[0]), int(size[1])], method=tf.image.ResizeMethod.AREA)
+    a = np.clip(np.round(alpha.numpy()), 0, 255).astype(np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(np.concatenate([rgb, a], axis=-1), mode="RGBA").save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def foreground_mask(x: np.ndarray, thresh: float = 0.98) -> np.ndarray:
     """True where the pixel is not the white chart background (charts render on white after alpha drop)."""
     return np.any(x < thresh, axis=-1)

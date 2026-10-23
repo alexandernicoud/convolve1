@@ -2583,6 +2583,20 @@ if __name__ == "__main__":
         export_best_system_heatmap(df_res, best_row, out_dir)
         export_best_system_trades(df, best_row, out_dir)  # df is the price dataframe
 
+        # Methodology audit (diagnostic only; never changes the grid results above)
+        try:
+            progress.update("methodology audit", percent=99.0, step=progress.total_steps)
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import label_optimizer_audit
+            cfg_path = os.path.join(run_dir, "optimizer_config.json")
+            cfg = json.load(open(cfg_path)) if os.path.isfile(cfg_path) else {}
+            label_optimizer_audit.run_audit(
+                df, df_res, out_dir, symbol=symbol, start=start, end=end,
+                engine=sys.modules[__name__], config=cfg,
+            )
+        except Exception as exc:
+            print(f"Methodology audit skipped: {exc}")
+
         # Mark run as complete
         progress.update("done", percent=100.0, step=progress.total_steps)
 

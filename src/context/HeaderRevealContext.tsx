@@ -34,6 +34,14 @@ export function isCompactHeaderPathname(pathname: string): boolean {
   return false;
 }
 
+/**
+ * Single-screen routes where the revealed header floats over the shell instead of pushing it
+ * down, so hovering the header never resizes (reflows) the page layout.
+ */
+export function isOverlayHeaderPathname(pathname: string): boolean {
+  return pathname === "/dashboard";
+}
+
 type Ctx = {
   headerStripPx: number;
   headerContentPushPx: number;
@@ -43,6 +51,8 @@ type Ctx = {
   setHeaderRevealed: (v: boolean) => void;
   /** True only on dashboard + technical routes (and fine pointer): header can collapse to peek strip */
   revealMode: boolean;
+  /** Revealed header overlays the shell (no reflow); see isOverlayHeaderPathname. */
+  headerOverlay: boolean;
 };
 
 const HeaderRevealContext = createContext<Ctx | null>(null);
@@ -87,10 +97,13 @@ export function HeaderRevealProvider({ children }: { children: ReactNode }) {
     return headerRevealed ? HEADER_PX : HEADER_PEEK_PX;
   }, [revealMode, headerRevealed]);
 
+  const headerOverlay = revealMode && isOverlayHeaderPathname(pathname);
+
   const compactShellTopPx = useMemo(() => {
     if (!compactRoute) return HEADER_PX;
+    if (headerOverlay) return getCompactShellTopPx(true, false);
     return getCompactShellTopPx(revealMode, revealMode ? headerRevealed : true);
-  }, [compactRoute, revealMode, headerRevealed]);
+  }, [compactRoute, revealMode, headerRevealed, headerOverlay]);
 
   const headerContentPushPx = useMemo(() => {
     if (!compactRoute) return HEADER_PX;
@@ -105,8 +118,9 @@ export function HeaderRevealProvider({ children }: { children: ReactNode }) {
       headerRevealed: revealMode ? headerRevealed : true,
       setHeaderRevealed,
       revealMode,
+      headerOverlay,
     }),
-    [compactShellTopPx, headerContentPushPx, headerRevealed, headerStripPx, revealMode, setHeaderRevealed],
+    [compactShellTopPx, headerContentPushPx, headerRevealed, headerStripPx, revealMode, setHeaderRevealed, headerOverlay],
   );
 
   return <HeaderRevealContext.Provider value={value}>{children}</HeaderRevealContext.Provider>;

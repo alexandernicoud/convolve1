@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AnimatePresence, motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
+import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScroll } from "framer-motion";
 import { Maximize2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { screen, type Provenance } from "../data";
-import { EASE, ProvenanceTag } from "../ui";
+import { EASE, Kicker, ProvenanceTag, useMediaQuery } from "../ui";
 import { GeneratorDemo, TrainerDemo } from "./LiveTools";
 
 /** [left, top, width, height] in percent of the screenshot. Every screenshot is 1920 × 1200 (16:10). */
@@ -20,9 +20,10 @@ export interface Shot {
 interface View {
   key: string;
   label: string;
+  heading: string;
   path: string;
   shot?: Shot;
-  live?: () => ReactNode;
+  live?: (sub?: number) => ReactNode;
   points?: { label: string; body: string }[];
 }
 
@@ -110,31 +111,32 @@ const TOOLS: Tool[] = [
     key: "optimizer",
     tool: "Labeling optimizer",
     title: "Find a label rule worth learning",
-    summary: "Scores every take-profit, stop-loss and horizon combination, then audits the winner at market prices.",
+    summary: "Every take-profit, stop-loss and horizon pair, scored and audited at market prices.",
     provenance: "real",
     source: "INTC · 125,000 cells",
     views: [
-      { key: "heatmap", label: "Heatmap", path: SHOT.heatmap.path, shot: SHOT.heatmap },
-      { key: "space", label: "3D search space", path: SHOT.space.path, shot: SHOT.space },
+      { key: "heatmap", label: "Heatmap", heading: "Score every label rule before you train.", path: SHOT.heatmap.path, shot: SHOT.heatmap },
+      { key: "space", label: "Search space", heading: "See the whole search space at once.", path: SHOT.space.path, shot: SHOT.space },
     ],
   },
   {
     key: "generator",
     tool: "Generator",
-    title: "Turn prices into a labelled image dataset",
-    summary: "A window of prices becomes a 224 × 224 chart image, labelled by what happened next.",
+    title: "Turn prices into a labelled dataset",
+    summary: "Each window becomes the exact 224 × 224 image the network reads, labelled by what happened next.",
     provenance: "real",
     source: "MSFT · real windows and dataset images",
     views: [
       {
         key: "gen",
         label: "Prices to dataset",
+        heading: "Turn prices into labelled chart images.",
         path: "Generate / MSFT · 1D · 6-month windows",
-        live: () => <GeneratorDemo />,
+        live: (sub) => <GeneratorDemo sample={sub == null ? undefined : Math.min(5, Math.floor(sub * 6))} />,
         points: [
-          { label: "Pick a window", body: "Choose any of six real test windows above." },
-          { label: "Render", body: "The window is drawn as the exact image the model reads." },
-          { label: "Label", body: "+2% take-profit, −1% stop-loss, 7-bar horizon." },
+          { label: "Window", body: "Six months of real MSFT prices." },
+          { label: "Image", body: "Rendered at 224 × 224." },
+          { label: "Label", body: "+2% before −1% within 7 bars." },
         ],
       },
     ],
@@ -142,20 +144,21 @@ const TOOLS: Tool[] = [
   {
     key: "trainer",
     tool: "Trainer",
-    title: "Train a CNN and keep the best weights",
-    summary: "Each layer is shown with its real output shape and feature maps. Early stopping keeps the best epoch.",
+    title: "Train a CNN, keep the best epoch",
+    summary: "Real layer shapes and feature maps. Early stopping restores the best weights.",
     provenance: "real",
     source: "MSFT4000 · 2,323 train / 581 validation",
     views: [
       {
         key: "train",
         label: "Architecture and curves",
+        heading: "Train a CNN and keep the best epoch.",
         path: "Train / MSFT4000 / Training session",
-        live: () => <TrainerDemo />,
+        live: (sub) => <TrainerDemo focus={sub == null ? undefined : Math.min(8, Math.floor(sub * 9))} />,
         points: [
-          { label: "Architecture", body: "Three convolution blocks, a dense layer and a sigmoid output." },
-          { label: "Curves", body: "Validation loss bottoms out at epoch 5; those weights are kept." },
-          { label: "Artifact", body: "A saved model, ready for analysis, backtests and bots." },
+          { label: "Architecture", body: "Three conv blocks, dense, sigmoid." },
+          { label: "Curves", body: "Validation loss bottoms at epoch 5." },
+          { label: "Artifact", body: "A saved model, ready to analyse." },
         ],
       },
     ],
@@ -164,31 +167,31 @@ const TOOLS: Tool[] = [
     key: "analysis",
     tool: "Analysis lab",
     title: "Inspect what the model learned",
-    summary: "Attention maps, masking tests and the internal representation, on the model's own charts.",
+    summary: "Attention, masking tests and the internal representation, on the model's own charts.",
     provenance: "real",
     source: "MSFT model · 500 images · penultimate layer",
-    views: [{ key: "rep", label: "Representation", path: SHOT.representation.path, shot: SHOT.representation }],
+    views: [{ key: "rep", label: "Representation", heading: "Inspect what the model learned.", path: SHOT.representation.path, shot: SHOT.representation }],
   },
   {
     key: "backtester",
     tool: "Backtester",
     title: "Test it on data it never saw",
-    summary: "Threshold locked on validation charts, costs charged, buy-and-hold benchmarks on every run. This one lost 9.3%.",
+    summary: "Threshold locked on validation, costs charged, benchmarks on every run. This one lost 9.3%.",
     provenance: "real",
     source: "MSFT · 897 days · threshold 0.38",
     views: [
-      { key: "ov", label: "Overview", path: SHOT.btOverview.path, shot: SHOT.btOverview },
-      { key: "rb", label: "Robustness", path: SHOT.btRobust.path, shot: SHOT.btRobust },
+      { key: "ov", label: "Overview", heading: "Test it on data it never saw.", path: SHOT.btOverview.path, shot: SHOT.btOverview },
+      { key: "rb", label: "Robustness", heading: "Check whether the result holds up.", path: SHOT.btRobust.path, shot: SHOT.btRobust },
     ],
   },
   {
     key: "review",
     tool: "Review",
     title: "Trace any result to its inputs",
-    summary: "Every dataset, model, analysis and backtest, linked to what produced it.",
+    summary: "Datasets, models, analyses and backtests, linked to what produced them.",
     provenance: "real",
     source: "Local workspace · 56 nodes, 60 links",
-    views: [{ key: "lin", label: "Lineage", path: SHOT.lineage.path, shot: SHOT.lineage }],
+    views: [{ key: "lin", label: "Lineage", heading: "Trace every result to its inputs.", path: SHOT.lineage.path, shot: SHOT.lineage }],
   },
 ];
 
@@ -237,25 +240,33 @@ export function AppFrame({
   );
 }
 
-export function ScreenFrame({ shot, highlight, onExpand, className }: { shot: Shot; highlight?: Rect | null; onExpand?: () => void; className?: string }) {
+function ShotBody({ shot, highlight }: { shot: Shot; highlight?: Rect | null }) {
   const reduce = useReducedMotion();
   return (
-    <AppFrame path={shot.path} onExpand={onExpand} className={className}>
+    <>
       <img src={screen(shot.file)} alt={shot.alt} width={1920} height={1200} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full select-none" draggable={false} />
       <AnimatePresence>
         {highlight ? (
           <motion.div
             key="hl"
             aria-hidden
-            className="pointer-events-none absolute rounded-[8px] border border-white/80"
-            style={{ boxShadow: "0 0 0 9999px rgba(3,4,6,0.62), 0 0 0 4px rgba(255,255,255,0.06)" }}
+            className="pointer-events-none absolute rounded-[8px] border border-white/70"
+            style={{ boxShadow: "0 0 0 9999px rgba(3,4,6,0.5), 0 0 0 4px rgba(185,211,255,0.06)" }}
             initial={{ opacity: 0, left: `${highlight[0]}%`, top: `${highlight[1]}%`, width: `${highlight[2]}%`, height: `${highlight[3]}%` }}
             animate={{ opacity: 1, left: `${highlight[0]}%`, top: `${highlight[1]}%`, width: `${highlight[2]}%`, height: `${highlight[3]}%` }}
             exit={{ opacity: 0 }}
-            transition={{ duration: reduce ? 0 : 0.45, ease: EASE }}
+            transition={{ duration: reduce ? 0 : 0.6, ease: EASE }}
           />
         ) : null}
       </AnimatePresence>
+    </>
+  );
+}
+
+export function ScreenFrame({ shot, highlight, onExpand, className }: { shot: Shot; highlight?: Rect | null; onExpand?: () => void; className?: string }) {
+  return (
+    <AppFrame path={shot.path} onExpand={onExpand} className={className}>
+      <ShotBody shot={shot} highlight={highlight} />
     </AppFrame>
   );
 }
@@ -315,121 +326,133 @@ export function useLightbox() {
   return { openShot: setOpen, lightbox: node };
 }
 
-export function Showcase() {
-  const reduce = useReducedMotion();
-  const [toolIdx, setToolIdx] = useState(0);
-  const [viewIdx, setViewIdx] = useState(0);
-  const [note, setNote] = useState<number | null>(null);
-  const { openShot, lightbox } = useLightbox();
-  const stage = useRef<HTMLDivElement>(null);
-  const { scrollYProgress } = useScroll({ target: stage, offset: ["start end", "start 0.3"] });
-  const rotateX = useTransform(scrollYProgress, [0, 1], [reduce ? 0 : 10, 0]);
-  const scaleV = useTransform(scrollYProgress, [0, 1], [reduce ? 1 : 0.95, 1]);
-  const tool = TOOLS[toolIdx];
-  const view = tool.views[Math.min(viewIdx, tool.views.length - 1)];
+const STEP_VH = 90;
 
-  const selectTool = (i: number) => {
-    setToolIdx(i);
-    setViewIdx(0);
-    setNote(null);
+/** Desktop: the frame stays pinned and scrolling advances tool and view; each view has one title. */
+function PinnedShowcase() {
+  const reduce = useReducedMotion();
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end end"] });
+  const [p, setP] = useState(0);
+  useMotionValueEvent(scrollYProgress, "change", setP);
+  const { openShot, lightbox } = useLightbox();
+
+  const n = TOOLS.length;
+  const f = Math.min(n - 1e-6, Math.max(0, p * n));
+  const idx = Math.floor(f);
+  const sub = f - idx;
+  const tool = TOOLS[idx];
+  const vIdx = Math.min(tool.views.length - 1, Math.floor(sub * tool.views.length));
+  const view = tool.views[vIdx];
+  const vSub = Math.min(0.999, sub * tool.views.length - vIdx);
+
+  const jump = (i: number) => {
+    const el = ref.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY;
+    const travel = el.offsetHeight - window.innerHeight;
+    window.scrollTo({ top: top + travel * ((i + 0.04) / n), behavior: reduce ? "auto" : "smooth" });
   };
 
   return (
-    <div>
-      <div role="tablist" aria-label="Convolve tools" className="-mx-5 flex gap-1.5 overflow-x-auto px-5 pb-2 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0">
-        {TOOLS.map((tl, i) => (
-          <button
-            key={tl.key}
-            role="tab"
-            aria-selected={i === toolIdx}
-            onClick={() => selectTool(i)}
-            className={cn(
-              "shrink-0 rounded-full border px-4 py-2 text-[13px] transition-colors duration-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50",
-              i === toolIdx ? "border-white/40 bg-white/[0.08] text-white" : "border-white/[0.09] text-white/50 hover:border-white/20 hover:text-white/80"
-            )}
-          >
-            {tl.tool}
-          </button>
-        ))}
-      </div>
-
-      <div ref={stage} className="mt-8 grid gap-8 lg:grid-cols-12 lg:gap-10" style={{ perspective: 1800 }}>
-        <motion.div className="min-w-0 lg:col-span-9" style={{ rotateX, scale: scaleV, transformOrigin: "50% 0%" }}>
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={`${tool.key}-${view.key}`}
-              initial={reduce ? { opacity: 0 } : { opacity: 0, y: 12, filter: "blur(6px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8, filter: "blur(4px)" }}
-              transition={{ duration: 0.4, ease: EASE }}
-            >
-              {view.shot ? (
-                <ScreenFrame shot={view.shot} highlight={note == null ? null : view.shot.notes[note]?.rect} onExpand={() => openShot(view.shot!)} />
-              ) : (
-                <AppFrame path={view.path} live>
-                  {view.live?.()}
-                </AppFrame>
-              )}
-            </motion.div>
-          </AnimatePresence>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <ProvenanceTag kind={tool.provenance} detail={tool.source} />
-            <span className="font-mono text-[10.5px] text-white/30">
-              {view.shot ? "Screenshot of the running app" : "Live component built from the run's saved outputs"}
-            </span>
-          </div>
-        </motion.div>
-
-        <div className="lg:col-span-3">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div key={tool.key} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduce ? 0 : 0.25 }}>
-              <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">{tool.tool}</div>
-              <h3 className="mt-2 text-[22px] font-medium leading-tight tracking-[-0.02em] text-white">{tool.title}</h3>
-              <p className="mt-3 text-[14px] leading-relaxed text-white/55">{tool.summary}</p>
-              {tool.views.length > 1 ? (
-                <div className="mt-5 inline-flex rounded-full border border-white/[0.1] p-0.5" role="group" aria-label="View">
-                  {tool.views.map((v, i) => (
-                    <button
-                      key={v.key}
-                      type="button"
-                      aria-pressed={v.key === view.key}
-                      onClick={() => {
-                        setViewIdx(i);
-                        setNote(null);
-                      }}
-                      className={cn("rounded-full px-3 py-1 text-[12px] transition-colors", v.key === view.key ? "bg-white text-black" : "text-white/55 hover:text-white")}
-                    >
-                      {v.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              <ul className="mt-6 border-t border-white/[0.08]" onMouseLeave={() => setNote(null)}>
-                {(view.shot ? view.shot.notes : view.points ?? []).map((n, i) => (
-                  <li key={n.label} className="border-b border-white/[0.08]">
-                    <button
-                      type="button"
-                      onMouseEnter={() => view.shot && setNote(i)}
-                      onFocus={() => view.shot && setNote(i)}
-                      onBlur={() => setNote(null)}
-                      className="flex w-full gap-3 py-3 text-left focus:outline-none"
-                    >
-                      <span className={cn("mt-[3px] font-mono text-[10px] tabular-nums transition-colors", note === i ? "text-white" : "text-white/30")}>
+    <div ref={ref} className="relative" style={{ height: `${n * STEP_VH}vh` }}>
+      <div className="sticky top-[80px] flex h-[calc(100svh-80px)] flex-col justify-center">
+        <div className="mx-auto w-full" style={{ maxWidth: "calc((100svh - 300px) * 1.6)" }}>
+          <ol className="grid grid-cols-6 gap-4" aria-label="Tools in order">
+            {TOOLS.map((tl, i) => {
+              const fill = i < idx ? 1 : i === idx ? sub : 0;
+              return (
+                <li key={tl.key}>
+                  <button type="button" onClick={() => jump(i)} aria-current={i === idx ? "step" : undefined} className="group block w-full text-left focus:outline-none">
+                    <span className="flex items-baseline gap-2">
+                      <span className={cn("font-mono text-[11px] tabular-nums transition-colors duration-500", i === idx ? "text-white" : "text-white/30")}>
                         {String(i + 1).padStart(2, "0")}
                       </span>
-                      <span>
-                        <span className={cn("block text-[14px] transition-colors", note === i ? "text-white" : "text-white/80")}>{n.label}</span>
-                        <span className="mt-0.5 block text-[12.5px] leading-snug text-white/40">{n.body}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-          </AnimatePresence>
+                      <span className={cn("truncate text-[14.5px] transition-colors duration-500", i === idx ? "text-white" : "text-white/40 group-hover:text-white/70")}>{tl.tool}</span>
+                    </span>
+                    <span className="mt-2.5 block h-px w-full bg-white/[0.1]">
+                      <span className="block h-full origin-left bg-white/70" style={{ transform: `scaleX(${fill})` }} />
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+
+          <div className="relative mt-7 h-[clamp(2.4rem,3vw,3.2rem)]">
+            <AnimatePresence initial={false}>
+              <motion.h3
+                key={`${tool.key}-${view.key}`}
+                className="absolute inset-x-0 top-0 truncate text-[clamp(1.6rem,2.2vw,2.4rem)] font-normal leading-[1.15] tracking-[-0.03em] text-white"
+                initial={reduce ? { opacity: 0 } : { opacity: 0, y: 22, filter: "blur(6px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={reduce ? { opacity: 0 } : { opacity: 0, y: -16, filter: "blur(6px)" }}
+                transition={{ duration: reduce ? 0 : 0.55, ease: EASE }}
+              >
+                {view.heading}
+              </motion.h3>
+            </AnimatePresence>
+          </div>
+
+          <div className="mt-5">
+            <AppFrame path={view.path} onExpand={view.shot ? () => openShot(view.shot!) : undefined}>
+              <AnimatePresence initial={false}>
+                <motion.div
+                  key={`${tool.key}-${view.key}`}
+                  className="absolute inset-0"
+                  initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 1.015, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: reduce ? 0 : 0.55, ease: EASE }}
+                >
+                  {view.shot ? <ShotBody shot={view.shot} /> : view.live?.(vSub)}
+                </motion.div>
+              </AnimatePresence>
+            </AppFrame>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <ProvenanceTag kind={tool.provenance} detail={tool.source} />
+              <span className="hidden text-[12.5px] text-white/35 sm:inline">{view.shot ? "Screenshot of the running app" : "Live, from the run's saved outputs"}</span>
+            </div>
+          </div>
         </div>
       </div>
       {lightbox}
     </div>
   );
+}
+
+/** Small screens: the same six steps, stacked, no clicking required. */
+function StackedShowcase() {
+  const { openShot, lightbox } = useLightbox();
+  return (
+    <div className="space-y-14">
+      {TOOLS.map((tl, i) => {
+        const v = tl.views[0];
+        return (
+          <div key={tl.key}>
+            <Kicker index={String(i + 1).padStart(2, "0")}>{tl.tool}</Kicker>
+            <h3 className="mt-3 text-[24px] font-normal leading-[1.15] tracking-[-0.025em] text-white">{v.heading}</h3>
+            <div className="mt-5">
+              {v.shot ? (
+                <ScreenFrame shot={v.shot} onExpand={() => openShot(v.shot!)} />
+              ) : (
+                <AppFrame path={v.path} live>
+                  {v.live?.()}
+                </AppFrame>
+              )}
+            </div>
+            <div className="mt-3">
+              <ProvenanceTag kind={tl.provenance} detail={tl.source} />
+            </div>
+          </div>
+        );
+      })}
+      {lightbox}
+    </div>
+  );
+}
+
+export function Showcase() {
+  const lg = useMediaQuery("(min-width: 1024px)");
+  return lg ? <PinnedShowcase /> : <StackedShowcase />;
 }

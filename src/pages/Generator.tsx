@@ -159,6 +159,21 @@ export default function Generator() {
   };
 
   useEffect(() => {
+    const syms = searchParams.get("symbols")?.trim();
+    if (syms) setSelectedSymbols(syms.toUpperCase().split(",").map((x) => x.trim()).filter(Boolean));
+    const tf = searchParams.get("tf");
+    const months = Number(searchParams.get("months"));
+    const charts = Number(searchParams.get("charts"));
+    setConfig((c) => ({
+      ...c,
+      ...(tf === "1d" || tf === "1wk" || tf === "1mo" ? { timeframe: tf } : {}),
+      ...(Number.isFinite(months) && months >= 1 ? { timespanUnit: "months", timespanCount: Math.round(months) } : {}),
+      ...(Number.isFinite(charts) && charts >= 1 ? { chartsPerLabel: Math.round(charts) } : {}),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     const q = searchParams.get("runId")?.trim();
     if (!q) return;
     navigate(`/tools/generator/runs/${encodeURIComponent(q)}`, { replace: true });

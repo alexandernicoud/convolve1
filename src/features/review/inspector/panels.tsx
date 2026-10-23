@@ -96,8 +96,10 @@ export function ModelPanel({ m, detail, loading, error }: { m: ReviewModel; deta
                   <span className="min-w-0 flex-1 truncate">
                     <AssetLink refv={{ kind: "run", id }} />
                   </span>
-                  <span className="font-digits tabular-nums text-white/70">{p ? pctUnits(p.return_pct, 2, true) : <Missing />}</span>
-                  <span className="w-20 text-right font-digits text-[12.5px] tabular-nums text-white/40">{p ? `${int(p.trades)} trades` : ""}</span>
+                  <span className={`font-digits tabular-nums ${p?.estimate ? "text-white/40" : "text-white/70"}`} title={p?.estimate ? "Legacy label-payoff estimate" : undefined}>
+                    {p ? `${pctUnits(p.return_pct, 2, true)}${p.estimate ? " est." : ""}` : <Missing />}
+                  </span>
+                  <span className="w-20 text-right font-digits text-[12.5px] tabular-nums text-white/40">{p ? `${int(p.trades)} ${p.estimate ? "charts" : "trades"}` : ""}</span>
                 </li>
               );
             })}
@@ -164,6 +166,7 @@ export function RunPanel({ r, detail, loading, error }: { r: ReviewRun; detail: 
 function BacktestSections({ r, detail }: { r: ReviewRun; detail: ReviewAssetDetail | null }) {
   const b = detail?.backtest ?? r.backtest;
   const p = b?.performance;
+  const legacy = b?.methodology ? b.methodology.id !== "price_sim_v2" : !!p;
   const modelId = r.links?.trainer_run_id || r.links?.model_id;
   return (
     <>
@@ -177,14 +180,25 @@ function BacktestSections({ r, detail }: { r: ReviewRun; detail: ReviewAssetDeta
           ]}
         />
       </Section>
-      <Section title="Trading result · net of modelled costs">
+      <Section title={legacy ? "Label-payoff estimate · not a trading simulation" : "Trading result · price-based, net of modelled costs"}>
         {p ? (
           <>
+            {legacy ? (
+              <p className="mb-4 rounded-lg border border-amber-300/25 bg-amber-300/[0.05] px-3 py-2 text-[12.5px] leading-relaxed text-amber-100/85">
+                {b?.methodology?.label ?? "Legacy label-payoff estimate — not a price-based trading simulation."} Values come from chart labels at a synthetic entry price, not from market prices.
+              </p>
+            ) : b?.methodology ? (
+              <p className="mb-4 text-[12.5px] text-white/50">
+                {b.methodology.evaluation_class === "independent_test" ? "Independent test" : b.methodology.evaluation_class === "blocked" ? "Blocked by leakage audit" : "Exploratory"}
+                {" · threshold "}
+                {b.methodology.threshold_source === "validation_locked" ? "locked on validation data" : "fixed by the user"}
+              </p>
+            ) : null}
             <div className="grid grid-cols-3 gap-6">
               {[
-                ["Net return", pctUnits(p.return_pct, 2, true), (p.return_pct ?? 0) < 0],
-                ["Max drawdown", pctUnits(p.max_drawdown_pct, 2), false],
-                ["Trades", int(p.trades), false],
+                [legacy ? "Estimated return" : "Net return", pctUnits(p.return_pct, 2, true), (p.return_pct ?? 0) < 0],
+                legacy ? ["Drawdown below start", pctUnits(p.drawdown_below_start_pct, 2), false] : ["Max drawdown", pctUnits(p.max_drawdown_pct, 2), false],
+                [legacy ? "Charts selected" : "Trades", int(p.trades), false],
               ].map(([k, v, neg]) => (
                 <div key={k as string} className="border-l border-white/[0.08] pl-4 first:border-0 first:pl-0">
                   <div className="text-[13px] text-white/50">{k}</div>
@@ -195,10 +209,14 @@ function BacktestSections({ r, detail }: { r: ReviewRun; detail: ReviewAssetDeta
             <div className="mt-5">
               <KV
                 rows={[
-                  ["Net P&L", money(p.pnl, 2)],
-                  ["Sharpe (per trade)", num(p.sharpe_ratio), "Sharpe of per-trade equity returns; not annualised."],
+                  [legacy ? "Estimated P&L" : "Net P&L", money(p.pnl, 2)],
+                  legacy
+                    ? ["Sharpe", "Withheld", "The legacy value was a clipped per-chart ratio on label payoffs, not a time-series Sharpe."]
+                    : ["Sharpe (daily, annualized)", num(p.sharpe_ratio), p.definitions?.sharpe_ratio],
                   ["Profit factor", num(p.profit_factor)],
-                  ["Win rate", pctUnits(p.win_rate, 1)],
+                  legacy
+                    ? ["Label-1 precision", pctUnits(p.label_precision_pct, 1), "Share of selected charts labelled 1. Not a trading win rate."]
+                    : ["Net win rate", pctUnits(p.win_rate, 1), p.definitions?.win_rate],
                   ["Avg win / loss", p.avg_win != null || p.avg_loss != null ? `${money(p.avg_win, 2)} / ${money(p.avg_loss, 2)}` : null],
                   ["Charts evaluated", int(p.total_charts_analyzed)],
                   ["No-trade signals", int(p.no_trade_count)],

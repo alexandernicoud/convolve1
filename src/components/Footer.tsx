@@ -4,7 +4,6 @@ import logoMark from "@/assets/convolve-mark.png";
 const links = [
   { label: "Home", href: "/" },
   { label: "Vision", href: "/vision" },
-  { label: "Home 2", href: "/home2" },
   { label: "Home 3", href: "/home3" },
   { label: "Products", href: "/products" },
   { label: "Contact", href: "/contact" },

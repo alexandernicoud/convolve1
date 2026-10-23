@@ -16,6 +16,23 @@ from app.paths import backtest_run_dir, find_backtest_dir, runs_root
 # In-memory storage for backtest runs
 backtest_runs = {}
 
+METHODOLOGY_V1 = {
+    "id": "label_payoff_v1",
+    "version": 1,
+    "label": "Legacy label-payoff estimate — not a price-based trading simulation.",
+}
+METHODOLOGY_V2 = {
+    "id": "price_sim_v2",
+    "version": 2,
+    "label": "Price-based portfolio simulation on stored OHLC bars",
+}
+
+
+def methodology_of(info: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Runs created before methodology tracking are v1 label-payoff runs."""
+    m = (info or {}).get("methodology")
+    return m if isinstance(m, dict) and m.get("id") else METHODOLOGY_V1
+
 def get_backtests_root() -> Path:
     """Legacy shared backtests directory (AUTH_REQUIRED=false / pre-namespaced)."""
     return runs_root() / "backtests"
@@ -65,9 +82,28 @@ def update_run_status(run_id: str, status: str, progress: float = 0.0, message: 
             "updated_at": time.time()
         })
         save_run_info(run_id, info)
+    if status in ("succeeded", "failed", "cancelled"):
+        _persist_terminal_state(run_id, status, progress, message)
+
+
+def _persist_terminal_state(run_id: str, status: str, progress: float, message: str) -> None:
+    """Record the terminal state in pipeline_runs so the orphan reconciler does not mark it interrupted."""
+    try:
+        from app.ownership import update_pipeline_run_state
+        from app.services.backtest_api import strip_paths
+
+        update_pipeline_run_state(run_id, status=status, progress=progress, stage=status, message=strip_paths(message or ""))
+    except Exception as e:  # noqa: BLE001 — run_info.json remains the source of truth
+        print(f"Warning: Could not record terminal state for {run_id}: {e}")
 
 def parse_progress_from_output(line: str) -> Optional[tuple[float, str]]:
     """Parse progress from backtester output lines"""
+    if line.startswith("PROGRESS "):
+        parts = line.split(" ", 2)
+        try:
+            return float(parts[1]), (parts[2] if len(parts) > 2 else "")
+        except ValueError:
+            return None
     line_lower = line.lower()
 
     # Map specific messages to progress percentages
@@ -110,7 +146,7 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
 
     log_file = output_dir / "run.log"
 
-    # Initialize run info
+    engine = "v2" if config.get("engine") == "v2" else "v1"
     run_info = {
         "run_id": run_id,
         "status": "running",
@@ -121,14 +157,28 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
         "config": config,
         "output_dir": str(output_dir),
         "user_id": user_id,
+        "engine": engine,
+        "methodology": METHODOLOGY_V2 if engine == "v2" else METHODOLOGY_V1,
     }
+    if engine == "v1":
+        run_info["ignored_parameters"] = ["max_trades_per_day"]
     save_run_info(run_id, run_info)
 
-    # Build command (script lives under backend/scripts/ for Docker builds from backend/)
     backend_root = Path(__file__).resolve().parents[1]
-    script_path = backend_root / "scripts" / "3.2_Tester_Pro_v2.py"
+    if engine == "v2":
+        v2_config = {**config, "output_dir": str(output_dir), "run_id": run_id}
+        cfg_path = run_dir / "v2_config.json"
+        with open(cfg_path, "w") as f:
+            json.dump(v2_config, f, indent=2)
+        cmd = [sys.executable, str(backend_root / "scripts" / "backtest_v2.py"), "--config", str(cfg_path)]
+    else:
+        cmd = _v1_command(backend_root, config, output_dir)
+    _execute(run_id, cmd, backend_root, output_dir)
 
-    cmd = [
+
+def _v1_command(backend_root: Path, config: Dict[str, Any], output_dir: Path) -> list:
+    script_path = backend_root / "scripts" / "3.2_Tester_Pro_v2.py"
+    return [
         sys.executable,
         str(script_path),
         "--model_path", config["model_path"],
@@ -146,7 +196,11 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
         "--output_dir", str(output_dir)
     ]
 
-    print(f"Starting backtester: {' '.join(cmd)}")
+
+def _execute(run_id: str, cmd: list, backend_root: Path, output_dir: Path) -> None:
+    log_file = output_dir / "run.log"
+    logs: list = []
+    print(f"Starting backtester {run_id}")
 
     try:
         # Start the process (registered for cancel)
@@ -247,8 +301,9 @@ def run_backtester_realtime(run_id: str, config: Dict[str, Any]):
             update_run_status(run_id, "succeeded", 1.0, "Completed successfully", "\n".join(logs[-50:]))
             print(f"Backtester {run_id} completed successfully")
         else:
-            error_msg = f"Process exited with code {return_code}"
-            if logs:
+            input_err = next((l.split("INPUT_ERROR:", 1)[1].strip() for l in reversed(logs) if "INPUT_ERROR:" in l), None)
+            error_msg = input_err or f"Process exited with code {return_code}"
+            if logs and not input_err:
                 error_msg += f"\nLast output: {logs[-1]}"
             update_run_status(run_id, "failed", 0.0, error_msg, "\n".join(logs[-50:]))
             print(f"Backtester {run_id} failed: {error_msg}")

@@ -13,7 +13,9 @@ from app.config import BOT_POLL_INTERVAL_SECONDS
 from app.db import get_db
 from app.models import Bot, BotEquitySnapshot, BotRun, BotTrade
 from app.ownership import bot_scope_clause, bot_scope_owner_id
-from app.services.bot_status import next_scheduled_run_iso
+from app.services.bot_status import derive_bot_status, next_scheduled_run_iso
+from app.services.fleet import RANGES, build_fleet
+from app.services.fleet_db import load_fleet_inputs, trade_win_rate_db
 from app.schemas.bot import (
     BotEquityPointOut,
     DashboardAccuracyOut,
@@ -165,21 +167,8 @@ def _label_match(db: Session, bot_ids: List[str]) -> DashboardLabelMatchOut:
         )
         .all()
     )
-    if l0:
-        correct_l0 = (sum(1 for t in l0 if t.status == "won") / len(l0)) * 100.0
-    else:
-        # No L0-linked trades: treat successful NO_BUY runs as correct L0 (no false long).
-        runs = (
-            db.query(BotRun)
-            .filter(BotRun.bot_id.in_(bot_ids), BotRun.status == "success")
-            .all()
-        )
-        l0_runs = [
-            r
-            for r in runs
-            if (r.signal or r.label or "").upper() not in ("BUY", "LONG", "1")
-        ]
-        correct_l0 = 100.0 if l0_runs else None
+    # Without L0-linked closed trades there is no outcome to score, so the rate is unavailable.
+    correct_l0 = (sum(1 for t in l0 if t.status == "won") / len(l0)) * 100.0 if l0 else None
     return DashboardLabelMatchOut(
         correct_l1_pct=correct_l1,
         wrong_l1_pct=wrong_l1,
@@ -311,7 +300,16 @@ def get_dashboard_bundle(
 
     active_bots = sum(1 for b in bots if getattr(b, "lifecycle_state", "active") == "active")
     paused_bots = sum(1 for b in bots if getattr(b, "lifecycle_state", "active") == "paused")
-    error_bots = sum(1 for b in bots if (b.last_error or "").strip())
+    error_bots = 0
+    for b in bots:
+        latest_run = (
+            db.query(BotRun)
+            .filter(BotRun.bot_id == b.id)
+            .order_by(func.coalesce(BotRun.run_finished_at, BotRun.run_started_at, BotRun.run_at).desc())
+            .first()
+        )
+        if derive_bot_status(b, now_utc=now_utc, latest_run=latest_run) == "error":
+            error_bots += 1
 
     analyses_24h = 0
     if bot_ids:
@@ -378,19 +376,7 @@ def get_dashboard_bundle(
         best_l1_prec = bp
         best_l1_n = bn
 
-    wins = (
-        db.query(func.count(BotTrade.id))
-        .filter(BotTrade.bot_id.in_(bot_ids), BotTrade.status == "won")
-        .scalar()
-        or 0
-    )
-    losses = (
-        db.query(func.count(BotTrade.id))
-        .filter(BotTrade.bot_id.in_(bot_ids), BotTrade.status == "lost")
-        .scalar()
-        or 0
-    )
-    win_rate = (wins / (wins + losses)) if (wins + losses) > 0 else None
+    win_rate, _, _ = trade_win_rate_db(db, bot_ids)
 
     total_closed = (
         db.query(func.count(BotTrade.id))
@@ -452,12 +438,14 @@ def get_dashboard_bundle(
 
     equity_by_bot: List[EquitySeriesOut] = []
     for b in sorted(bots, key=lambda x: x.created_at, reverse=True):
-        snaps = (
-            db.query(BotEquitySnapshot)
-            .filter(BotEquitySnapshot.bot_id == b.id)
-            .order_by(BotEquitySnapshot.as_of.asc())
-            .limit(400)
-            .all()
+        snaps = list(
+            reversed(
+                db.query(BotEquitySnapshot)
+                .filter(BotEquitySnapshot.bot_id == b.id)
+                .order_by(BotEquitySnapshot.as_of.desc())
+                .limit(400)
+                .all()
+            )
         )
         points = [
             BotEquityPointOut(
@@ -608,6 +596,27 @@ def get_dashboard_bundle(
         accuracy=accuracy,
         label_match=_label_match(db, bot_ids),
         daily_profit=_daily_profit_rows(db, bot_ids),
+    )
+
+
+@router.get("/fleet")
+def get_fleet(
+    range: str = "1W",
+    db: Session = Depends(get_db),
+    owner_id: str = Depends(bot_scope_owner_id),
+):
+    """Read-only fleet accounting for the caller's deployed bots (active, paused, expired)."""
+    rng = range.upper()
+    if rng not in RANGES:
+        raise HTTPException(status_code=422, detail=f"range must be one of {', '.join(RANGES)}")
+    now = datetime.now(timezone.utc)
+    bots, excluded = load_fleet_inputs(db, owner_id, now)
+    return build_fleet(
+        bots,
+        now=now,
+        rng=rng,
+        poll_interval_s=int(BOT_POLL_INTERVAL_SECONDS),
+        excluded_lifecycle_counts=excluded,
     )
 
 

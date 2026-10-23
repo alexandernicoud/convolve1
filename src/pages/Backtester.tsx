@@ -22,6 +22,8 @@ import {
   type InternalModel,
   type DatasetListItem,
   type BacktestStatusResponse,
+  type BacktestDatasetCapabilities,
+  type BacktestRunRequest,
   type TestDataGeneratorStatusResponse,
   type TestDataGeneratorResultResponse,
   type GlobalRun,
@@ -132,6 +134,9 @@ interface BacktesterConfig {
   commissionPct: number;
   slippagePct: number;
   maxDrawdownPct: number;
+  thresholdMode: "fixed" | "validation";
+  maxExposurePct: number;
+  maxConcurrentPositions: number;
 }
 
 function formatRunStamp(ts: number): string {
@@ -197,10 +202,15 @@ export default function Backtester() {
     commissionPct: 0.1,
     slippagePct: 0.05,
     maxDrawdownPct: 20.0,
+    thresholdMode: "validation",
+    maxExposurePct: 100,
+    maxConcurrentPositions: 10,
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [datasetCaps, setDatasetCaps] = useState<BacktestDatasetCapabilities | null>(null);
+  const [datasetCapsError, setDatasetCapsError] = useState<string | null>(null);
 
   const fieldClass =
     "w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-white placeholder:text-white/35 focus:border-white/30 focus:outline-none focus:ring-1 focus:ring-white/50";
@@ -354,29 +364,39 @@ export default function Backtester() {
   useEffect(() => {
     if (!currentRunId) return;
 
+    let interval: ReturnType<typeof setInterval> | null = null;
+    let failures = 0;
     const pollStatus = async () => {
       try {
         const status = await realtimeBacktesterApi.getStatus(currentRunId);
+        failures = 0;
         setRunStatus(status);
         setRunLogs(status.log_tail);
         useRunsStore.getState().updateRun(currentRunId, {
-          status: status.status,
+          status: status.status === "interrupted" || status.status === "cancelled" ? "failed" : status.status,
           progress: status.progress,
           stage: status.status || "running",
           message: status.message || "Running",
         });
 
+        const terminal = status.terminal ?? ["succeeded", "failed", "cancelled", "interrupted"].includes(status.status);
+        if (terminal && interval) clearInterval(interval);
         if (status.status === "succeeded") {
           navigate(`/tools/backtester/runs/${currentRunId}`);
         }
       } catch (err) {
         console.warn("Backtest status poll failed:", err);
+        failures += 1;
+        if (failures >= 5 && interval) {
+          clearInterval(interval);
+          setError("Lost contact with the server while polling this backtest. Open it from Recent backtests to check its status.");
+        }
       }
     };
 
-    pollStatus();
+    void pollStatus();
     const token = ++pollingTokenRef.current;
-    const interval = setInterval(pollStatus, 1000);
+    interval = setInterval(pollStatus, 1000);
     setPollingInterval(interval);
 
     return () => {
@@ -775,7 +795,24 @@ export default function Backtester() {
   const hasModel =
     sourceMode === "library" ? Boolean(selectedInternalModel) : Boolean(uploadedModel);
   const hasDataset = Boolean(uploadedDataset);
-  const canRun = hasModel && hasDataset && !isSubmitting;
+  const datasetIdForCaps = uploadedDataset?.dataset_id ?? null;
+  useEffect(() => {
+    setDatasetCaps(null);
+    setDatasetCapsError(null);
+    if (!datasetIdForCaps) return;
+    let alive = true;
+    realtimeBacktesterApi
+      .getDatasetCapabilities(datasetIdForCaps)
+      .then((c) => alive && setDatasetCaps(c))
+      .catch((e) => alive && setDatasetCapsError(e instanceof Error ? e.message : "Could not read dataset capabilities"));
+    return () => {
+      alive = false;
+    };
+  }, [datasetIdForCaps]);
+  const isV2 = datasetCaps?.engine === "v2";
+  const labelDef = datasetCaps?.label_definition ?? null;
+
+  const canRun = hasModel && hasDataset && !isSubmitting && (!datasetIdForCaps || datasetCaps != null || datasetCapsError != null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -820,13 +857,11 @@ export default function Backtester() {
         modelRef = { model_id: uploadedModel!.model_id };
       }
 
-      const requestData = {
+      const common = {
         ...modelRef,
         dataset_path: datasetPath,
         sample_size: config.sampleSize,
         confidence_threshold: config.confidenceThreshold,
-        tp_pct: config.tpPct,
-        sl_pct: config.slPct,
         img_size: config.imgSize,
         starting_capital: config.startingCapital,
         position_size_pct: config.positionSizePct,
@@ -834,6 +869,16 @@ export default function Backtester() {
         slippage_pct: config.slippagePct,
         max_drawdown_pct: config.maxDrawdownPct,
       };
+      // v2 exits come from the dataset's stored label definition, so TP/SL are not sent.
+      const requestData: BacktestRunRequest = isV2
+        ? {
+            ...common,
+            engine: "v2",
+            threshold_mode: config.thresholdMode,
+            max_exposure_pct: config.maxExposurePct,
+            max_concurrent_positions: config.maxConcurrentPositions,
+          }
+        : { ...common, engine: datasetCaps ? "v1" : "auto", tp_pct: config.tpPct, sl_pct: config.slPct };
 
       const response = await realtimeBacktesterApi.startRun(requestData);
       const runId = response.run_id;
@@ -1358,6 +1403,29 @@ export default function Backtester() {
                 ) : null}
               </div>
 
+              {datasetIdForCaps ? (
+                <div className="mb-5 rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-3 text-sm leading-relaxed">
+                  {datasetCapsError ? (
+                    <p className="text-white/60">Could not check which engine this dataset supports ({datasetCapsError}). The server will decide when the run starts.</p>
+                  ) : !datasetCaps ? (
+                    <p className="text-white/45">Checking dataset…</p>
+                  ) : isV2 ? (
+                    <>
+                      <p className="font-medium text-white">Price-based simulation (v2)</p>
+                      <p className="mt-1 text-white/60">
+                        Entries at the next bar's open, exits on stored OHLC bars. Exits follow the dataset's label definition
+                        {labelDef ? `: take profit ${((labelDef.tp_frac ?? 0) * 100).toFixed(2)}%, stop loss ${((labelDef.sl_frac ?? 0) * 100).toFixed(2)}%, ${labelDef.horizon_bars} ${labelDef.timeframe ?? ""} bars` : ""}.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium text-amber-100/90">Legacy label-payoff estimate — not a price-based trading simulation.</p>
+                      <p className="mt-1 text-white/60">{datasetCaps.reason}</p>
+                    </>
+                  )}
+                </div>
+              ) : null}
+
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
                 <div>
                   <label className={labelClass}>
@@ -1397,41 +1465,83 @@ export default function Backtester() {
                   ) : null}
                 </div>
 
-                <div>
-                  <label className={labelClass}>
-                    Confidence threshold (0–1)
-                    <FieldTip text="Minimum model confidence required before a trade is opened." />
-                  </label>
-                  <FreeNumberField
-                    value={config.confidenceThreshold}
-                    onChange={(n) => setConfig({ ...config, confidenceThreshold: n })}
-                    className={fieldClass}
-                  />
-                </div>
+                {isV2 ? (
+                  <div>
+                    <label className={labelClass}>
+                      Threshold
+                      <FieldTip text="Validation: chosen on the model's recorded validation split (max F1 for label 1), then locked before the test set is scored. Fixed: the value below; the run is labelled exploratory." />
+                    </label>
+                    <select
+                      value={config.thresholdMode}
+                      onChange={(e) => setConfig({ ...config, thresholdMode: e.target.value as BacktesterConfig["thresholdMode"] })}
+                      className={fieldClass}
+                    >
+                      <option value="validation">Select on validation data (recommended)</option>
+                      <option value="fixed">Use a fixed value</option>
+                    </select>
+                  </div>
+                ) : null}
+
+                {!isV2 || config.thresholdMode === "fixed" ? (
+                  <div>
+                    <label className={labelClass}>
+                      Confidence threshold (0–1)
+                      <FieldTip text="Minimum model confidence required before a trade is opened." />
+                    </label>
+                    <FreeNumberField
+                      value={config.confidenceThreshold}
+                      onChange={(n) => setConfig({ ...config, confidenceThreshold: n })}
+                      className={fieldClass}
+                    />
+                  </div>
+                ) : null}
 
                 <div>
                   <label className={labelClass}>
                     Take profit %
-                    <FieldTip text="Exit target as a percent of entry price for each simulated trade." />
+                    <FieldTip text={isV2 ? "Fixed by the dataset's label definition so trades and labels use the same exit rule." : "Exit target as a percent of entry price for each simulated trade."} />
                   </label>
-                  <FreeNumberField
-                    value={config.tpPct}
-                    onChange={(n) => setConfig({ ...config, tpPct: n })}
-                    className={fieldClass}
-                  />
+                  {isV2 ? (
+                    <div className={`${fieldClass} text-white/55`} aria-readonly>{labelDef?.tp_frac != null ? `${(labelDef.tp_frac * 100).toFixed(2)} (from dataset)` : "From dataset"}</div>
+                  ) : (
+                    <FreeNumberField value={config.tpPct} onChange={(n) => setConfig({ ...config, tpPct: n })} className={fieldClass} />
+                  )}
                 </div>
 
                 <div>
                   <label className={labelClass}>
                     Stop loss %
-                    <FieldTip text="Stop distance as a percent of entry price." />
+                    <FieldTip text={isV2 ? "Fixed by the dataset's label definition." : "Stop distance as a percent of entry price."} />
                   </label>
-                  <FreeNumberField
-                    value={config.slPct}
-                    onChange={(n) => setConfig({ ...config, slPct: n })}
-                    className={fieldClass}
-                  />
+                  {isV2 ? (
+                    <div className={`${fieldClass} text-white/55`} aria-readonly>{labelDef?.sl_frac != null ? `${(labelDef.sl_frac * 100).toFixed(2)} (from dataset)` : "From dataset"}</div>
+                  ) : (
+                    <FreeNumberField value={config.slPct} onChange={(n) => setConfig({ ...config, slPct: n })} className={fieldClass} />
+                  )}
                 </div>
+
+                {isV2 ? (
+                  <>
+                    <div>
+                      <label className={labelClass}>
+                        Max gross exposure %
+                        <FieldTip text="New entries are skipped when open positions would exceed this share of equity." />
+                      </label>
+                      <FreeNumberField value={config.maxExposurePct} onChange={(n) => setConfig({ ...config, maxExposurePct: n })} className={fieldClass} />
+                    </div>
+                    <div>
+                      <label className={labelClass}>
+                        Max open positions
+                        <FieldTip text="Maximum simultaneous positions; one position per symbol at a time." />
+                      </label>
+                      <FreeNumberField
+                        value={config.maxConcurrentPositions}
+                        onChange={(n) => setConfig({ ...config, maxConcurrentPositions: Math.max(1, Math.round(n)) })}
+                        className={fieldClass}
+                      />
+                    </div>
+                  </>
+                ) : null}
 
                 <div>
                   <label className={labelClass}>

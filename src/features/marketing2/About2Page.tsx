@@ -4,6 +4,7 @@ import { MotionConfig, motion, useMotionValueEvent, useReducedMotion, useScroll 
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { FOUNDER_LINKEDIN_URL } from "@/lib/founderLinks";
 import { Container, EASE, M2Footer, Reveal } from "./ui";
+import { AboutLanding } from "./visuals/AboutLanding";
 import { TopoMap } from "./visuals/TopoMap";
 
 function Label({ num, children }: { num: string; children: ReactNode }) {
@@ -38,74 +39,6 @@ function useIsLg() {
     return () => mq.removeEventListener("change", on);
   }, []);
   return lg;
-}
-
-const LEGEND: [string, string][] = [
-  ["Subject", "Visual models of price"],
-  ["Method", "Experiment, measure, record"],
-  ["Instrument", "Convolve"],
-  ["Status", "Survey in progress"],
-];
-
-function Opening() {
-  const reduce = useReducedMotion();
-  const lines: [string, string][] = [
-    ["Markets are a landscape", "text-white"],
-    ["of unknowns.", "text-white"],
-    ["We map them by experiment.", "text-white/40"],
-  ];
-  return (
-    <section className="relative overflow-hidden">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-50 [background-image:linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] [background-size:88px_88px] [mask-image:radial-gradient(ellipse_80%_70%_at_30%_30%,black,transparent)]"
-      />
-      <Container className="relative flex min-h-[calc(88svh-80px)] flex-col justify-between pb-14 pt-16 sm:pt-24">
-        <motion.div
-          className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.24em] text-white/45"
-          initial={reduce ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.8 }}
-        >
-          <span>About Convolve</span>
-          <span className="hidden sm:inline">Sheet 01 / 01</span>
-        </motion.div>
-        <h1 className="mt-14 text-[clamp(2.6rem,7.6vw,8rem)] font-extralight leading-[0.96] tracking-[-0.05em]">
-          {lines.map(([text, cls], i) => (
-            <span key={text} className="block overflow-hidden pb-[0.06em]">
-              <motion.span
-                className={`block ${cls}`}
-                initial={reduce ? false : { y: "105%" }}
-                animate={{ y: 0 }}
-                transition={{ duration: 1.1, ease: EASE, delay: 0.15 + i * 0.12 }}
-              >
-                {text}
-              </motion.span>
-            </span>
-          ))}
-        </h1>
-        <motion.div
-          className="mt-16 grid gap-10 border-t border-white/[0.1] pt-8 md:grid-cols-12"
-          initial={reduce ? false : { opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.9, ease: EASE, delay: 0.6 }}
-        >
-          <p className="text-[clamp(1.05rem,1.5vw,1.3rem)] font-light leading-[1.5] text-white/70 md:col-span-5">
-            Convolve is a research workspace for traders who would rather test an idea than trust one. This page is about
-            why it exists and what it is trying to become.
-          </p>
-          <dl className="grid grid-cols-2 gap-x-8 gap-y-4 md:col-span-6 md:col-start-7">
-            {LEGEND.map(([k, v]) => (
-              <div key={k} className="border-l border-white/[0.12] pl-3">
-                <dt className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/35">{k}</dt>
-                <dd className="mt-1 text-[14px] text-white/80">{v}</dd>
-              </div>
-            ))}
-          </dl>
-        </motion.div>
-      </Container>
-    </section>
-  );
 }
 
 const PRINCIPLES: [string, string][] = [
@@ -159,7 +92,7 @@ const CHAPTERS: Chapter[] = [
             </li>
           ))}
         </ol>
-        <Link to="/home2#pipeline" className="group mt-8 inline-flex items-center gap-2 text-[14px] text-white/70 transition-colors hover:text-white">
+        <Link to="/#workflow" className="group mt-8 inline-flex items-center gap-2 text-[14px] text-white/70 transition-colors hover:text-white">
           See the workflow
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
         </Link>
@@ -196,7 +129,7 @@ function Chapters() {
   const progress = reduce ? 1 : p;
 
   return (
-    <section className="py-16 md:py-24">
+    <section id="chapters" className="scroll-mt-20 py-16 md:py-24">
       <Container>
         <Rule />
         <div className="mt-12 grid gap-12 lg:grid-cols-12 lg:gap-14">
@@ -224,11 +157,12 @@ function Chapters() {
 }
 
 function Origin() {
-  const meta: [string, string][] = [
-    ["Name", "Alexander Nicoud"],
-    ["Age", "19"],
-    ["Based in", "Switzerland"],
-    ["Field", "Applied Mathematics"],
+  const steps: [string, string][] = [
+    ["A question", "Can a convolutional network, the kind built to read photographs, learn anything from a picture of a price chart?"],
+    ["An experiment", "Render candlestick windows as images, label each by what happened next, train a small CNN and look at the result."],
+    ["Doubt", "A good validation score is easy to fool yourself with. So thresholds got locked, test periods kept unseen, and every result set against buy-and-hold."],
+    ["Instruments", "Each answer raised the next question: what the network attends to, which label rule to use, how a model behaves once it runs."],
+    ["A workspace", "Generation, training, interpretability, label search, backtesting and paper deployment, connected so that every result can be traced."],
   ];
   return (
     <section id="founder" className="scroll-mt-20 py-24 md:py-32">
@@ -238,34 +172,43 @@ function Origin() {
           <Reveal className="md:col-span-3">
             <Label num="V">Origin</Label>
           </Reveal>
-          <Reveal className="md:col-span-5" delay={0.06}>
-            <h2 className="text-[clamp(1.8rem,3vw,2.6rem)] font-extralight leading-[1.1] tracking-[-0.035em] text-white">
-              Built by a technical founder.
-            </h2>
+          <Reveal className="md:col-span-4" delay={0.06}>
+            <h2 className="text-[clamp(2rem,3.6vw,3.3rem)] font-extralight leading-[1.06] tracking-[-0.04em] text-white">It began with a question.</h2>
             <p className="mt-6 text-[16px] leading-relaxed text-white/60">
-              Convolve is built by <span className="text-white">Alexander Nicoud</span>, a 19-year-old applied mathematics
-              student in Switzerland. The focus is on building and testing complete systems, from visual learning to
-              backtesting and deployment, rather than on ideas alone.
+              Convolve started as a handful of experiments with candlestick images and convolutional networks, to see whether a visual model could
+              find patterns with any predictive value.
+            </p>
+            <p className="mt-4 text-[16px] leading-relaxed text-white/60">
+              The honest answer was always “it depends, and here is how to check”. Checking properly needed more tools than the experiment
+              itself, so the tools were built, one question at a time.
+            </p>
+            <p className="mt-8 text-[13.5px] text-white/40">
+              Built in Switzerland by{" "}
+              <a href={FOUNDER_LINKEDIN_URL} target="_blank" rel="noopener noreferrer" className="group inline-flex items-center gap-1 text-white/75 transition-colors hover:text-white">
+                Alexander Nicoud
+                <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden />
+              </a>
             </p>
           </Reveal>
-          <Reveal className="md:col-span-3 md:col-start-10" delay={0.12}>
-            <dl className="border-t border-white/[0.1]">
-              {meta.map(([k, v]) => (
-                <div key={k} className="flex items-baseline justify-between border-b border-white/[0.07] py-3">
-                  <dt className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/40">{k}</dt>
-                  <dd className="text-[14px] text-white/85">{v}</dd>
-                </div>
+          <Reveal className="md:col-span-5 md:col-start-8" delay={0.12}>
+            <ol className="relative border-l border-white/[0.1] pl-7">
+              {steps.map(([k, v], i) => (
+                <li key={k} className="relative pb-7 last:pb-0">
+                  <span
+                    aria-hidden
+                    className={
+                      i === steps.length - 1
+                        ? "absolute -left-[33px] top-1.5 h-[11px] w-[11px] rounded-full bg-[#a6ecc8] shadow-[0_0_14px_rgba(166,236,200,0.5)]"
+                        : "absolute -left-[32px] top-[7px] h-[9px] w-[9px] rounded-full border border-white/40 bg-[#050506]"
+                    }
+                  />
+                  <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/45">
+                    {String(i + 1).padStart(2, "0")} · {k}
+                  </div>
+                  <p className="mt-2 text-[15px] leading-relaxed text-white/70">{v}</p>
+                </li>
               ))}
-            </dl>
-            <a
-              href={FOUNDER_LINKEDIN_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group mt-5 inline-flex items-center gap-1.5 text-[14px] text-white/80 transition-colors hover:text-white"
-            >
-              LinkedIn
-              <ArrowUpRight className="h-4 w-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden />
-            </a>
+            </ol>
           </Reveal>
         </div>
       </Container>
@@ -290,7 +233,7 @@ function Closing() {
             See the workspace this approach produced, from the first dataset to a monitored paper bot.
           </p>
           <div className="flex flex-wrap gap-6">
-            <Link to="/home2#pipeline" className="group inline-flex items-center gap-2 text-[15px] text-white transition-colors hover:text-white/80">
+            <Link to="/#workflow" className="group inline-flex items-center gap-2 text-[15px] text-white transition-colors hover:text-white/80">
               Explore the product
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
             </Link>
@@ -312,7 +255,7 @@ export default function About2Page() {
   return (
     <MotionConfig reducedMotion="user">
       <div className="relative overflow-x-clip bg-[#050506] text-white antialiased">
-        <Opening />
+        <AboutLanding />
         <Chapters />
         <Origin />
         <Closing />

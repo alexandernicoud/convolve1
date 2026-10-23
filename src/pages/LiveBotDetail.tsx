@@ -276,8 +276,8 @@ export default function LiveBotDetail() {
               </div>
               <div>
                 <dt className="text-[10px] font-medium text-white/80">Win rate</dt>
-                <dd className="mt-1 font-mono text-white" title="Winning closed trades / all closed">
-                  {fmtPct(perf.accuracy_winning_trades_over_total_closed)}
+                <dd className="mt-1 font-mono text-white" title="Closed trades with net P&L > 0 / all closed trades (same definition as the Overview)">
+                  {perf.trade_win_rate != null ? `${fmtPct(perf.trade_win_rate)} · n=${perf.trade_win_sample ?? 0}` : "—"}
                 </dd>
               </div>
               <div>

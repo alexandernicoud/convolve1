@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -21,8 +21,12 @@ function Caption({ n, children }: { n: number; children: string }) {
 const GW = 600;
 const GH = 260;
 
-export function GeneratorDemo() {
-  const [idx, setIdx] = useState(labmaps.trace_index);
+/** `sample` lets a scroll sequence drive which real window is shown; the chips still work. */
+export function GeneratorDemo({ sample }: { sample?: number }) {
+  const [idx, setIdx] = useState(sample ?? labmaps.trace_index);
+  useEffect(() => {
+    if (sample != null) setIdx(sample);
+  }, [sample]);
   const s = labmaps.samples[idx];
   const g = useMemo(() => {
     const weekly = hero.weekly;
@@ -57,10 +61,17 @@ export function GeneratorDemo() {
           </div>
         </div>
         <svg viewBox={`0 0 ${GW} ${GH}`} className="mt-3 block h-auto w-full" role="img" aria-label="MSFT price history with the selected six-month window">
+          <defs>
+            <linearGradient id="m2-gen-ink" gradientUnits="userSpaceOnUse" x1={a} x2={b} y1="0" y2="0">
+              <stop offset="0%" stopColor="#7fa8ff" />
+              <stop offset="55%" stopColor="#5fc8d0" />
+              <stop offset="100%" stopColor="#a6ecc8" />
+            </linearGradient>
+          </defs>
           {g.weekly.map((c) => {
             const cx = g.x(t(c.d));
             const inB = cx >= a && cx <= b;
-            const ink = inB ? "#fff" : "rgba(255,255,255,0.32)";
+            const ink = inB ? "url(#m2-gen-ink)" : "rgba(255,255,255,0.28)";
             return (
               <g key={c.d}>
                 <line x1={cx} x2={cx} y1={g.y(c.h)} y2={g.y(c.l)} stroke={ink} strokeWidth="0.8" />
@@ -75,9 +86,9 @@ export function GeneratorDemo() {
             y="1"
             height={GH - 2}
             rx="3"
-            fill="rgba(185,211,255,0.08)"
+            fill="rgba(185,211,255,0.07)"
             stroke="#b9d3ff"
-            strokeOpacity="0.65"
+            strokeOpacity="0.45"
           />
         </svg>
 
@@ -128,17 +139,20 @@ export function GeneratorDemo() {
           {tiles.map((tl) => (
             <div key={tl.file} className="relative overflow-hidden rounded-[4px] border border-white/[0.07] bg-[#050506]">
               <img src={asset(tl.file)} alt="" className="aspect-square w-full" loading="lazy" />
-              <span className={cn("absolute right-1 top-1 h-1.5 w-1.5 rounded-full", tl.label ? "bg-[#b9d3ff]" : "bg-white/30")} aria-hidden />
+              <span className={cn("absolute right-1 top-1 h-1.5 w-1.5 rounded-full", tl.label ? "bg-[#8fe0c0]" : "bg-white/30")} aria-hidden />
             </div>
           ))}
         </div>
         <div className="mt-auto flex items-baseline justify-between gap-3 pt-4 text-[12px] text-white/50">
           <span>
             <span className="text-[18px] font-medium text-white tabular-nums">{grid.count.toLocaleString("en-US")}</span> images
+            <span className="ml-2 inline-flex items-center gap-1 text-white/40">
+              <ArrowRight className="h-3 w-3" aria-hidden /> Trainer input
+            </span>
           </span>
           <span className="inline-flex items-center gap-3 font-mono text-[10px]">
             <span className="inline-flex items-center gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#b9d3ff]" /> label 1
+              <span className="h-1.5 w-1.5 rounded-full bg-[#8fe0c0]" /> label 1
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="h-1.5 w-1.5 rounded-full bg-white/30" /> label 0
@@ -179,12 +193,18 @@ function Curves() {
   }, []);
   return (
     <svg viewBox={`0 0 ${CW} ${CHh}`} className="block h-auto w-full" role="img" aria-label="Training and validation loss per epoch">
-      <line x1={d.best} x2={d.best} y1="4" y2={CHh - 18} stroke="#b9d3ff" strokeOpacity="0.6" strokeDasharray="3 3" />
+      <defs>
+        <linearGradient id="m2-tr-val" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="#7fa8ff" />
+          <stop offset="100%" stopColor="#a6ecc8" />
+        </linearGradient>
+      </defs>
+      <line x1={d.best} x2={d.best} y1="4" y2={CHh - 18} stroke="#b9d3ff" strokeOpacity="0.5" strokeDasharray="3 3" />
       <text x={d.best + 4} y="12" fill="#b9d3ff" fillOpacity="0.8" fontSize="9" fontFamily="ui-monospace, monospace">
         restored · epoch {training.best_epoch}
       </text>
-      <path d={d.tr} fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="1.4" />
-      <path d={d.va} fill="none" stroke="#fff" strokeWidth="1.7" />
+      <path d={d.tr} fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="1.4" />
+      <path d={d.va} fill="none" stroke="url(#m2-tr-val)" strokeWidth="1.8" />
       {Array.from({ length: d.n }, (_, i) => (
         <text key={i} x={d.x(i + 1)} y={CHh - 4} textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="8" fontFamily="ui-monospace, monospace">
           {i + 1}
@@ -200,8 +220,10 @@ function Curves() {
   );
 }
 
-export function TrainerDemo() {
-  const [hover, setHover] = useState<number | null>(null);
+/** `focus` lets a scroll sequence walk through the layers; hovering still overrides it. */
+export function TrainerDemo({ focus }: { focus?: number }) {
+  const [hoverIdx, setHover] = useState<number | null>(null);
+  const hover = hoverIdx ?? focus ?? null;
   const best = training.epochs[training.best_epoch - 1];
   const layers = training.arch;
   const maxSide = 224;
@@ -277,7 +299,7 @@ export function TrainerDemo() {
           <div className="flex items-center justify-between">
             <Caption n={2}>Loss per epoch</Caption>
             <span className="flex gap-3 font-mono text-[9.5px] text-white/40">
-              <span>— validation</span>
+              <span className="text-[#8fd6d0]">— validation</span>
               <span className="text-white/30">— training</span>
             </span>
           </div>

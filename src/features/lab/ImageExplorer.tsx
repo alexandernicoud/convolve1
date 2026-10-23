@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Chip, cx, Panel } from "@/features/review/components/primitives";
 import { fmtNum, fmtPct, fmtPp, MISSING } from "@/lib/viz/format";
 import { labApi, type ExplainResult, type InterveneResult, type LabImage, type Method } from "./api";
 import { btnSm, Field, inputCls, LayerSelect, MiniKV, ProbBars, Select, Thumb, useLab } from "./components";
-import { MapCanvas, MapScale, useAuthedObjectUrl, type Rect } from "./maps";
+import { BackdropToggle, ChartBackdropCtx, MapCanvas, MapScale, useAuthedObjectUrl, type ChartBackdrop, type Rect } from "./maps";
 
 const METHODS: { id: Method; label: string }[] = [
   { id: "gradcam", label: "Grad-CAM" },
@@ -185,7 +185,8 @@ function useView(imageId: string, v: View) {
 
 function Viewer({ imageId, className }: { imageId: string; className?: string }) {
   const { ref, context } = useLab();
-  const baseUrl = useAuthedObjectUrl(useMemo(() => labApi.imagePath(ref, imageId), [ref, imageId]));
+  const [backdrop, setBackdrop] = useState<ChartBackdrop>("dark");
+  const baseUrl = useAuthedObjectUrl(useMemo(() => labApi.imagePath(ref, imageId, backdrop === "dark"), [ref, imageId, backdrop]));
   const [a, setA] = useState<View>({ method: "gradcam", target: "predicted", layer: context.model.default_layer });
   const [b, setB] = useState<View>({ method: "saliency", target: "predicted", layer: context.model.default_layer });
   const [compare, setCompare] = useState(false);
@@ -196,6 +197,7 @@ function Viewer({ imageId, className }: { imageId: string; className?: string })
   const main = va.res;
 
   return (
+    <ChartBackdropCtx.Provider value={backdrop}>
     <div className={cx("grid gap-5 lg:grid-cols-12", className)}>
       <Panel
         title={<ViewerTitle imageId={imageId} />}
@@ -218,6 +220,10 @@ function Viewer({ imageId, className }: { imageId: string; className?: string })
               <input type="checkbox" checked={thirds} onChange={(e) => setThirds(e.target.checked)} className="accent-white" />
               Region thirds
             </label>
+            <div className="flex items-center gap-2">
+              <span className="text-[12.5px] text-white/55">Background</span>
+              <BackdropToggle value={backdrop} onChange={setBackdrop} />
+            </div>
           </div>
           <div className={cx("grid gap-5", compare ? "md:grid-cols-2" : "grid-cols-1")}>
             <ViewPane view={a} setView={setA} state={va} base={baseUrl} opacity={opacity} thirds={thirds} big={!compare} />
@@ -230,6 +236,7 @@ function Viewer({ imageId, className }: { imageId: string; className?: string })
         <MaskPanel imageId={imageId} base={baseUrl} />
       </div>
     </div>
+    </ChartBackdropCtx.Provider>
   );
 }
 
@@ -265,6 +272,7 @@ function ViewPane({
   big?: boolean;
 }) {
   const { context } = useLab();
+  const backdrop = useContext(ChartBackdropCtx);
   const { res, err, loading } = state;
   const m = view.method;
   const map = m !== "activations" ? res?.maps[m] ?? null : null;
@@ -307,6 +315,7 @@ function ViewPane({
       {err ? <p className="text-[13px] text-red-300/90">{err}</p> : null}
       {map ? (
         <MapScale
+          surface={backdrop === "model" ? "light" : "dark"}
           palette={palette}
           min={map.min}
           max={map.max}
@@ -427,7 +436,11 @@ function MaskPanel({ imageId, base }: { imageId: string; base: string | null }) 
             <p className="mt-1 text-center text-[11.5px] text-white/40">Original</p>
           </div>
           <div>
-            {res ? <MapCanvas base={`data:image/png;base64,${res.modified_png}`} label="Modified input" /> : <div className="aspect-square w-full rounded-lg border border-dashed border-white/[0.1]" />}
+            {res ? (
+              <MapCanvas base={`data:image/png;base64,${res.modified_png}`} alphaFrom={base} rect={rect} label="Modified input" />
+            ) : (
+              <div className="aspect-square w-full rounded-lg border border-dashed border-white/[0.1]" />
+            )}
             <p className="mt-1 text-center text-[11.5px] text-white/40">Modified</p>
           </div>
         </div>

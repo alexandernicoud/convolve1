@@ -49,11 +49,11 @@ export function alignEquitySeriesForChart(series: DashboardEquitySeries[]) {
         )
         .pop();
       if (atOrBefore) lastKnown[key] = atOrBefore.total_equity;
-      row[key] = lastKnown[key] ?? 0;
+      if (lastKnown[key] != null) row[key] = lastKnown[key];
     }
     let sum = 0;
     for (const key of keys) {
-      sum += Number(row[key]) || 0;
+      if (row[key] != null) sum += Number(row[key]) || 0;
     }
     row.sum_equity = sum;
     rows.push(row);
@@ -120,33 +120,26 @@ export function RunningProfitChart({
 
   const chartRows = useMemo(() => {
     if (yAxisMode !== "percentReturn" || rows.length === 0) return rows;
-    const first = rows[0];
+    const base: Record<string, number> = {};
+    for (const key of keys) {
+      const firstRow = rows.find((row) => row[key] != null);
+      if (firstRow) base[key] = Number(firstRow[key]);
+    }
     return rows.map((row) => {
       const r = { ...row } as Record<string, number | string>;
       for (const key of keys) {
-        const b = Number(first[key]);
-        const v = Number(row[key]);
-        r[key] = b > 0 ? ((v / b) - 1) * 100 : 0;
+        const b = base[key];
+        if (row[key] == null || !(b > 0)) {
+          delete r[key];
+          continue;
+        }
+        r[key] = (Number(row[key]) / b - 1) * 100;
       }
       return r;
     });
   }, [yAxisMode, rows, keys]);
 
-  const flatBaseline = useMemo(() => {
-    const b = baselineEquity ?? 0;
-    return b > 0 ? b : 10000;
-  }, [baselineEquity]);
-
-  const flatRows = useMemo(() => {
-    const t0 = Date.now() - 7 * 86400000;
-    const t1 = Date.now();
-    return [
-      { i: 0, t: t0, sum_equity: flatBaseline },
-      { i: 1, t: t1, sum_equity: flatBaseline },
-    ];
-  }, [flatBaseline]);
-
-  const showFlatOnly = rows.length === 0;
+  const showEmpty = rows.length === 0;
 
   const lastRow = rows.length ? rows[rows.length - 1] : null;
   const lastTs = lastRow && typeof lastRow.t === "number" ? (lastRow.t as number) : null;
@@ -220,62 +213,9 @@ export function RunningProfitChart({
           hideHeader ? hideHeaderChartClass : `${chartMinH} flex-1`
         } w-full min-w-0 overflow-hidden rounded-md border border-white/[0.08] bg-black`}
       >
-        {showFlatOnly ? (
-          <div className="flex h-full min-h-[220px] flex-col">
-            <p className="shrink-0 border-b border-white/[0.06] px-3 py-2 text-[10px] text-white/45">
-              No equity history yet — showing start capital baseline
-            </p>
-            <div className="min-h-0 flex-1">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={flatRows} margin={{ top: 14, right: 10, left: 4, bottom: 10 }}>
-                  <CartesianGrid
-                    strokeDasharray="4 8"
-                    stroke={CHART_HORIZONTAL_GRID_STROKE}
-                    vertical={false}
-                    horizontal
-                  />
-                  <ReferenceLine
-                    y={flatBaseline}
-                    stroke="rgba(160,160,160,0.45)"
-                    strokeDasharray="5 4"
-                    strokeWidth={1}
-                    label={{
-                      value: "Start capital",
-                      fill: "rgba(200,200,200,0.9)",
-                      fontSize: 9,
-                      position: "insideTopRight",
-                    }}
-                  />
-                  <Line
-                    type="linear"
-                    dataKey="sum_equity"
-                    name="Equity"
-                    stroke="rgba(229,231,235,0.85)"
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive={false}
-                  />
-                  <XAxis
-                    dataKey="t"
-                    type="number"
-                    domain={["dataMin", "dataMax"]}
-                    tick={{ fill: "#d4d4d4", fontSize: 9 }}
-                    axisLine={{ stroke: "rgba(255,255,255,0.12)" }}
-                    tickLine={{ stroke: "rgba(255,255,255,0.08)" }}
-                    minTickGap={28}
-                    tickFormatter={(v) => (typeof v === "number" ? formatAxisTime(v) : String(v))}
-                  />
-                  <YAxis
-                    tick={{ fill: "#d4d4d4", fontSize: 9 }}
-                    axisLine={{ stroke: "rgba(255,255,255,0.12)" }}
-                    tickLine={{ stroke: "rgba(255,255,255,0.08)" }}
-                    width={56}
-                    domain={[flatBaseline * 0.995, flatBaseline * 1.005]}
-                    tickFormatter={(v) => fmtMoney(Number(v))}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
+        {showEmpty ? (
+          <div className="flex h-full min-h-[220px] items-center justify-center px-4 text-center text-[11px] text-white/45">
+            No equity history yet. The curve appears after the first valuation snapshot.
           </div>
         ) : rows.length === 1 ? (
           <div className="flex h-full min-h-[180px] flex-col items-center justify-center gap-4 px-4">

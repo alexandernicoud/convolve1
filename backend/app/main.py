@@ -81,6 +81,17 @@ from app.routers.cnn_lab import router as cnn_lab_router
 from app.services.model_paths import require_existing_model_file
 from app.services import asset_labels
 from app.services import review_meta
+from app.services.backtest_api import (
+    ARTIFACT_FILES,
+    label_definition_mismatch,
+    query_rows,
+    read_artifact,
+    strip_paths,
+    v1_public,
+    v2_public,
+)
+
+_API_STARTED_AT = time.time()
 
 app = FastAPI(title="Labeling Optimizer API", version="1.0.0")
 
@@ -245,19 +256,36 @@ class BacktestRunRequest(BaseModel):
     slippage_pct: float = 0.05
     max_drawdown_pct: float = 20.0
     max_trades_per_day: int = 10
+    # v2 (price-based simulation) only
+    engine: str = "auto"  # "auto" | "v1" | "v2"
+    threshold_mode: str = "fixed"  # "fixed" | "validation"
+    max_exposure_pct: float = 100.0
+    max_concurrent_positions: int = 10
+    embargo_bars: int = 0
+    allow_reuse_override: bool = False
 
     @model_validator(mode="after")
     def _require_model_ref(self) -> "BacktestRunRequest":
         if not self.model_path and not self.model_id:
             raise ValueError("Either model_id or model_path is required")
+        if self.engine not in ("auto", "v1", "v2"):
+            raise ValueError("engine must be auto, v1 or v2")
+        if self.threshold_mode not in ("fixed", "validation"):
+            raise ValueError("threshold_mode must be fixed or validation")
         return self
 
 class BacktestStatusResponse(BaseModel):
-    status: str  # "queued", "running", "succeeded", "failed"
+    status: str  # "running", "succeeded", "failed", "cancelled", "interrupted"
     progress: float  # 0.0 to 1.0
     message: str
     log_tail: str
     result_ready: bool
+    api_version: int = 2
+    engine: Optional[str] = None
+    methodology: Optional[Dict[str, Any]] = None
+    terminal: bool = False
+    started_at: Optional[float] = None
+    updated_at: Optional[float] = None
 
 class BacktestResultResponse(BaseModel):
     kpis: Dict[str, Any]
@@ -2720,6 +2748,14 @@ def _finalize_testdata_from_output(config: Dict[str, Any], run_dir: Path, progre
     for png_file in png_files:
         shutil.copy2(png_file, dataset_images_path / png_file.name)
 
+    provenance_manifest = None
+    try:
+        from app.services.dataset_provenance import STAGING_DIR, finalize_into_dataset
+
+        provenance_manifest = finalize_into_dataset(output_dir / STAGING_DIR, dataset_path, dataset_id)
+    except Exception as exc:  # legacy behaviour (images only) when provenance is missing or unreadable
+        logger.warning("Could not store provenance for %s: %s", dataset_id, exc)
+
     summary = {
         "total_images": total_images,
         "label_distribution": label_distribution,
@@ -2752,6 +2788,17 @@ def _finalize_testdata_from_output(config: Dict[str, Any], run_dir: Path, progre
                     "training_run_id": config.get("training_run_id"),
                     "generator_run_id": config.get("generator_run_id"),
                     "source_run_id": run_dir.name if hasattr(run_dir, "name") else None,
+                    "label_definition": {
+                        "horizon_bars": config.get("future_horizon_bars"),
+                        "tp_frac": config.get("tp_frac"),
+                        "sl_frac": config.get("sl_frac"),
+                        "timeframe": config.get("timeframe"),
+                    },
+                    "provenance": (
+                        {"schema_version": 1, "has_market_data": True, "fingerprint": provenance_manifest.get("fingerprint")}
+                        if provenance_manifest
+                        else None
+                    ),
                 },
                 f,
                 indent=2,
@@ -2847,24 +2894,26 @@ def run_testdata_generator(config: Dict[str, Any], run_dir: Path, progress_cb: C
         progress_cb("generating", 0.05, {"message": "Starting test data generator…"})
         print(f"Starting testdata generator: {' '.join(cmd)}")
 
+        # Output goes to a file: unread pipes fill up (~64 KB) and block the script mid-run.
+        log_path = run_dir / "generator.log"
+        log_file = open(log_path, "w", encoding="utf-8", errors="replace")
         proc = popen_managed(
             run_id,
             cmd,
             cwd=str(_SCRIPTS_DIR),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
             text=True,
         )
 
         start_t = time.time()
         timeout_s = 1800
         last_count = 0
-        stdout_chunks: List[str] = []
-        stderr_chunks: List[str] = []
 
         while True:
             if _progress_phase_is_cancelled(run_id):
                 kill_managed(run_id)
+                log_file.close()
                 progress_cb("cancelled", 0.0, {"message": "Cancelled by user"})
                 return
 
@@ -2885,6 +2934,7 @@ def run_testdata_generator(config: Dict[str, Any], run_dir: Path, progress_cb: C
                 break
             if time.time() - start_t > timeout_s:
                 kill_managed(run_id)
+                log_file.close()
                 if last_count > 0:
                     progress_cb("processing", 0.82, {
                         "message": f"Timed out — saving {last_count} charts already generated…"
@@ -2895,17 +2945,8 @@ def run_testdata_generator(config: Dict[str, Any], run_dir: Path, progress_cb: C
                 return
             time.sleep(0.5)
 
-        # Drain remaining pipes
-        try:
-            out, err = proc.communicate(timeout=5)
-            if out:
-                stdout_chunks.append(out)
-            if err:
-                stderr_chunks.append(err)
-        except Exception:
-            pass
-        finally:
-            running_processes.pop(run_id, None)
+        log_file.close()
+        running_processes.pop(run_id, None)
 
         if _progress_phase_is_cancelled(run_id):
             progress_cb("cancelled", 0.0, {"message": "Cancelled by user"})
@@ -2913,7 +2954,10 @@ def run_testdata_generator(config: Dict[str, Any], run_dir: Path, progress_cb: C
 
         png_files = sorted(output_dir.glob("*.png"))
         if proc.returncode not in (0, None) and not png_files:
-            error_msg = ("".join(stderr_chunks) or "".join(stdout_chunks) or "Unknown error")[-500:]
+            try:
+                error_msg = log_path.read_text(encoding="utf-8", errors="replace")[-500:] or "Unknown error"
+            except OSError:
+                error_msg = "Unknown error"
             progress_cb("error", 0.0, {"message": f"Test data generation failed: {error_msg}"})
             return
 
@@ -3885,13 +3929,23 @@ async def get_backtester_status(run_id: str = Depends(require_owned_run)):
     if not os.path.exists(run_dir):
         raise HTTPException(status_code=404, detail="Backtester run not found")
 
-    # For completed runs, always return "done" status
+    if os.path.isfile(os.path.join(run_dir, "backtest_output", "backtest_results.json")):
+        return BacktesterStatusResponse(
+            status="done", progress=1.0, stage="done", message="Backtest completed successfully!", live_metrics=None
+        )
+    mem = backtester_runs.get(run_id)
+    if mem:
+        prog = mem.get("progress") or {}
+        return BacktesterStatusResponse(
+            status=mem.get("status", "running"),
+            progress=float(prog.get("percent", 0.0)),
+            stage=str(prog.get("phase", "running")),
+            message=strip_paths(str(prog.get("message", ""))),
+            live_metrics=None,
+        )
     return BacktesterStatusResponse(
-        status="done",
-        progress=1.0,
-        stage="done",
-        message="Backtest completed successfully!",
-        live_metrics=None
+        status="interrupted", progress=0.0, stage="interrupted",
+        message="No results were written and the run is not active.", live_metrics=None,
     )
 
 @app.get("/runs/backtester/{run_id}/result", response_model=BacktesterResultResponse)
@@ -3934,9 +3988,9 @@ async def get_backtester_chart(filename: str, run_id: str = Depends(require_owne
     if not os.path.exists(run_dir):
         raise HTTPException(status_code=404, detail="Backtester run not found")
 
-    chart_path = os.path.join(run_dir, "backtest_output", filename)
+    chart_path = safe_resolve_under(Path(run_dir) / "backtest_output", filename)
 
-    if not os.path.exists(chart_path):
+    if chart_path is None or not chart_path.is_file():
         raise HTTPException(status_code=404, detail="Chart not found")
 
     return FileResponse(chart_path)
@@ -4048,10 +4102,42 @@ async def start_backtest_run(
             detail=f"Dataset path does not exist: {raw_ds}",
         )
     payload["dataset_path"] = str(ds_path)
+    dataset_dir = ds_path.parent if ds_path.name == "images" else ds_path
+    dataset_id = dataset_id_from_path or dataset_dir.name
+    payload["dataset_id"] = dataset_id
+    caps = _backtest_dataset_capabilities(dataset_dir)
 
-    print(f"Starting backtest run {run_id} with config: {payload}")
+    engine = request.engine
+    if engine == "auto":
+        engine = "v2" if caps["engine"] == "v2" else "v1"
+    if engine == "v2":
+        if caps["engine"] != "v2":
+            raise HTTPException(status_code=422, detail=caps["reason"])
+        ld = caps["label_definition"]
+        sent = request.model_fields_set
+        if ("tp_pct" in sent and abs(request.tp_pct - ld["tp_frac"] * 100) > 1e-9) or (
+            "sl_pct" in sent and abs(request.sl_pct - ld["sl_frac"] * 100) > 1e-9
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"TP/SL must match the dataset's label definition (TP {ld['tp_frac'] * 100:g}%, "
+                    f"SL {ld['sl_frac'] * 100:g}%); exits are simulated with the same rules that defined the labels."
+                ),
+            )
+        payload.update(_v2_backtest_context(payload, dataset_dir, uid))
+    else:
+        mismatch = label_definition_mismatch(payload, caps.get("summary"))
+        if mismatch:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"TP/SL mismatch: this dataset's labels were defined at TP {mismatch['dataset_tp_pct']:g}% / "
+                    f"SL {mismatch['dataset_sl_pct']:g}%. Use the same values."
+                ),
+            )
+    payload["engine"] = engine
 
-    uid = get_current_user_id(http_request)
     register_run(
         run_id,
         "backtester",
@@ -4065,80 +4151,301 @@ async def start_backtest_run(
 
     return {"run_id": run_id}
 
+_BACKTEST_TERMINAL = {"succeeded", "failed", "cancelled", "interrupted"}
+
+
+def _backtest_effective_status(run_id: str, info: Dict[str, Any]) -> str:
+    """'interrupted' when a run is recorded as running but its process did not survive an API restart."""
+    from app.process_registry import running_processes
+
+    status = str(info.get("status") or "")
+    if status in ("cancelled", "canceled"):
+        return "cancelled"
+    if status in ("running", "queued", "pending") and run_id not in running_processes:
+        started = float(info.get("started_at") or 0)
+        if started and started < _API_STARTED_AT:
+            return "interrupted"
+    return status
+
+
+def _backtest_output_dir(run_id: str, info: Dict[str, Any]) -> Path:
+    from app.paths import find_backtest_dir
+
+    d = find_backtest_dir(run_id)
+    return (d / "output") if d else Path(info["output_dir"])
+
+
+def _backtest_dataset_capabilities(dataset_dir: Path) -> Dict[str, Any]:
+    from app.services import dataset_provenance as dprov
+    from app.services import trade_outcomes as touts
+
+    summary = _read_json_dict(str(dataset_dir / "summary.json")) or {}
+    meta = dprov.load_provenance(dataset_dir)
+    out: Dict[str, Any] = {"summary": summary, "label_definition": summary.get("label_definition")}
+    if not meta:
+        out.update(engine="v1", reason=(
+            "This dataset has no stored market data or per-sample outcomes, so only the legacy label-payoff "
+            "estimate is possible. Regenerate the test set to run a price-based simulation."
+        ))
+        return out
+    if meta.get("label_method") != touts.LABEL_METHOD_V2:
+        out.update(engine="v1", reason=f"Unsupported label method {meta.get('label_method')!r}.")
+        return out
+    oc = meta.get("outcome") or {}
+    out.update(
+        engine="v2",
+        reason=None,
+        label_definition={"horizon_bars": oc.get("horizon_bars"), "tp_frac": oc.get("tp_frac"),
+                          "sl_frac": oc.get("sl_frac"), "timeframe": oc.get("timeframe")},
+        n_samples=meta.get("n_samples"),
+        symbols=sorted(dprov.iter_symbols(meta, "sample")),
+        benchmark_symbols=sorted(dprov.iter_symbols(meta, "benchmark")),
+        price_adjustment=meta.get("price_adjustment"),
+    )
+    return out
+
+
+def _v2_backtest_context(payload: Dict[str, Any], dataset_dir: Path, uid: Optional[str]) -> Dict[str, Any]:
+    """Server-side lineage for the v2 engine: model metadata, recorded validation split, training images."""
+    meta: Optional[Dict[str, Any]] = None
+    model_ref: Dict[str, Any] = {}
+    trainer_run_id = payload.get("trainer_run_id")
+    if trainer_run_id:
+        model_ref["trainer_run_id"] = trainer_run_id
+        mpath = os.path.join(get_run_dir(str(trainer_run_id)), "model_metadata.json")
+        meta = _read_json_dict(mpath)
+        meta_path = mpath if meta else None
+    elif payload.get("model_id"):
+        model_ref["model_id"] = payload["model_id"]
+        side = find_keras_sidecar(Path(MODEL_STORAGE_ROOT), str(payload["model_id"]), uid)
+        meta_path = str(side) if side and side.is_file() else None
+        meta = _read_json_dict(meta_path) if meta_path else None
+        if meta and meta.get("training_run_id"):
+            trainer_run_id = str(meta["training_run_id"])
+    else:
+        meta_path = None
+    ctx: Dict[str, Any] = {"dataset_dir": str(dataset_dir), "model_ref": model_ref,
+                           "training_metadata_path": meta_path}
+    if trainer_run_id:
+        try:
+            assert_cross_owned(uid, trainer_run_id=str(trainer_run_id))
+            state = os.path.join(get_run_dir(str(trainer_run_id)), "training_state.json")
+            if os.path.isfile(state):
+                ctx["training_state_path"] = state
+            model_ref.setdefault("training_run_id", str(trainer_run_id))
+        except HTTPException:
+            pass
+    tr_ds = (meta or {}).get("dataset_id")
+    if tr_ds:
+        try:
+            located = _locate_dataset_dir(str(tr_ds), uid)
+        except HTTPException:
+            located = None
+        if located and os.path.isdir(os.path.join(located, "images")):
+            ctx["training_images_dir"] = os.path.join(located, "images")
+        model_ref["training_dataset_id"] = str(tr_ds)
+    ctx["prior_runs_same_pair"] = _count_prior_backtests(uid, payload.get("dataset_id"), model_ref)
+    return ctx
+
+
+def _count_prior_backtests(uid: Optional[str], dataset_id: Optional[str], model_ref: Dict[str, Any]) -> int:
+    from app.paths import backtests_dir_for, runs_root
+
+    if not dataset_id:
+        return 0
+    root = backtests_dir_for(uid) if is_user_uuid(uid) else runs_root() / "backtests"
+    n = 0
+    for d in root.iterdir() if root.is_dir() else []:
+        info = _read_json_dict(str(d / "run_info.json")) or {}
+        cfg = info.get("config") or {}
+        if cfg.get("dataset_id") != dataset_id or info.get("status") != "succeeded":
+            continue
+        if any(cfg.get(k) and cfg.get(k) == model_ref.get(k) for k in ("model_id", "trainer_run_id")):
+            n += 1
+    return n
+
+
+@app.get("/api/backtests/dataset-capabilities/{dataset_id}")
+async def get_backtest_dataset_capabilities(dataset_id: str, http_request: Request) -> Dict[str, Any]:
+    """Which engine a dataset supports, and the label definition exits must follow."""
+    uid = get_current_user_id(http_request)
+    assert_cross_owned(uid, dataset_id=dataset_id)
+    located = _locate_dataset_dir(dataset_id, uid)
+    if not located:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    caps = _backtest_dataset_capabilities(Path(located))
+    caps.pop("summary", None)
+    return {"dataset_id": dataset_id, **caps}
+
+
 @app.get("/api/backtests/{run_id}", response_model=BacktestStatusResponse)
 async def get_backtest_status(run_id: str = Depends(require_owned_run)):
     """Get backtest run status with logs and progress"""
-    from runners.new_backtester_runner import get_run_info
+    from runners.new_backtester_runner import get_run_info, methodology_of
 
     info = get_run_info(run_id)
     if not info:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    # Check if results are ready
-    result_ready = False
-    if info["status"] == "succeeded":
-        output_dir = Path(info["output_dir"])
-        results_file = output_dir / "backtest_results.json"
-        result_ready = results_file.exists()
+    status = _backtest_effective_status(run_id, info)
+    result_ready = status == "succeeded" and (_backtest_output_dir(run_id, info) / "backtest_results.json").exists()
+    message = info.get("message", "")
+    if status == "interrupted":
+        message = "The server restarted while this backtest was running. It was not resumed or retried; start a new run."
 
     return {
-        "status": info["status"],
-        "progress": info["progress"],
-        "message": info.get("message", ""),
-        "log_tail": info.get("logs", ""),
-        "result_ready": result_ready
+        "status": status,
+        "progress": info.get("progress", 0.0),
+        "message": strip_paths(message),
+        "log_tail": strip_paths(info.get("logs", "")),
+        "result_ready": result_ready,
+        "engine": info.get("engine") or "v1",
+        "methodology": methodology_of(info),
+        "terminal": status in _BACKTEST_TERMINAL,
+        "started_at": info.get("started_at"),
+        "updated_at": info.get("updated_at"),
     }
 
-@app.get("/api/backtests/{run_id}/results", response_model=BacktestResultResponse)
-async def get_backtest_results(run_id: str = Depends(require_owned_run)):
-    """Get backtest results when ready"""
+
+def _load_backtest_results(run_id: str) -> Tuple[Dict[str, Any], Dict[str, Any], Path]:
     from runners.new_backtester_runner import get_run_info
 
     info = get_run_info(run_id)
     if not info:
         raise HTTPException(status_code=404, detail="Run not found")
-
-    if info["status"] != "succeeded":
+    if _backtest_effective_status(run_id, info) != "succeeded":
         raise HTTPException(status_code=409, detail="Results not ready yet")
-
-    output_dir = Path(info["output_dir"])
-    results_file = output_dir / "backtest_results.json"
-
-    if not results_file.exists():
+    out = _backtest_output_dir(run_id, info)
+    results = _read_json_dict(str(out / "backtest_results.json"))
+    if results is None:
         raise HTTPException(status_code=409, detail="Results file not found")
+    return info, results, out
 
-    # Load results
-    with open(results_file, 'r') as f:
-        results = json.load(f)
 
-    # Convert chart paths to URLs
-    charts = {}
-    charts_dir = output_dir / "charts"
-    if charts_dir.exists():
-        for chart_file in sorted(charts_dir.glob("*.png")) + sorted(charts_dir.glob("*.svg")):
-            chart_name = chart_file.stem
-            charts[chart_name] = f"/api/backtests/{run_id}/files/charts/{chart_file.name}"
+def _is_v2(info: Dict[str, Any], results: Dict[str, Any]) -> bool:
+    return info.get("engine") == "v2" and (results.get("methodology") or {}).get("id") == "price_sim_v2"
 
-    timestamp = results.get("timestamp")
-    if not timestamp and info.get("started_at"):
-        try:
-            timestamp = datetime.fromtimestamp(info["started_at"]).isoformat()
-        except Exception:
-            timestamp = None
 
-    return {
-        "kpis": results.get("kpis", {}),
-        "charts": charts,
-        "trades": results.get("trades", []),
-        "summary": results.get("summary", {}),
-        "config": results.get("config") or info.get("config"),
-        "timestamp": timestamp,
-        # Full timeline (incl. predicted_label 0 / NO_TRADE) for ledger & charts — must not be stripped
-        "chart_events": results.get("chart_events"),
-        "series": results.get("series"),
-        "benchmark": results.get("benchmark"),
-        "classification_metrics": results.get("classification_metrics"),
-    }
+def _v1_dataset_summary(info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    ds = str((info.get("config") or {}).get("dataset_path") or "")
+    if not ds:
+        return None
+    p = Path(ds)
+    return _read_json_dict(str((p.parent if p.name == "images" else p) / "summary.json"))
+
+
+@app.get("/api/backtests/{run_id}/results")
+async def get_backtest_results(run_id: str = Depends(require_owned_run)):
+    """Legacy-compatible results; v1 runs are returned through the sanitizing adapter."""
+    info, results, _ = _load_backtest_results(run_id)
+    if _is_v2(info, results):
+        return v2_public(results)
+    out = v1_public(results, info, _v1_dataset_summary(info))
+    if not out.get("timestamp") and info.get("started_at"):
+        out["timestamp"] = datetime.fromtimestamp(info["started_at"]).isoformat()
+    return out
+
+
+@app.get("/api/v2/backtests/{run_id}/summary")
+async def get_backtest_summary_v2(run_id: str = Depends(require_owned_run)):
+    info, results, _ = _load_backtest_results(run_id)
+    if _is_v2(info, results):
+        return v2_public(results)
+    out = v1_public(results, info, _v1_dataset_summary(info))
+    if not out.get("timestamp") and info.get("started_at"):
+        out["timestamp"] = datetime.fromtimestamp(info["started_at"]).isoformat()
+    return out
+
+
+def _require_v2(run_id: str) -> Tuple[Dict[str, Any], Dict[str, Any], Path]:
+    info, results, out = _load_backtest_results(run_id)
+    if not _is_v2(info, results):
+        raise HTTPException(status_code=404, detail="Not available for legacy label-payoff runs")
+    return info, results, out
+
+
+@app.get("/api/v2/backtests/{run_id}/trades")
+async def get_backtest_trades_v2(
+    run_id: str = Depends(require_owned_run),
+    offset: int = 0,
+    limit: int = 100,
+    q: Optional[str] = None,
+    symbol: Optional[str] = None,
+    status: Optional[str] = None,
+    exit_reason: Optional[str] = None,
+    outcome: Optional[str] = None,
+    prob_min: Optional[float] = None,
+    prob_max: Optional[float] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    sort: Optional[str] = None,
+    order: str = "asc",
+):
+    _, _, out = _require_v2(run_id)
+    return query_rows(read_artifact(out, "trades"), offset=offset, limit=limit, q=q, symbol=symbol, status=status,
+                      exit_reason=exit_reason, outcome=outcome, prob_min=prob_min, prob_max=prob_max,
+                      date_from=date_from, date_to=date_to, date_field="entry_ts", sort=sort, order=order)
+
+
+@app.get("/api/v2/backtests/{run_id}/predictions")
+async def get_backtest_predictions_v2(
+    run_id: str = Depends(require_owned_run), offset: int = 0, limit: int = 200, symbol: Optional[str] = None,
+    sort: Optional[str] = None, order: str = "asc",
+):
+    _, _, out = _require_v2(run_id)
+    return query_rows(read_artifact(out, "predictions"), offset=offset, limit=limit, symbol=symbol, sort=sort, order=order)
+
+
+@app.get("/api/v2/backtests/{run_id}/skipped")
+async def get_backtest_skipped_v2(run_id: str = Depends(require_owned_run), offset: int = 0, limit: int = 200):
+    _, _, out = _require_v2(run_id)
+    return query_rows(read_artifact(out, "skipped"), offset=offset, limit=limit)
+
+
+@app.get("/api/v2/backtests/{run_id}/equity")
+async def get_backtest_equity_v2(run_id: str = Depends(require_owned_run)):
+    _, results, out = _require_v2(run_id)
+    return {"equity": read_artifact(out, "equity"), "benchmarks": read_artifact(out, "benchmarks"),
+            "benchmark_info": results.get("benchmarks")}
+
+
+@app.get("/api/v2/backtests/{run_id}/metrics")
+async def get_backtest_metrics_v2(run_id: str = Depends(require_owned_run)):
+    _, results, _ = _require_v2(run_id)
+    return {k: results.get(k) for k in ("trading_metrics", "classification_metrics", "robustness",
+                                        "threshold_sweep", "threshold", "diagnostics")}
+
+
+@app.get("/api/v2/backtests/{run_id}/findings")
+async def get_backtest_findings_v2(run_id: str = Depends(require_owned_run)):
+    _, results, _ = _require_v2(run_id)
+    return {"findings": results.get("findings") or [], "evaluation_class": results.get("evaluation_class"),
+            "leakage_audit": results.get("leakage_audit")}
+
+
+@app.get("/api/v2/backtests/{run_id}/artifacts/{name}.csv")
+async def download_backtest_artifact_v2(name: str, run_id: str = Depends(require_owned_run)):
+    _, _, out = _require_v2(run_id)
+    fname = ARTIFACT_FILES.get(name)
+    if not fname or not (out / fname).is_file():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return FileResponse(out / fname, media_type="text/csv", filename=f"{run_id[:8]}_{fname}")
+
+
+@app.get("/api/v2/backtests/{run_id}/sample-image/{image_id}")
+async def get_backtest_sample_image(image_id: str, run_id: str = Depends(require_owned_run)):
+    """Chart image of a test sample, addressed by basename within the run's own dataset."""
+    from runners.new_backtester_runner import get_run_info
+    from app.services.cnn_lab.core import image_path
+
+    info = get_run_info(run_id) or {}
+    ds = str((info.get("config") or {}).get("dataset_path") or "")
+    if not ds:
+        raise HTTPException(status_code=404, detail="Image not found")
+    path = image_path(ds, image_id)
+    if not path:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(path, media_type="image/png")
 
 @app.get("/api/backtests/{run_id}/files/{path:path}")
 async def get_backtest_file(path: str, run_id: str = Depends(require_owned_run)):
@@ -4262,6 +4569,9 @@ def update_testdata_progress(run_id: str, phase: str, percent: float, data: Dict
     except OSError:
         pass
 
+_TESTDATA_RECOVERY_QUIET_S = 120
+
+
 def _maybe_recover_testdata_run(run_id: str, run_dir: Path) -> Optional[Dict[str, Any]]:
     """If a run left PNGs in output/ but never wrote results (crash/timeout/restart), finalize now."""
     results_file = run_dir / "testdata_results.json"
@@ -4286,6 +4596,15 @@ def _maybe_recover_testdata_run(run_id: str, run_dir: Path) -> Optional[Dict[str
     in_mem = testdata_runs.get(run_id)
     if in_mem and in_mem.get("status") == "running":
         return None
+    # A generator that outlived this API process (restart / reload) may still be writing charts:
+    # finalizing now would register a truncated dataset without its provenance.
+    if not (output_dir / "_provenance" / "provenance.json").is_file():
+        try:
+            newest = max(p.stat().st_mtime for p in output_dir.iterdir())
+        except (OSError, ValueError):
+            newest = 0.0
+        if time.time() - newest < _TESTDATA_RECOVERY_QUIET_S:
+            return None
     cfg = _load_testdata_config(run_dir)
     if not cfg:
         cfg = {"dataset_name": f"testset_{run_id[-8:]}"}
@@ -5154,6 +5473,20 @@ def _build_review_overview(user_id: Optional[str]) -> Dict[str, Any]:
             route=f"/tools/backtester/runs/{rid}",
         )
 
+    # Backtest completion lives in run_info.json. Runners before Backtester 2.0 never wrote a terminal
+    # status to pipeline_runs, so the orphan reconciler marked finished runs interrupted after a restart.
+    reconciled_from_disk: set = set()
+    for rid, info in backtest_infos.items():
+        r = runs_by_id.get(rid)
+        if r is None or r.status not in ("running", "queued", "interrupted"):
+            continue
+        if info.get("status") == "succeeded" and (backtest_dirs[rid] / "output" / "backtest_results.json").is_file():
+            runs_by_id[rid] = r.model_copy(update={"status": "succeeded", "progress": 1.0})
+            reconciled_from_disk.add(rid)
+        elif info.get("status") == "failed":
+            runs_by_id[rid] = r.model_copy(update={"status": "failed", "message": strip_paths(str(info.get("message") or ""))})
+            reconciled_from_disk.add(rid)
+
     if owned is not None:
         owned = owned_run_ids(user_id)
         runs_by_id = {rid: row for rid, row in runs_by_id.items() if rid in owned}
@@ -5222,6 +5555,8 @@ def _build_review_overview(user_id: Optional[str]) -> Dict[str, Any]:
         node = f"run:{run.id}"
 
         state = persisted_states.get(run.id) or {}
+        if run.id in reconciled_from_disk:
+            state = {k: v for k, v in state.items() if k != "error_summary"}
         terminal = run.status in TERMINAL_RUN_STATUSES
         finished_at = state.get("finished_at") or (run.updated_at if terminal else None)
         row["finished_at"] = finished_at
@@ -6024,20 +6359,26 @@ def _review_run_detail(run_id: str, user_id: Optional[str]) -> Dict[str, Any]:
         info = _read_json_dict(str(bdir / "run_info.json")) if bdir else None
         info = info or {}
         results = None
+        results_dir: Optional[str] = None
         if bdir is not None:
             results = review_meta.read_json_dict_cached(str(bdir / "output" / "backtest_results.json"))
+            results_dir = str(bdir / "output") if results is not None else None
             if results is None and info.get("output_dir"):
                 results = review_meta.read_json_dict_cached(os.path.join(str(info["output_dir"]), "backtest_results.json"))
+                results_dir = str(info["output_dir"]) if results is not None else None
         cfg = info.get("config") if isinstance(info.get("config"), dict) else {}
         out["backtest"] = review_meta.backtest_summary(info, results)
         out["backtest"]["links"] = _parse_backtest_links(cfg) if cfg else {}
-        out["backtest"]["equity"] = review_meta.backtest_equity(results)
+        out["backtest"]["equity"] = review_meta.backtest_equity(results, output_dir=results_dir)
         out["backtest"]["benchmark"] = (
             {k: v for k, v in (results or {}).get("benchmark", {}).items() if k in ("spy_ticker", "underlying_ticker", "phase_start", "phase_end", "error")}
             if isinstance((results or {}).get("benchmark"), dict)
             else None
         )
-        out["backtest"]["trade_count"] = len(results.get("trades") or []) if results else None
+        if review_meta.is_price_sim(results):
+            out["backtest"]["trade_count"] = (results.get("trading_metrics") or {}).get("executed_trades")
+        else:
+            out["backtest"]["trade_count"] = len(results.get("trades") or []) if results else None
         out["backtest"]["status"] = info.get("status")
     elif tool == "labeling-optimizer":
         ocfg = _read_json_dict(os.path.join(run_dir, "optimizer_config.json"))

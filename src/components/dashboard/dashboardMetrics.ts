@@ -20,7 +20,7 @@ export function formatReturnPct(pct: number) {
 export function capitalOverview(overview: DashboardOverview | undefined, bots: Bot[]) {
   const start =
     overview?.total_starting_capital ??
-    bots.reduce((s, b) => s + (b.starting_capital ?? 10000), 0);
+    bots.reduce((s, b) => s + (b.starting_capital ?? 0), 0);
   const realized = overview?.total_realized_pnl ?? 0;
   const openMtm = overview?.open_unrealized_pnl ?? 0;
   const equity =

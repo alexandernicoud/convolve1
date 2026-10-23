@@ -642,7 +642,7 @@ def run_sensitivity(ctx: Ctx, params: Dict[str, Any]) -> Dict[str, Any]:
             "patch": occ_patch,
             "fill": "white",
             "grid": list(mean_occ.shape),
-            "map": core.encode_map(mean_occ, normalization="Mean Δ target probability; mid-grey = no change; symmetric ±max", vmin=-lim, vmax=lim),
+            "map": core.encode_map(mean_occ, normalization="Mean Δ target probability; centre colour = no change; symmetric ±max", vmin=-lim, vmax=lim),
             "values": mean_occ.round(5).tolist(),
         }
 

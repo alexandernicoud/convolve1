@@ -102,13 +102,13 @@ function AtlasResults({ res, job }: { res: AtlasResult; job: Parameters<typeof J
           <div className="lg:col-span-4">
             <MapCanvas map={res.mean_map} thirds label="Mean Grad-CAM" />
             <div className="mt-2">
-              <MapScale palette="sequential" min={res.mean_map.min} max={res.mean_map.max} format={(v) => fmtNum(v, 2)} note={res.mean_map.normalization} />
+              <MapScale surface="dark" palette="sequential" min={res.mean_map.min} max={res.mean_map.max} format={(v) => fmtNum(v, 2)} note={res.mean_map.normalization} />
             </div>
           </div>
           <div className="lg:col-span-4">
             <MapCanvas map={res.std_map} thirds label="Standard deviation" />
             <div className="mt-2">
-              <MapScale palette="sequential" min={res.std_map.min} max={res.std_map.max} format={(v) => fmtNum(v, 2)} note="Dispersion across images: where individual maps disagree most." />
+              <MapScale surface="dark" palette="sequential" min={res.std_map.min} max={res.std_map.max} format={(v) => fmtNum(v, 2)} note="Dispersion across images: where individual maps disagree most." />
             </div>
           </div>
           <div className="space-y-3 lg:col-span-4">
@@ -257,7 +257,7 @@ function GroupComparison({ res }: { res: AtlasResult }) {
               {diff.a} − {diff.b}
             </p>
             <div className="mt-2">
-              <MapScale palette="diverging" min={diff.map.min} max={diff.map.max} format={(v) => fmtNum(v, 2)} lowLabel={`more in ${diff.b}`} highLabel={`more in ${diff.a}`} note={diff.map.normalization} />
+              <MapScale surface="dark" palette="diverging" min={diff.map.min} max={diff.map.max} format={(v) => fmtNum(v, 2)} lowLabel={`more in ${diff.b}`} highLabel={`more in ${diff.a}`} note={diff.map.normalization} />
             </div>
           </div>
         ) : null}

@@ -1,172 +1,219 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { MotionConfig, motion, useReducedMotion } from "framer-motion";
-import { ArrowRight } from "lucide-react";
+import { MotionConfig, motion, useReducedMotion, useScroll, useTransform, type MotionValue } from "framer-motion";
 import { screen } from "./data";
-import { Container, EASE, Kicker, M2Footer, PrimaryCta, Reveal, SecondaryCta, useStartHref } from "./ui";
-import { GradientLandscape } from "./visuals/GradientLandscape";
+import { Container, EASE, Kicker, M2Footer, Pinned, PrimaryCta, ScrollIn, SecondaryCta, SectionHead, usePinEnabled, useStartHref } from "./ui";
+import { DatasetAssembly } from "./visuals/DatasetAssembly";
 import { HeroFlow } from "./visuals/HeroFlow";
+import { Mathematics } from "./visuals/Mathematics";
 import { ModelLab } from "./visuals/ModelLab";
 import { Operations } from "./visuals/Operations";
+import { ProductStack } from "./visuals/ProductStack";
+import { QuickStart } from "./visuals/QuickStart";
 import { Showcase } from "./visuals/Showcase";
 import { Workflow } from "./visuals/Workflow";
 
-function SectionHead({ index, label, title, intro }: { index: string; label: string; title: ReactNode; intro?: ReactNode }) {
-  return (
-    <div className="grid gap-6 lg:grid-cols-12 lg:items-end">
-      <Reveal className="lg:col-span-7">
-        <Kicker index={index}>{label}</Kicker>
-        <h2 className="mt-5 text-[clamp(2rem,4vw,3.5rem)] font-medium leading-[1.05] tracking-[-0.035em] text-white">{title}</h2>
-      </Reveal>
-      {intro ? (
-        <Reveal className="lg:col-span-4 lg:col-start-9" delay={0.1}>
-          <p className="text-[15.5px] leading-relaxed text-white/55">{intro}</p>
-        </Reveal>
-      ) : null}
-    </div>
-  );
-}
 
 function Hero() {
   const reduce = useReducedMotion();
   const start = useStartHref();
+  const ref = useRef<HTMLElement>(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
+  const fade = useTransform(scrollYProgress, [0, 0.7], [1, reduce ? 1 : 0.2]);
+  const textY = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : -70]);
+  const consoleY = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : 50]);
   const enter = (delay: number) =>
     reduce ? {} : { initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.9, ease: EASE, delay } };
+  const lines = ["Build your own", "CNN trading models."];
   return (
-    <section className="relative overflow-hidden">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-[0.5] [background-image:linear-gradient(rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.045)_1px,transparent_1px)] [background-size:64px_64px] [mask-image:radial-gradient(ellipse_70%_60%_at_60%_40%,black,transparent)]"
-      />
-      <div aria-hidden className="pointer-events-none absolute -top-40 right-[-10%] h-[620px] w-[900px] bg-[radial-gradient(closest-side,rgba(185,211,255,0.08),transparent)]" />
-      <Container className="relative grid min-h-[calc(100svh-80px)] items-center gap-12 pb-16 pt-10 lg:grid-cols-12 lg:gap-10 lg:pb-20">
-        <div className="lg:col-span-5">
+    <section ref={ref} className="relative">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-[260px] border-t border-white/[0.07] bg-gradient-to-b from-[#0c0d0f] to-[#050506] lg:block" />
+      <Container className="relative pb-16 pt-10 lg:pb-14 lg:pt-12">
+        <motion.div style={{ opacity: fade, y: textY }}>
           <motion.div {...enter(0)}>
-            <Kicker>No-code CNN research and trading</Kicker>
+            <Kicker>CNN research workspace</Kicker>
           </motion.div>
-          <motion.h1
-            className="mt-7 text-[clamp(2.5rem,8.4vw,3.9rem)] font-medium leading-[1.0] tracking-[-0.045em] text-white lg:text-[clamp(2.9rem,3.8vw,3.9rem)]"
-            {...enter(0.08)}
-          >
-            Build, research and deploy your own CNN trading models.
-            <span className="mt-2 block bg-gradient-to-r from-white via-white/80 to-[#9aa6b6] bg-clip-text text-transparent">Without writing code.</span>
-          </motion.h1>
-          <motion.p className="mt-7 max-w-[30rem] text-[17px] leading-relaxed text-white/60" {...enter(0.2)}>
-            Turn price history into chart datasets, train convolutional networks, see what they learned, backtest them and run them as
-            bots. One workspace.
-          </motion.p>
-          <motion.div className="mt-9 flex flex-wrap gap-3" {...enter(0.3)}>
-            <PrimaryCta to={start}>Start building</PrimaryCta>
-            <SecondaryCta href="#workflow">See the workflow</SecondaryCta>
+          <h1 className="mt-6 text-[clamp(2.6rem,4.7vw,5.6rem)] font-normal leading-[1.0] tracking-[-0.042em] text-white">
+            {lines.map((l, i) => (
+              <span key={l} className="-mb-[0.14em] block overflow-hidden pb-[0.14em]">
+                <motion.span
+                  className={i === 0 ? "block text-white/55" : "block"}
+                  initial={reduce ? false : { y: "105%" }}
+                  animate={{ y: 0 }}
+                  transition={{ duration: 1.1, ease: EASE, delay: 0.1 + i * 0.12 }}
+                >
+                  {l}
+                </motion.span>
+              </span>
+            ))}
+          </h1>
+        </motion.div>
+
+        <div className="mt-8 grid gap-12 lg:mt-12 lg:grid-cols-12 lg:gap-10 2xl:gap-14">
+          <motion.div className="flex flex-col lg:col-span-4 lg:pb-12 xl:col-span-3" style={{ y: textY }}>
+            <motion.p className="max-w-[26rem] text-[18px] leading-[1.6] text-white/60" {...enter(0.4)}>
+              Research them, backtest them fairly and deploy the ones that hold up as paper bots.
+            </motion.p>
+            <motion.div className="mt-6 inline-flex w-fit items-center gap-2 rounded-full border border-white/[0.14] px-3.5 py-1.5 text-[14.5px] text-white/85" {...enter(0.48)}>
+              <span className="h-1.5 w-1.5 rounded-full bg-white" aria-hidden />
+              No code required
+            </motion.div>
+            <motion.div className="mt-9 flex flex-wrap gap-3" {...enter(0.55)}>
+              <PrimaryCta to={start} size="lg">
+                Start building
+              </PrimaryCta>
+              <SecondaryCta href="#workflow" size="lg">
+                See how it works
+              </SecondaryCta>
+            </motion.div>
+            <motion.a
+              href="#workflow"
+              className="group mt-auto hidden items-center gap-3 pt-16 text-[14px] text-white/45 transition-colors hover:text-white lg:flex"
+              {...enter(0.8)}
+            >
+              <span className="relative h-10 w-px overflow-hidden bg-white/15" aria-hidden>
+                <motion.span
+                  className="absolute inset-x-0 top-0 h-4 bg-white/70"
+                  animate={reduce ? undefined : { y: [-16, 40] }}
+                  transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut", repeatDelay: 0.6 }}
+                />
+              </span>
+              Follow one chart through the workflow
+            </motion.a>
           </motion.div>
-          <motion.p className="mt-10 max-w-[30rem] border-t border-white/[0.08] pt-5 text-[13px] leading-relaxed text-white/40" {...enter(0.4)}>
-            Whether CNNs can read markets from charts is an open research question. Convolve lets you test it on your own data.
-          </motion.p>
-        </div>
-        <div className="min-w-0 lg:col-span-7">
-          <HeroFlow />
+          <motion.div className="relative z-10 min-w-0 lg:col-span-8 xl:col-span-9" style={{ y: consoleY }}>
+            <HeroFlow />
+          </motion.div>
         </div>
       </Container>
     </section>
   );
 }
 
-function OptimisationContrast() {
+const CTA_SHOTS = ["opt_heatmap", "representation", "bt_overview"];
+
+function ShotCard({ s, i, p }: { s: string; i: number; p: MotionValue<number> }) {
+  const reduce = useReducedMotion();
+  const x = useTransform(p, [0, 1], reduce ? [`${i * 13}%`, `${i * 13}%`] : ["13%", `${i * 13}%`]);
+  const y = useTransform(p, [0, 1], reduce ? [`${i * 15}%`, `${i * 15}%`] : [`${15 + i * 4}%`, `${i * 15}%`]);
+  const rotate = useTransform(p, [0, 1], reduce ? [-3 + i * 3, -3 + i * 3] : [0, -3 + i * 3]);
   return (
-    <div className="mt-10 grid gap-px overflow-hidden rounded-[14px] border border-white/[0.08] bg-white/[0.08] md:grid-cols-2">
-      <div className="bg-[#050506] p-5">
-        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Training · gradient descent</div>
-        <p className="mt-2 text-[14.5px] leading-relaxed text-white/70">
-          Weights follow the gradient of the loss. Convolve watches validation loss, stops early and restores the best epoch.
-        </p>
+    <motion.div
+      className="absolute left-0 top-0 w-[74%] overflow-hidden rounded-[14px] border border-white/[0.14] bg-[#08090b] shadow-[0_40px_100px_-30px_rgba(0,0,0,0.95)]"
+      style={{ x, y, rotate, zIndex: i }}
+    >
+      <div className="flex h-7 items-center gap-1.5 border-b border-white/[0.07] px-3" aria-hidden>
+        <span className="h-2 w-2 rounded-full bg-white/20" />
+        <span className="h-2 w-2 rounded-full bg-white/12" />
+        <span className="h-2 w-2 rounded-full bg-white/12" />
       </div>
-      <div className="bg-[#050506] p-5">
-        <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/40">Label search · exhaustive grid</div>
-        <p className="mt-2 text-[14.5px] leading-relaxed text-white/70">
-          No gradients. The Labeling Optimizer scores every take-profit, stop-loss and horizon combination.{" "}
-          <a href="#workspace" className="inline-flex items-center gap-1 text-white underline-offset-4 hover:underline">
-            See the search space <ArrowRight className="h-3 w-3" aria-hidden />
-          </a>
-        </p>
-      </div>
-    </div>
+      <img src={screen(s)} alt="" loading="lazy" className="block aspect-[16/10] w-full" />
+    </motion.div>
   );
 }
 
-const CTA_SHOTS = ["opt_heatmap", "representation", "bt_overview"];
-
 function CtaMockup() {
-  const reduce = useReducedMotion();
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start 0.95", "center 0.5"] });
   return (
-    <div className="relative mx-auto aspect-[16/12] w-full max-w-[640px]">
-      <div aria-hidden className="pointer-events-none absolute -inset-[12%] bg-[radial-gradient(closest-side,rgba(185,211,255,0.14),transparent)]" />
+    <div ref={ref} className="relative mx-auto aspect-[16/12.5] w-full max-w-[820px]">
       {CTA_SHOTS.map((s, i) => (
-        <motion.div
-          key={s}
-          className="absolute w-[78%] overflow-hidden rounded-[12px] border border-white/[0.12] bg-[#08090b] shadow-[0_30px_80px_-30px_rgba(0,0,0,0.95)]"
-          style={{ left: `${i * 11}%`, top: `${i * 13}%`, zIndex: i }}
-          initial={reduce ? false : { opacity: 0, y: 24, rotate: -2 + i * 2 }}
-          whileInView={{ opacity: 1, y: 0, rotate: -2 + i * 2 }}
-          viewport={{ once: true, amount: 0.3 }}
-          transition={{ duration: 0.8, ease: EASE, delay: 0.1 + i * 0.12 }}
-        >
-          <div className="flex h-6 items-center gap-1 border-b border-white/[0.07] px-2.5" aria-hidden>
-            <span className="h-1.5 w-1.5 rounded-full bg-white/20" />
-            <span className="h-1.5 w-1.5 rounded-full bg-white/12" />
-            <span className="h-1.5 w-1.5 rounded-full bg-white/12" />
-          </div>
-          <img src={screen(s)} alt="" loading="lazy" className="block aspect-[16/10] w-full" />
-        </motion.div>
+        <ShotCard key={s} s={s} i={i} p={scrollYProgress} />
       ))}
     </div>
   );
 }
 
-function MissionAndCta() {
+function Closing() {
   const start = useStartHref();
+  const reduce = useReducedMotion();
+  const words = ["Make trading", "scientific", "again."];
   return (
-    <>
-      <div className="grid gap-8 lg:grid-cols-12">
-        <Reveal className="lg:col-span-3">
-          <Kicker index="06">Mission</Kicker>
-        </Reveal>
-        <div className="lg:col-span-8">
-          <Reveal>
-            <p className="text-[clamp(1.6rem,3vw,2.6rem)] font-light leading-[1.2] tracking-[-0.025em] text-white">
-              Quantitative AI research should not require a research team. Convolve lowers the technical barrier so anyone can build
-              and test CNN trading models carefully.
-            </p>
-          </Reveal>
-          <Reveal delay={0.08} className="mt-6 flex flex-wrap items-center justify-between gap-4">
-            <p className="max-w-xl text-[14px] leading-relaxed text-white/45">
-              It makes rigorous experiments easier to run. It does not promise they will beat the market.
-            </p>
-            <Link to="/about2" className="group inline-flex items-center gap-2 text-[14px] text-white/75 transition-colors hover:text-white">
-              Why Convolve exists
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+    <section className="relative overflow-hidden border-t border-white/[0.06] py-24 lg:py-32">
+      <Container className="relative grid gap-16 lg:grid-cols-12 lg:items-center lg:gap-10">
+        <div className="lg:col-span-5">
+          <Kicker>Convolve</Kicker>
+          <motion.h2
+            className="mt-6 text-[clamp(2rem,2.9vw,3.2rem)] font-normal leading-[1.06] tracking-[-0.035em] text-white"
+            initial={reduce ? false : "hidden"}
+            whileInView="shown"
+            viewport={{ once: true, amount: 0.4 }}
+          >
+            {words.map((w, i) => (
+              <span key={w} className="-mb-[0.08em] block overflow-hidden pb-[0.16em]">
+                <motion.span
+                  className={i === 2 ? "block text-white/45" : "block"}
+                  variants={{ hidden: { y: "105%" }, shown: { y: 0 } }}
+                  transition={{ duration: 1.1, ease: EASE, delay: i * 0.12 }}
+                >
+                  {w}
+                </motion.span>
+              </span>
+            ))}
+          </motion.h2>
+          <p className="mt-6 max-w-md text-[17px] leading-[1.65] text-white/55">
+            Rigorous experiments, without the code. Convolve makes them easier to run; it does not promise they will beat the market.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <PrimaryCta to={start}>
+              Open the workspace
+            </PrimaryCta>
+            <SecondaryCta href="#workflow">
+              See the workflow
+            </SecondaryCta>
+          </div>
+          <div className="mt-8 flex gap-7 text-[14.5px]">
+            <Link to="/about" className="text-white/50 transition-colors hover:text-white">
+              About Convolve
             </Link>
-          </Reveal>
+            <Link to="/contact" className="text-white/50 transition-colors hover:text-white">
+              Contact
+            </Link>
+          </div>
         </div>
-      </div>
+        <div className="lg:col-span-7">
+          <CtaMockup />
+        </div>
+      </Container>
+    </section>
+  );
+}
 
-      <Reveal className="mt-20 lg:mt-28">
-        <div className="flex flex-col overflow-hidden rounded-[28px] border border-white/[0.14] bg-white/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_36px_100px_-48px_rgba(0,0,0,0.78)] sm:rounded-[32px] lg:min-h-[560px] lg:flex-row">
-          <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-10 sm:py-14 lg:max-w-[48%] lg:px-14">
-            <Kicker>Start</Kicker>
-            <h2 className="mt-4 text-balance text-[clamp(2.1rem,4.6vw,3.7rem)] font-normal leading-[1.1] tracking-[-0.03em] text-white">
-              <span className="font-semibold">Start developing</span> <span className="text-white/70">your trading AI with convolve.</span>
-            </h2>
-            <div className="mt-10 flex flex-wrap gap-3">
-              <PrimaryCta to={start}>Get started</PrimaryCta>
-              <SecondaryCta to="/contact">Contact</SecondaryCta>
+
+function ModelSection() {
+  const pin = usePinEnabled();
+  const head = (
+    <SectionHead
+      index="03"
+      label="Inside the model"
+      title="See what the network sees."
+      intro="Real attention maps on real charts. Switch method or chart at any point."
+    />
+  );
+  if (!pin)
+    return (
+      <section id="model" className="scroll-mt-20 border-t border-white/[0.06] py-24">
+        <Container>
+          {head}
+          <ScrollIn className="mt-12">
+            <ModelLab />
+          </ScrollIn>
+        </Container>
+      </section>
+    );
+  return (
+    <section id="model" className="scroll-mt-20 border-t border-white/[0.06]">
+      <Pinned length="270vh">
+        {(p) => (
+          <Container>
+            {head}
+            <div className="mt-7">
+              <ModelLab progress={p} />
             </div>
-          </div>
-          <div className="relative flex flex-1 items-center justify-center px-6 pb-12 pt-2 sm:px-10 lg:py-14 lg:pr-12">
-            <CtaMockup />
-          </div>
-        </div>
-      </Reveal>
-    </>
+          </Container>
+        )}
+      </Pinned>
+    </section>
   );
 }
 
@@ -185,82 +232,69 @@ export default function Home2Page() {
       <div className="relative overflow-x-clip bg-[#050506] text-white antialiased">
         <Hero />
 
-        <section id="workflow" className="scroll-mt-20 border-t border-white/[0.06] py-20 lg:py-28">
+        <DatasetAssembly />
+
+        <section id="workflow" className="scroll-mt-20 pb-24 pt-20 lg:pb-32">
           <Container>
-            <SectionHead
-              index="01"
-              label="Workflow"
-              title="Six steps from prices to a running bot."
-              intro="Each step hands its output to the next. Two are optional, and you can return to any of them."
-            />
-            <div className="mt-12">
+            <SectionHead index="01" label="Workflow" title="From a label rule to a running bot." intro="Each tool hands its result to the next. Dashed stages are optional; any stage can be revisited." />
+            <ScrollIn className="mt-14">
               <Workflow />
-            </div>
+            </ScrollIn>
           </Container>
         </section>
 
-        <section id="workspace" className="scroll-mt-20 border-t border-white/[0.06] py-20 lg:py-28">
+        <section id="workspace" className="scroll-mt-20 border-t border-white/[0.06] pb-20 pt-24 lg:pb-28 lg:pt-32">
           <Container>
-            <SectionHead
-              index="02"
-              label="The workspace"
-              title="Real tools, real outputs."
-              intro="Screenshots and live components from a local MSFT research run and an INTC label search. Expand any screenshot."
-            />
-            <div className="mt-12">
+            <SectionHead index="02" label="The workspace" title="Inside the research workspace." intro="Six connected tools, each shown on a real local research run." />
+            <div className="mt-12 lg:mt-6">
               <Showcase />
             </div>
           </Container>
         </section>
 
-        <section id="model" className="scroll-mt-20 border-t border-white/[0.06] py-20 lg:py-28">
-          <Container>
-            <SectionHead
-              index="03"
-              label="Inside the model"
-              title="See what the network sees."
-              intro="Attention maps for real charts, aligned pixel for pixel, next to the mathematics that produced them. Convolve runs every equation; you choose the experiment."
-            />
-            <div className="mt-12">
-              <ModelLab />
-            </div>
-          </Container>
-        </section>
+        <ModelSection />
 
-        <section className="border-t border-white/[0.06] py-20 lg:py-28">
+        <section id="math" className="scroll-mt-20 border-t border-white/[0.06] pt-24 lg:pt-32">
           <Container>
             <SectionHead
               index="04"
-              label="Optimisation"
-              title="How a network learns."
-              intro="Scroll to descend. Click the contour map to start somewhere else and compare plain gradient descent with momentum."
+              label="The computation"
+              title="From pixels to a prediction."
+              intro="Five operations, repeated, turn a chart into a probability. Matching colours link each equation to its picture."
             />
-            <div className="mt-12">
-              <GradientLandscape />
+            <div className="mt-12 pb-24 lg:pb-32">
+              <Mathematics />
             </div>
-            <OptimisationContrast />
           </Container>
         </section>
 
-        <section id="deploy" className="scroll-mt-20 border-t border-white/[0.06] py-20 lg:py-28">
+        <section id="deploy" className="scroll-mt-20 border-t border-white/[0.06] py-24 lg:py-32">
           <Container>
-            <SectionHead
-              index="05"
-              label="Lineage and deployment"
-              title="From backtest to running bot."
-              intro="Deploy a model as a paper-trading bot on any symbol and schedule. Every bot is linked to the model, dataset and backtest it came from."
-            />
-            <div className="mt-12">
+            <SectionHead index="05" label="Lineage and deployment" title="From backtest to running bot." intro="Run a tested model as a paper bot. Every bot links back to what produced it." />
+            <ScrollIn className="mt-12">
               <Operations />
-            </div>
+            </ScrollIn>
           </Container>
         </section>
 
-        <section className="border-t border-white/[0.06] py-20 lg:py-28">
+        <section id="system" className="scroll-mt-20 border-t border-white/[0.06] py-24 lg:py-32">
           <Container>
-            <MissionAndCta />
+            <SectionHead index="06" label="One system" title="One pipeline. Every stage." intro="The dashboard brings runs, results and bots onto one surface." />
+            <ScrollIn className="mt-14">
+              <ProductStack mode="scroll" />
+            </ScrollIn>
           </Container>
         </section>
+
+        <section id="start" className="scroll-mt-20 pb-24 lg:pb-32">
+          <Container>
+            <ScrollIn>
+              <QuickStart />
+            </ScrollIn>
+          </Container>
+        </section>
+
+        <Closing />
 
         <M2Footer />
       </div>

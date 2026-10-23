@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
-import { useMotionValueEvent, useReducedMotion, useScroll } from "framer-motion";
+import { useMotionValueEvent, useReducedMotion, useScroll, type MotionValue } from "framer-motion";
 import { RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { linePath, scale } from "../ui";
@@ -154,7 +154,7 @@ function useCanvas(draw: (ctx: CanvasRenderingContext2D, w: number, h: number) =
   return ref;
 }
 
-export function GradientLandscape() {
+export function GradientLandscape({ progress, compact = false }: { progress?: MotionValue<number>; compact?: boolean }) {
   const reduce = useReducedMotion();
   const wrap = useRef<HTMLDivElement>(null);
   const grid = useMemo(buildGrid, []);
@@ -169,9 +169,11 @@ export function GradientLandscape() {
   const drag = useRef<{ x: number; yaw: number } | null>(null);
 
   const { scrollYProgress } = useScroll({ target: wrap, offset: ["start 0.8", "end 0.55"] });
-  useMotionValueEvent(scrollYProgress, "change", (v) => {
+  const driver = progress ?? scrollYProgress;
+  const toStep = (v: number) => (progress ? Math.min(1, Math.max(0, (v - 0.1) / 0.72)) : Math.min(1, Math.max(0, v)));
+  useMotionValueEvent(driver, "change", (v) => {
     if (reduce || replay.current != null) return;
-    setStep(Math.round(Math.min(1, Math.max(0, v)) * STEPS));
+    setStep(Math.round(toStep(v) * STEPS));
   });
   useEffect(() => {
     if (reduce) setStep(STEPS);
@@ -290,12 +292,12 @@ export function GradientLandscape() {
       for (const key of ["gd", "mom"] as const) {
         const head = tp[key][tp[key].length - 1];
         const col = key === "mom" ? "255,255,255" : "242,179,102";
-        const glow = ctx.createRadialGradient(head.sx, head.sy, 0, head.sx, head.sy, 14);
-        glow.addColorStop(0, `rgba(${col},0.55)`);
+        const glow = ctx.createRadialGradient(head.sx, head.sy, 0, head.sx, head.sy, 9);
+        glow.addColorStop(0, `rgba(${col},0.3)`);
         glow.addColorStop(1, `rgba(${col},0)`);
         ctx.fillStyle = glow;
         ctx.beginPath();
-        ctx.arc(head.sx, head.sy, 14, 0, Math.PI * 2);
+        ctx.arc(head.sx, head.sy, 9, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = `rgb(${col})`;
         ctx.beginPath();
@@ -394,10 +396,10 @@ export function GradientLandscape() {
 
   return (
     <div ref={wrap} className="grid gap-5 lg:grid-cols-12 lg:gap-6">
-      <div className="relative min-w-0 overflow-hidden rounded-[18px] border border-white/[0.08] bg-[radial-gradient(ellipse_at_50%_35%,#0d1220_0%,#06070a_70%)] lg:col-span-8">
+      <div className="relative min-w-0 overflow-hidden rounded-[18px] border border-white/[0.08] bg-[radial-gradient(ellipse_at_50%_35%,#111214_0%,#070708_70%)] lg:col-span-8">
         <canvas
           ref={surface}
-          className="block h-[min(58vh,540px)] min-h-[320px] w-full cursor-grab touch-pan-y active:cursor-grabbing"
+          className={cn("block w-full cursor-grab touch-pan-y active:cursor-grabbing", compact ? "h-[min(58vh,600px)] min-h-[320px]" : "h-[min(60vh,600px)] min-h-[320px]")}
           onPointerDown={onDown}
           onPointerMove={onMove}
           onPointerUp={onUp}
@@ -405,33 +407,33 @@ export function GradientLandscape() {
           role="img"
           aria-label="Illustrative loss surface over two parameters with plain gradient descent and momentum trajectories from the same start."
         />
-        <div className="pointer-events-none absolute left-4 top-4 font-mono text-[10px] uppercase tracking-[0.18em] text-white/45 sm:left-5 sm:top-5">
+        <div className="pointer-events-none absolute left-4 top-4 font-mono text-[11px] uppercase tracking-[0.18em] text-white/45 sm:left-5 sm:top-5">
           Illustrative loss surface
         </div>
-        <div className="pointer-events-none absolute right-4 top-4 hidden font-mono text-[10px] text-white/30 sm:right-5 sm:top-5 sm:block">Drag to turn · scroll to descend</div>
-        <div className="pointer-events-none absolute bottom-4 left-4 flex gap-4 rounded-lg border border-white/[0.08] bg-black/55 px-3 py-2 font-mono text-[11px] tabular-nums text-white/70 backdrop-blur-sm sm:bottom-5 sm:left-5">
-          <span>
-            <span className="text-white/35">step </span>
-            {String(s).padStart(3, "0")}
-          </span>
-          <span style={{ color: GD }}>
-            <span className="opacity-60">GD </span>L {lg.l.toFixed(3)}
-          </span>
-          <span>
-            <span className="text-white/45">momentum </span>L {lm.l.toFixed(3)}
-          </span>
+        <div className="pointer-events-none absolute right-4 top-4 hidden text-[12px] text-white/35 sm:right-5 sm:top-5 sm:block">Drag to rotate</div>
+        <div className="pointer-events-none absolute left-1/2 top-12 -translate-x-1/2 whitespace-nowrap rounded-full border border-white/[0.1] bg-black/55 px-3.5 py-1.5 text-[13.5px] text-white/80 backdrop-blur-sm sm:top-14">
+          {s === 0
+            ? `Initial parameters θ₀ · L = ${paths.mom[0].l.toFixed(3)}`
+            : s < STEPS
+              ? `Step ${s} · both optimisers follow −∇L(θ)`
+              : `Final state · momentum L = ${lm.l.toFixed(3)} · plain descent L = ${lg.l.toFixed(3)}`}
         </div>
       </div>
 
       <div className="flex min-w-0 flex-col gap-4 lg:col-span-4">
         <div className="rounded-[14px] border border-white/[0.08] bg-[#08090b] p-3.5">
-          <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">
-            <span>Contours · click to start</span>
+          <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.16em] text-white/40">
+            <span>Contours · click a start</span>
             <button type="button" onClick={runReplay} className="inline-flex items-center gap-1 normal-case tracking-normal text-white/55 hover:text-white">
               <RotateCcw className="h-3 w-3" aria-hidden /> Replay
             </button>
           </div>
-          <canvas ref={contour} onPointerDown={onContour} className="mt-2.5 block aspect-square w-full cursor-crosshair rounded-[8px] bg-black/40" aria-label="Contour map. Click to choose a starting point." />
+          <canvas
+            ref={contour}
+            onPointerDown={onContour}
+            className={cn("mx-auto mt-2.5 block aspect-square cursor-crosshair rounded-[8px] bg-black/40", compact ? "h-[min(27vh,260px)]" : "w-full max-w-[300px]")}
+            aria-label="Contour map. Click to choose a starting point."
+          />
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {PRESETS.map((p) => (
               <button
@@ -450,7 +452,7 @@ export function GradientLandscape() {
         </div>
 
         <div className="rounded-[14px] border border-white/[0.08] bg-[#08090b] p-3.5">
-          <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.16em] text-white/40">
+          <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.16em] text-white/40">
             <span>Loss per step</span>
             <span className="flex gap-3 normal-case tracking-normal">
               <span style={{ color: GD }}>— gradient descent</span>
@@ -462,12 +464,10 @@ export function GradientLandscape() {
             <path d={chart.gd} fill="none" stroke={GD} strokeWidth="1.4" />
             <path d={chart.mom} fill="none" stroke={MOM} strokeWidth="1.5" />
           </svg>
-          <p className="mt-2 text-[12px] leading-snug text-white/45">
-            Momentum carries velocity, so it overshoots and oscillates before settling. Plain descent creeps. Different starts reach different minima.
-          </p>
+          <p className="mt-2 text-[13.5px] leading-snug text-white/50">Momentum overshoots, then settles. Plain descent creeps.</p>
         </div>
-        <p className="font-mono text-[10.5px] leading-relaxed text-white/30">
-          Hand-written two-parameter function. Learning rate {LR}, β = {BETA}. Not Convolve training data.
+        <p className="text-[12px] leading-relaxed text-white/35">
+          Illustrative two-parameter function (η = {LR}, β = {BETA}), not Convolve training data.
         </p>
       </div>
     </div>

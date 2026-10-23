@@ -41,7 +41,7 @@ const GH = 110;
 const LEVELS = 24;
 
 /** Marching squares over the unit square. Segments are [x1, y1, x2, y2, level]. */
-function contours() {
+export function contours() {
   const W = GW + 1;
   const z = new Float32Array(W * (GH + 1));
   let lo = Infinity;

@@ -24,6 +24,7 @@ from app.schemas.bot import (
     BotTradingDetailFullOut,
 )
 from app.services.bot_status import derive_bot_status, next_scheduled_run_iso
+from app.services.fleet_db import trade_win_rate_db
 from app.services.trade_lifecycle import (
     TRADE_OPEN,
     _apply_slippage_exit_long,
@@ -212,7 +213,10 @@ def build_trading_detail_full(
         timezone=bot.timezone,
     )
 
+    trade_wr, _, trade_wr_n = trade_win_rate_db(db, [bot.id])
     perf = BotPerformanceSectionOut(
+        trade_win_rate=trade_wr,
+        trade_win_sample=trade_wr_n,
         current_equity=total_eq,
         realized_pnl=realized,
         unrealized_pnl=unreal,

@@ -19,10 +19,10 @@ import VisionHome2 from "./pages/VisionHome2";
 import VisionHome3 from "./pages/VisionHome3";
 import Home2Page from "./features/marketing2/Home2Page";
 import About2Page from "./features/marketing2/About2Page";
+import Products2Page from "./features/marketing2/Products2Page";
 import Contact from "./pages/Contact";
 import Docs from "./pages/Docs";
 import NotFound from "./pages/NotFound";
-import Founders from "./pages/Founders";
 import RunLog from "./pages/RunLog";
 import Account from "./pages/Account";
 import Credits from "./pages/Credits";
@@ -72,6 +72,11 @@ function ScrollToTop() {
   return null;
 }
 
+function KeepHashRedirect({ to }: { to: string }) {
+  const { hash } = useLocation();
+  return <Navigate to={`${to}${hash}`} replace />;
+}
+
 /** Older clients stored `/products/labeling-optimizer/runs/:id` (plural) which has no route. */
 function LegacyLabelingOptimizerRunsRedirect() {
   const { runId } = useParams<{ runId: string }>();
@@ -101,7 +106,7 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 function AppShell() {
   const { pathname } = useLocation();
   const { headerContentPushPx } = useHeaderReveal();
-  const isMarketing2 = pathname === "/home2" || pathname === "/about2";
+  const isMarketing2 = pathname === "/" || pathname === "/about" || pathname === "/products2";
   const showFooter = !isCompactHeaderPathname(pathname) && !isMarketing2;
   const isHomeLanding =
     pathname === "/" ||
@@ -177,13 +182,14 @@ function AppShell() {
       >
         <Routes>
           {/* Main pages */}
-          <Route path="/" element={<PageWrapper><VisionHome2 /></PageWrapper>} />
+          <Route path="/" element={<PageWrapper><Home2Page /></PageWrapper>} />
           <Route path="/vision" element={<PageWrapper><VisionHome2 /></PageWrapper>} />
-          <Route path="/home2" element={<PageWrapper><Home2Page /></PageWrapper>} />
+          <Route path="/home2" element={<KeepHashRedirect to="/" />} />
           <Route path="/home3" element={<PageWrapper><VisionHome3 /></PageWrapper>} />
           <Route path="/founder" element={<Navigate to="/about" replace />} />
-          <Route path="/about" element={<PageWrapper><Founders /></PageWrapper>} />
-          <Route path="/about2" element={<PageWrapper><About2Page /></PageWrapper>} />
+          <Route path="/about" element={<PageWrapper><About2Page /></PageWrapper>} />
+          <Route path="/about2" element={<KeepHashRedirect to="/about" />} />
+          <Route path="/products2" element={<PageWrapper><Products2Page /></PageWrapper>} />
           <Route path="/contact" element={<PageWrapper><Contact /></PageWrapper>} />
           <Route path="/docs" element={<PageWrapper><Docs /></PageWrapper>} />
           <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />

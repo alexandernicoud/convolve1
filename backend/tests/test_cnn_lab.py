@@ -555,3 +555,24 @@ def test_legacy_analysis_image_must_come_from_training_dataset(seeded, user_a, t
         assert exc.value.status_code == 400
     with pytest.raises(HTTPException):
         _resolve_trainer_analysis_image(rdir, name, str(uuid.uuid4()))
+
+
+def test_display_png_keeps_model_rgb_and_source_alpha(tmp_path):
+    import io
+
+    src = tmp_path / "c_label1.png"
+    _chart(src, seed=3, label=1)
+    x = core.load_model_input(str(src), (SIZE, SIZE))
+    rgb_model = np.array(Image.open(io.BytesIO(core.input_png_bytes(x))))
+    disp = np.array(Image.open(io.BytesIO(core.display_png_bytes(str(src), (SIZE, SIZE)))))
+    assert disp.shape == (SIZE, SIZE, 4)
+    assert np.array_equal(disp[..., :3], rgb_model)
+    source = np.array(Image.open(src).convert("RGBA"))
+    if source.shape[:2] == (SIZE, SIZE):
+        assert np.array_equal(disp[..., 3], source[..., 3])
+    assert (disp[..., 3] == 0).any() and (disp[..., 3] == 255).any()
+
+    opaque = tmp_path / "o_label0.png"
+    Image.fromarray(np.full((SIZE, SIZE, 3), 255, np.uint8), mode="RGB").save(opaque)
+    d2 = np.array(Image.open(io.BytesIO(core.display_png_bytes(str(opaque), (SIZE, SIZE)))))
+    assert (d2[..., 3] == 255).all() and (d2[..., :3] == 255).all()
