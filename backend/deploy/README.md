@@ -18,7 +18,7 @@ into shell history or into logs; secrets go into Secret Manager via stdin.
 | File | Purpose |
 |---|---|
 | `trainer-job.yaml` | Cloud Run Job spec for the CNN trainer (`gcloud run jobs replace`). |
-| `cloudbuild-release.yaml` | Builds the backend image and verifies imports, ML pins, no numba, no `.env`, Alembic head. |
+| `cloudbuild-release.yaml` | Builds the backend image and verifies imports, ML pins, no `.env`, Alembic head. |
 | `upload-cors.json` | Bucket CORS so browsers can PUT large uploads straight to GCS. |
 | `upload-lifecycle.json` | Deletes abandoned staged uploads under `uploads/` after 1 day. |
 | `supabase_lockdown/` | Standalone Data API lockdown (already applied) with verify and rollback scripts. |

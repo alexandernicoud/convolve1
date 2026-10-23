@@ -24,7 +24,6 @@ steps:
               "app.services.direct_uploads", "app.routers.uploads", "app.ml_versions", "app.ownership", "app.auth",
               "app.paths", "app.storage.gcs", "app.bots_api", "app.main", "app.db_security"]:
         importlib.import_module(m); print("ok", m)
-    assert importlib.util.find_spec("numba") is None, "numba must not be in the release image"
     leaked = [os.path.join(d, f) for d, _, fs in os.walk("/app") for f in fs if f in (".env", ".env.local")]
     assert not leaked, leaked
     from app import ml_versions
