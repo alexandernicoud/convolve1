@@ -1,9 +1,12 @@
 # Convolve production deployment: dependencies, verified state, remaining steps
 
-Status on 2026-10-18: the release in this branch is **validated but not deployed**.
-Production still runs the previous API (`convolve-backend-pipeline`) and bots job
-(`convolve-run-due-bots`) on Alembic revision `289c17a09fbb`. Only the standalone
-Supabase Data API lockdown (`supabase_lockdown/`) has been applied to production.
+Status on 2026-10-24: production runs release `adada06` (image
+`backend@sha256:27556c5f3d34…`) on the API (`convolve-backend-pipeline`), the trainer job and
+the bots job (`convolve-run-due-bots`), on Alembic head `c5f8a3d1e290`. `AUTH_REQUIRED=true`,
+`LIVE_DEPLOY_ENABLED=true` and `SCHEDULED_BOTS_ENABLED=true` on the API and the bots job;
+Cloud Scheduler `convolve-daily-run` starts the bots job every 15 minutes as
+`convolve-scheduler`. Credits are off. The legacy `local-user` bots were assigned to the
+founder account (one archived, one paused: its model file was never in the bucket).
 
 Nothing in this directory is applied automatically. Every command below is a
 production change that needs its own explicit approval.
@@ -21,7 +24,9 @@ into shell history or into logs; secrets go into Secret Manager via stdin.
 | `bots-job.yaml` | Cloud Run Job spec for scheduled paper bots (`convolve-run-due-bots`). |
 | `cloudbuild-release.yaml` | Builds the backend image and verifies imports, ML pins, no `.env`, Alembic head. |
 | `upload-cors.json` | Bucket CORS so browsers can PUT large uploads straight to GCS. |
-| `upload-lifecycle.json` | Deletes abandoned staged uploads under `uploads/` after 1 day. |
+| `upload-lifecycle.json` | Deletes abandoned staged uploads under `uploads/` after 1 day and training checkpoints under `checkpoints/` after 14 days. |
+| `trainer-job-gpu.yaml` | Optional Cloud Run L4 trainer job (EU regions only, outside CH). Not applied. |
+| `trainer-batch-gpu-zurich.json` | Optional Cloud Batch G2 (L4) job body for Zurich. Not applied. |
 | `supabase_lockdown/` | Standalone Data API lockdown (already applied) with verify and rollback scripts. |
 | `staging_e2e/` | Staging-only end-to-end drivers (see below). |
 
@@ -99,8 +104,8 @@ migration is idempotent with the already applied standalone lockdown.
    printf %s "$DATABASE_URL" | gcloud secrets versions add convolve-database-url --data-file=-
    ```
 4. **Service accounts and IAM** as in the table above.
-5. **Bucket configuration.** Apply CORS and the lifecycle rule, then confirm the lifecycle
-   matches only `uploads/`:
+5. **Bucket configuration.** Apply CORS and the lifecycle rules, then confirm the lifecycle
+   matches only `uploads/` and `checkpoints/`:
    ```bash
    gcloud storage buckets update gs://$BUCKET --cors-file=deploy/upload-cors.json
    gcloud storage buckets update gs://$BUCKET --lifecycle-file=deploy/upload-lifecycle.json
@@ -269,6 +274,67 @@ Whoever runs the update needs `roles/iam.serviceAccountUser` on `convolve-schedu
   marked failed after `TRAINER_JOB_STALE_SECONDS` (300 s).
 - **Model metadata matching** on direct model uploads returned `metadata_matched=false`
   in staging (the upload had no sidecar); harmless but visible in the UI.
+
+## Training queue, checkpoints and the optional GPU pool
+
+**Queue (API, no new infrastructure).** `pipeline_runs` is the queue. A submitted run is
+`queued` with `worker_id = job/waiting`; `trainer_jobs.pump_queue` starts waiting runs in
+submission order while `TRAINER_MAX_ACTIVE_JOBS` (default 4), the per-user limit
+(`TRAINER_MAX_ACTIVE_JOBS_PER_USER`, default 1) and, for GPU runs,
+`TRAINER_MAX_ACTIVE_GPU_JOBS` (default 1) allow. Decisions are serialised with a Postgres
+advisory lock, the `job/waiting -> job/pending` flip is conditional, and `claim()` only lets
+one worker run a row, so a run never starts twice. `TRAINER_MAX_QUEUED_JOBS_PER_USER`
+(default 5), `TRAINER_MAX_TRAINING_IMAGES` and `TRAINER_MAX_EPOCHS` are checked before the
+run is registered (HTTP 429). These are operational safeguards, not plan limits
+(`app/plans.py: PLAN_COMPUTE_LIMITS` is empty until limits are decided).
+The queue advances on submit, cancel and progress polls (throttled, lock-free when empty).
+To advance it when nobody is polling, set `TRAINER_WORKER_STARTS_QUEUED=1` on the trainer
+job and grant its service account `run.jobs.runWithOverrides` on the trainer job(s), plus
+`TRAINER_EXECUTION=cloud_run_job` and `TRAINER_JOB_PROJECT`.
+
+**Checkpoints and resume.** With `TRAINER_CHECKPOINTS=true` the worker saves the model with
+optimizer state, best weights and early-stopping state after every epoch to
+`gs://MODEL_BUCKET/checkpoints/{user}/{run}/` (state.json written last). A Cloud Run retry
+(`maxRetries: 2`) of a crashed or preempted attempt continues from there; a run the worker
+marked failed is never retried. Users can resume a failed or cancelled run
+(`POST /trainer/runs/{id}/resume`) once its previous execution has ended. A checkpoint is
+only used when run, user and a fingerprint of the configuration and data split match.
+Resuming is exact with the `shards` input pipeline and approximate (same weights and
+optimizer, different shuffle order) with the default `files` pipeline. A resumed run is
+the same run and is not charged again.
+
+**Optional GPU pool (off).** `TRAINER_GPU_EXECUTION=cloud_run_job|batch` plus an explicit
+`TRAINER_GPU_REGION` (no default: data residency is a decision). Only runs submitted with
+`accelerator="gpu"` go there; the CPU job is unchanged. Image: `Dockerfile.gpu` (same pins
+plus the CUDA 12 wheels). Training stays float32: TF32 is switched off unless reduced
+precision is requested. Before use, run `--check` on the GPU job and expect
+`OK accelerator: GPU: NVIDIA L4`.
+
+**Benchmark kit (not executed; needs approval, about USD 1-3 in total).** Uses a ZIP of
+public-market charts made with the chart generator, never customer data:
+```bash
+gcloud storage cp charts.zip gs://$STAGING_BUCKET/bench/charts.zip
+# Separate job, same image and resources as the production trainer; no database access.
+gcloud run jobs create convolve-bench-cpu --region=europe-west6 --image=$IMAGE \
+  --cpu=8 --memory=8Gi --max-retries=0 --task-timeout=3600 \
+  --service-account=$TRAINER_SA --command=python \
+  --args=scripts/perf/cloud_bench.py,gs://$STAGING_BUCKET/bench/charts.zip,--n,2000,--epochs,3
+gcloud run jobs execute convolve-bench-cpu --region=europe-west6 --wait   # ~USD 0.03-0.05
+# L4, only after the residency decision (image from Dockerfile.gpu):
+gcloud run jobs create convolve-bench-l4 --region=europe-west4 --image=$GPU_IMAGE \
+  --cpu=4 --memory=16Gi --gpu=1 --gpu-type=nvidia-l4 --no-gpu-zonal-redundancy \
+  --max-retries=0 --task-timeout=3600 --service-account=$TRAINER_SA --command=python \
+  --args=scripts/perf/cloud_bench.py,gs://$STAGING_BUCKET/bench/charts.zip,--n,2000,--epochs,3
+gcloud run jobs execute convolve-bench-l4 --region=europe-west4 --wait    # ~USD 0.05-0.10
+gcloud logging read 'resource.labels.job_name=~"convolve-bench" AND textPayload:"\"bench\""' --limit=50
+```
+Use `--epochs 30` for the full standard run (projected USD 0.10-0.20 CPU). Projected costs
+per dataset size: `python scripts/perf/cost_model.py`.
+
+**Rollback.** Everything above is configuration: `TRAINER_CHECKPOINTS=false` and
+`maxRetries: 0` restore the previous worker behaviour; `TRAINER_MAX_ACTIVE_JOBS_PER_USER=0`
+and `TRAINER_MAX_ACTIVE_JOBS=0` remove the limits (runs then start immediately as before);
+unsetting `TRAINER_GPU_EXECUTION` hides GPU training. No migration is involved.
 
 ## Staging end-to-end drivers (`staging_e2e/`)
 

@@ -5,7 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import logoMark from "@/assets/convolve-mark.png";
-import { LEGAL_LINKS } from "@/features/legal/meta";
+import { LEGAL_LINKS, OPERATOR } from "@/features/legal/meta";
 import { PROVENANCE, type Provenance } from "./data";
 
 export const EASE = [0.16, 1, 0.3, 1] as const;
@@ -22,6 +22,20 @@ export const INK = {
   iceDim: "rgba(185,211,255,0.35)",
   alert: "#d98b84",
 };
+
+/**
+ * Public-site type scale. Home and Products use `h2`; About keeps its lighter editorial weight with
+ * `h2Editorial`/`h3Editorial`. Labels go through `Kicker`.
+ */
+export const TYPE = {
+  h2: "text-[clamp(1.9rem,2.7vw,3rem)] font-normal leading-[1.08] tracking-[-0.032em] text-white",
+  h2Editorial: "text-[clamp(2rem,3.6vw,3.3rem)] font-extralight leading-[1.06] tracking-[-0.04em] text-white",
+  h3Editorial: "text-[clamp(1.6rem,2.4vw,2.3rem)] font-extralight leading-[1.1] tracking-[-0.04em] text-white",
+  h3Card: "text-[24px] font-normal leading-[1.15] tracking-[-0.025em] text-white",
+  intro: "text-[17px] leading-relaxed text-white/55",
+  body: "text-[16.5px] leading-[1.65] text-white/60",
+  small: "text-[15.5px] leading-[1.6] text-white/55",
+} as const;
 
 export function Container({ className, children }: { className?: string; children: ReactNode }) {
   return <div className={cn("mx-auto w-full max-w-[1560px] px-5 sm:px-8 lg:px-14 2xl:max-w-[1720px] 2xl:px-20", className)}>{children}</div>;
@@ -43,12 +57,15 @@ export function Reveal({
   delay = 0,
   y = 22,
   as = "div",
+  amount,
 }: {
   children: ReactNode;
   className?: string;
   delay?: number;
   y?: number;
   as?: "div" | "section" | "li";
+  /** Share of the element that must be visible before it reveals; default triggers as its top edge enters. */
+  amount?: number;
 }) {
   const reduce = useReducedMotion();
   const Comp = motion[as];
@@ -57,7 +74,7 @@ export function Reveal({
       className={className}
       initial={reduce ? false : { opacity: 0, y }}
       whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "0px 0px -12% 0px" }}
+      viewport={amount != null ? { once: true, amount } : { once: true, margin: "0px 0px -12% 0px" }}
       transition={{ duration: 0.8, ease: EASE, delay }}
     >
       {children}
@@ -77,16 +94,26 @@ export function useMediaQuery(query: string) {
   return on;
 }
 
-export function SectionHead({ index, label, title, intro }: { index?: string; label: string; title: ReactNode; intro?: ReactNode }) {
+export function SectionHead({
+  index,
+  label,
+  title,
+  intro,
+}: {
+  index?: string;
+  label: string;
+  title: ReactNode;
+  intro?: ReactNode;
+}) {
   return (
     <div className="grid gap-5 lg:grid-cols-12 lg:items-end">
       <Reveal className="lg:col-span-8">
         <Kicker index={index}>{label}</Kicker>
-        <h2 className="mt-5 text-balance text-[clamp(1.9rem,2.7vw,3rem)] font-normal leading-[1.08] tracking-[-0.032em] text-white">{title}</h2>
+        <h2 className={cn("mt-5 text-balance", TYPE.h2)}>{title}</h2>
       </Reveal>
       {intro ? (
         <Reveal className="lg:col-span-3 lg:col-start-10" delay={0.1}>
-          <p className="text-[17px] leading-relaxed text-white/55">{intro}</p>
+          <p className={TYPE.intro}>{intro}</p>
         </Reveal>
       ) : null}
     </div>
@@ -94,9 +121,9 @@ export function SectionHead({ index, label, title, intro }: { index?: string; la
 }
 
 /** Pinning needs a desktop viewport, a precise pointer and motion; elsewhere sections render as normal flow. */
-export function usePinEnabled() {
+export function usePinEnabled(minHeight = 720) {
   const reduce = useReducedMotion();
-  const fits = useMediaQuery("(min-width: 1024px) and (min-height: 720px) and (hover: hover) and (pointer: fine)");
+  const fits = useMediaQuery(`(min-width: 1024px) and (min-height: ${minHeight}px) and (hover: hover) and (pointer: fine)`);
   return fits && !reduce;
 }
 
@@ -277,8 +304,8 @@ export function M2Footer() {
             <span className="text-lg font-semibold tracking-tight text-white">convolve.</span>
           </Link>
           <p className="mt-5 text-[13px] leading-relaxed text-white/40">
-            Deployment runs on a paper wallet; there is no brokerage connection. Nothing on this site is investment
-            advice. Visuals marked “Illustrative data” use synthetic data.
+            Deployed models currently run with simulated (paper) execution; there is no brokerage connection. Nothing on this site is
+            investment advice. Visuals marked “Illustrative data” use synthetic data.
           </p>
         </div>
         <nav className="flex flex-wrap gap-x-7 gap-y-3 text-sm text-white/55" aria-label="Footer">
@@ -290,7 +317,7 @@ export function M2Footer() {
         </nav>
       </Container>
       <Container className="flex flex-col gap-4 pb-10 sm:flex-row sm:items-center sm:justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/25">© {new Date().getFullYear()} Convolve</span>
+        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/25">© {new Date().getFullYear()} {OPERATOR.name}</span>
         <nav className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-white/40" aria-label="Legal">
           {LEGAL_LINKS.map((l) => (
             <Link key={l.href} to={l.href} className="transition-colors hover:text-white">

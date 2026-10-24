@@ -74,6 +74,19 @@ def test_predictions_keep_order_and_use_model_input_size(tmp_path, units, act, h
     np.testing.assert_allclose(probs, ref, rtol=1e-5, atol=1e-6)
 
 
+@pytest.mark.parametrize("units,act", [(1, "sigmoid"), (2, "softmax")])
+def test_graph_inference_is_bit_identical_to_eager(tmp_path, units, act):
+    keras = pytest.importorskip("keras")
+    keras.utils.set_random_seed(5)
+    m = _model(units, act)
+    io = ci.model_io(m)
+    paths = _pngs(tmp_path, 7)  # batches of 3, 3, 1: the short last batch retraces
+    probs = ci.predict_paths(m, paths, batch_size=3)
+    eager = np.concatenate([ci.positive_probability(np.asarray(m(b, training=False)), io.head)
+                            for b in ci.build_inference_dataset(paths, io.input_size, 3)])
+    np.testing.assert_array_equal(probs, eager)
+
+
 def test_unsupported_heads_are_rejected():
     with pytest.raises(ci.UnsupportedModelIO):
         ci.model_io(_model(3, "softmax"))

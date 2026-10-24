@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { LegalLayout, List, Placeholder, Section, Table } from "./LegalLayout";
+import { Fact, LegalLayout, List, Placeholder, Section, Table } from "./LegalLayout";
 import { OPERATOR } from "./meta";
 
 const SECTIONS = [
@@ -22,7 +22,7 @@ export default function PrivacyPage() {
       sections={SECTIONS}
       intro={
         <p>
-          This policy explains which personal data Convolve processes when you visit the website or use the research
+          This policy explains which personal data {OPERATOR.name} processes through Convolve when you visit the website or use the research
           workspace, why, where it is stored and which rights you have. It describes the service as it operates today.
         </p>
       }
@@ -30,11 +30,13 @@ export default function PrivacyPage() {
       <Section id="controller" title="1. Who is responsible">
         <p>The controller responsible for processing personal data on this website and in the Convolve workspace is:</p>
         <p>
-          <Placeholder>{OPERATOR.name}</Placeholder>
+          {OPERATOR.name}
           <br />
-          <Placeholder>{OPERATOR.address}</Placeholder>
+          <Fact value={OPERATOR.contractingParty} />
           <br />
-          Email: <Placeholder>{OPERATOR.privacyEmail}</Placeholder>
+          <Fact value={OPERATOR.address} />
+          <br />
+          Email: <Fact value={OPERATOR.privacyEmail} />
         </p>
         <p>
           For questions about privacy or to exercise your rights, contact us at the address above. Further operator
@@ -55,7 +57,8 @@ export default function PrivacyPage() {
         <p>
           <strong>Account data.</strong> When you create an account we process your email address, a user identifier,
           your sign-in method, whether your email address is verified, the time the account was created and your last
-          sign-in, an optional display name, and the version and time at which you accepted the Terms of Service.
+          sign-in, an optional display name, the version and time at which you accepted the Terms of Service, and your
+          progress in the guided tour (current step, whether you finished or closed it).
           Passwords are handled by our authentication provider and stored only as a cryptographic hash; we never see
           them. If you sign in with Google, Google shares your name, email address and Google account identifier with
           us.
@@ -81,16 +84,17 @@ export default function PrivacyPage() {
         </p>
         <p>
           <strong>Browser storage.</strong> The website stores your sign-in session and workspace preferences in your
-          browser&apos;s local storage. Details are in the <Link to="/cookies">cookie and storage notice</Link>.
+          browser&apos;s local storage, and a few short-lived interface states in session storage. It sets no cookies. Details are in the <Link to="/cookies">cookie and storage notice</Link>.
         </p>
         <p>
           <strong>Usage and credits.</strong> We record which tools you run, when, and how long each run takes, together
-          with your plan and a ledger of credits granted, used and refunded. This is shown to you on your account page
+          with your plan, the credit price calculated for each run (pricing policy version and inputs) and a ledger of
+          credits granted, used and refunded. This is shown to you on your account page
           and included in your data export.
         </p>
         <p>
           We do <strong>not</strong> use analytics, advertising or social-media tracking, do not send marketing emails,
-          and do not process payment data, because Convolve currently has no paid plans.
+          and do not process payment data, because Convolve currently has no paid plans and no payment processing.
         </p>
       </Section>
 
@@ -116,8 +120,8 @@ export default function PrivacyPage() {
         <Table
           head={["Provider", "Role", "Location of processing"]}
           rows={[
-            ["Supabase", "User accounts and sign-in; database for account data, research metadata and bot data", "EU (Ireland); Supabase Inc. is based in the USA"],
-            ["Google Cloud", "Application servers, model training, file storage for datasets, models and reports, server logs", <>Switzerland (Zurich) for servers; storage region <Placeholder>[to be confirmed]</Placeholder></>],
+            ["Supabase", "User accounts and sign-in; database for account data, research metadata and bot data", "EU (Ireland, AWS eu-west-1); Supabase Inc. is based in the USA"],
+            ["Google Cloud", "Application servers, model training, file storage for datasets, models and reports, server logs", "Switzerland (Zurich, europe-west6) for servers, scheduled bot jobs and file storage"],
             ["Vercel", "Hosting and delivery of the website", "Global edge network; Vercel Inc. is based in the USA"],
             ["Google (sign-in)", "Optional sign-in with a Google account (independent controller for your Google account)", "Global"],
             ["Google Fonts", "Typefaces loaded by your browser; Google receives your IP address", "Global"],
@@ -146,7 +150,8 @@ export default function PrivacyPage() {
           items={[
             "Account data and research content are kept for as long as your account exists, or until you delete the individual item.",
             "Incomplete direct uploads are deleted automatically after one day.",
-            <>Server and authentication logs are kept according to our providers&apos; log retention, <Placeholder>[retention period to be confirmed]</Placeholder>.</>,
+            "Application server logs at Google Cloud are kept for 30 days; Google Cloud audit logs, which record administrative changes to our infrastructure, for 400 days.",
+            <>Authentication logs are kept according to our authentication provider&apos;s log retention, <Placeholder>[retention period to be confirmed]</Placeholder>.</>,
             <>Database backups are kept by our database provider for <Placeholder>[backup retention to be confirmed]</Placeholder>.</>,
             "Contact messages are kept as long as needed to answer them and for any follow-up.",
           ]}
@@ -175,7 +180,7 @@ export default function PrivacyPage() {
         <p>
           You can correct your display name and email address, download a copy of your account data and delete your
           account yourself in <Link to="/account">Account settings</Link>. For anything else, contact us at{" "}
-          <Placeholder>{OPERATOR.privacyEmail}</Placeholder>. We may need to verify your identity before acting on a
+          <Fact value={OPERATOR.privacyEmail} />. We may need to verify your identity before acting on a
           request.
         </p>
         <p>

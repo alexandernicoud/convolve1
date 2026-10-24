@@ -51,10 +51,11 @@ class FakeTrainer:
         self.on_epoch = on_epoch
         self.error = error
 
-    def __call__(self, config, run_dir, progress_cb, cancel_event=None):
+    def __call__(self, config, run_dir, progress_cb, cancel_event=None, checkpoint=None):
         from runners.trainer_runner import CancelledError
 
         self.calls.append(dict(config))
+        self.checkpoint = checkpoint
         progress_cb("loading", 5, {"message": "Scanning dataset folder..."})
         if self.error:
             raise self.error
@@ -83,12 +84,28 @@ def store(tmp_path: Path):
     set_artifact_store(None)
 
 
+def _retire_active_jobs() -> None:
+    """Runs left queued/running by earlier tests would otherwise hold the global job capacity."""
+    db = SessionLocal()
+    try:
+        db.query(PipelineRun).filter(
+            PipelineRun.tool == "trainer",
+            PipelineRun.status.in_(("queued", "running")),
+            PipelineRun.worker_id.like("job/%"),
+        ).update({PipelineRun.status: "interrupted"}, synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
 @pytest.fixture
 def dispatcher(monkeypatch):
     fake = FakeDispatcher()
     trainer_jobs.set_dispatcher(fake)
     monkeypatch.setattr(trainer_jobs, "TRAINER_EXECUTION", "cloud_run_job")
+    _retire_active_jobs()
     yield fake
+    _retire_active_jobs()
     trainer_jobs.set_dispatcher(None)
 
 
@@ -140,6 +157,8 @@ def _request(dataset_id: str, model_name: str = "model.keras") -> Dict[str, Any]
         "epochs": 1,
         "val_split": 0.25,
         "random_seed": 7,
+        # The fixture's chart names carry no dates, which a chronological split requires.
+        "validation_method": "random",
     }
 
 
@@ -272,6 +291,21 @@ def test_worker_success_stores_model_before_succeeded(client, user_a, user_b, st
     assert len(trainer.calls) == 1
 
 
+def test_worker_records_measured_job_timings(client, user_a, store, dispatcher, cleanup):
+    headers = _headers(client, user_a)
+    dataset_id = _dataset(user_a, cleanup)
+    run_id = _start(client, headers, dataset_id, cleanup, user_a)
+
+    assert train_worker.run_job(run_id, trainer=FakeTrainer()) == 0
+
+    recorded = json.loads(_row(run_id).extra_json)[trainer_jobs.WORKER_TIMINGS_KEY]
+    for key in ("queue_to_claim_seconds", "dataset_restore_seconds", "tensorflow_import_seconds", "publish_seconds", "worker_total_seconds"):
+        assert recorded[key] >= 0, key
+    session = client.get(f"/trainer/runs/{run_id}", headers=headers).json()["session"]
+    keys = [p["key"] for p in session["timings"]["phases"]]
+    assert keys[:2] == ["waiting_for_machine", "dataset_download"] and keys[-1] == "upload"
+
+
 def test_storage_failure_is_failed_not_succeeded(client, user_a, store, dispatcher, cleanup):
     headers = _headers(client, user_a)
     dataset_id = _dataset(user_a, cleanup)
@@ -335,7 +369,22 @@ def test_trainer_error_is_a_clear_terminal_failure(client, user_a, store, dispat
     assert view["status"] == "failed" and "no labeled PNGs" in view["progress"]["message"]
 
 
-def test_concurrent_runs_keep_separate_files(client, user_a, store, dispatcher, cleanup):
+def test_failure_messages_hide_paths_tracebacks_and_database_details():
+    from sqlalchemy.exc import OperationalError
+
+    msg = trainer_jobs.public_failure_message(FileNotFoundError("No file at /app/backend/datasets/u1/abc/images/x.png\nTraceback: ..."))
+    assert "/app/backend" not in msg and "x.png" in msg and "Traceback" not in msg
+    db = OperationalError("SELECT 1", {}, Exception("connection to server at db.internal-host.example port 6543 failed"))
+    msg = trainer_jobs.public_failure_message(db)
+    assert "internal-host" not in msg and "SELECT" not in msg and "database" in msg
+    assert "out of memory" in trainer_jobs.public_failure_message(MemoryError())
+    assert trainer_jobs.public_failure_message(RuntimeError("")) == "Training failed (RuntimeError)."
+
+
+def test_concurrent_runs_keep_separate_files(client, user_a, store, dispatcher, cleanup, monkeypatch):
+    from app import config as app_config
+
+    monkeypatch.setattr(app_config, "TRAINER_MAX_ACTIVE_JOBS_PER_USER", 2)
     headers = _headers(client, user_a)
     dataset_id = _dataset(user_a, cleanup)
     first = _start(client, headers, dataset_id, cleanup, user_a)
@@ -402,7 +451,9 @@ def test_job_spec_resources_and_threads():
 
     assert container["command"] == ["python", "-m", "app.jobs.train_worker"]
     assert container["resources"]["limits"] == {"cpu": "8", "memory": "8Gi"}
-    assert task["maxRetries"] == 0
+    # Retries are only safe because they resume from a checkpoint and cannot claim a finished run.
+    assert task["maxRetries"] == int(env["TRAINER_JOB_MAX_RETRIES"]["value"]) <= 3
+    assert env["TRAINER_CHECKPOINTS"]["value"] == "true"
     assert 1800 <= int(task["timeoutSeconds"]) <= 3600
     for name in ("TRAINER_THREADS", "OMP_NUM_THREADS", "TF_NUM_INTRAOP_THREADS", "TF_NUM_INTEROP_THREADS"):
         assert env[name]["value"] == "8"

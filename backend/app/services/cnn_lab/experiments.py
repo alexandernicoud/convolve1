@@ -38,6 +38,8 @@ class Ctx:
     layout: Dict[str, Any]
     report: Callable[[float, str], None] = lambda f, m: None
     cancelled: Callable[[], bool] = lambda: False
+    # Trainer protocol 2: image id -> training / validation / test / excluded.
+    partitions: Optional[Dict[str, str]] = None
 
     def check(self) -> None:
         if self.cancelled():
@@ -57,6 +59,8 @@ class Ctx:
 
 
 def _split_of(ctx: Ctx, image_id: str) -> Optional[str]:
+    if ctx.partitions is not None:
+        return ctx.partitions.get(image_id)
     if ctx.val_set is None:
         return None
     return "validation" if image_id in ctx.val_set else "training"
@@ -81,8 +85,11 @@ def filter_records(ctx: Ctx, filters: Dict[str, Any]) -> List[core.ImageRecord]:
     if split != "all":
         if ctx.val_set is None:
             raise ValueError("Validation membership is unknown for this model and dataset, so a split filter cannot be applied")
-        want_val = split == "validation"
-        recs = [r for r in recs if (r.id in ctx.val_set) == want_val]
+        if ctx.partitions is not None:
+            recs = [r for r in recs if ctx.partitions.get(r.id) == split]
+        else:
+            want_val = split == "validation"
+            recs = [r for r in recs if (r.id in ctx.val_set) == want_val]
     return recs
 
 
@@ -177,7 +184,12 @@ def sample_summary(ctx: Ctx, items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "confidence": mean_ci(conf),
         "near_chance": wilson(near, n) if n else None,
         "split_status": ctx.split_status,
-        "splits": {s: sum(1 for it in items if it["split"] == s) for s in ("validation", "training")} if ctx.val_set is not None else None,
+        "splits": {
+            s: sum(1 for it in items if it["split"] == s)
+            for s in (("validation", "training", "test", "excluded") if ctx.partitions is not None else ("validation", "training"))
+        }
+        if ctx.val_set is not None
+        else None,
     }
 
 

@@ -10,8 +10,8 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { useRunsStore } from "@/state/runsStore";
-import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
-import { RunCostHint } from "@/components/RunCostHint";
+import { confirmRun, chargeRunCredits } from "@/state/creditsStore";
+import { RunCost, RunCostHint } from "@/components/RunCostHint";
 import {
   realtimeBacktesterApi,
   testDataGeneratorApi,
@@ -814,6 +814,15 @@ export default function Backtester() {
 
   const canRun = hasModel && hasDataset && !isSubmitting && (!datasetIdForCaps || datasetCaps != null || datasetCapsError != null);
 
+  const pricingParams = useMemo(
+    () => ({
+      dataset_images: uploadedDataset?.summary?.total_images ?? null,
+      sample_size: config.sampleSize,
+      engine: isV2 ? "v2" : "v1",
+    }),
+    [uploadedDataset, config.sampleSize, isV2],
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -835,7 +844,7 @@ export default function Backtester() {
       return;
     }
 
-    if (!requestRunCredits("backtester")) return;
+    if (!(await confirmRun("backtester", pricingParams))) return;
 
     setIsSubmitting(true);
     setError(null);
@@ -916,7 +925,7 @@ export default function Backtester() {
               </div>
             ) : null}
 
-            <div className="space-y-3">
+            <div className="space-y-3" data-tour="bt-source" data-help="bt-source">
               <p className="text-sm text-white/65">
                 Choose <span className="font-medium text-white">one</span> way to supply the model and test
                 charts — library (pick + generate) or local upload. The other path is cleared when you switch.
@@ -1483,7 +1492,7 @@ export default function Backtester() {
                 ) : null}
 
                 {!isV2 || config.thresholdMode === "fixed" ? (
-                  <div>
+                  <div data-help="bt-threshold" data-tour="bt-threshold">
                     <label className={labelClass}>
                       Confidence threshold (0–1)
                       <FieldTip text="Minimum model confidence required before a trade is opened." />
@@ -1496,7 +1505,7 @@ export default function Backtester() {
                   </div>
                 ) : null}
 
-                <div>
+                <div data-help="take-profit">
                   <label className={labelClass}>
                     Take profit %
                     <FieldTip text={isV2 ? "Fixed by the dataset's label definition so trades and labels use the same exit rule." : "Exit target as a percent of entry price for each simulated trade."} />
@@ -1508,7 +1517,7 @@ export default function Backtester() {
                   )}
                 </div>
 
-                <div>
+                <div data-help="stop-loss">
                   <label className={labelClass}>
                     Stop loss %
                     <FieldTip text={isV2 ? "Fixed by the dataset's label definition." : "Stop distance as a percent of entry price."} />
@@ -1555,7 +1564,7 @@ export default function Backtester() {
                   />
                 </div>
 
-                <div>
+                <div data-help="bt-capital">
                   <label className={labelClass}>
                     Starting capital
                     <FieldTip text="Simulated account equity at the start of the backtest." />
@@ -1567,7 +1576,7 @@ export default function Backtester() {
                   />
                 </div>
 
-                <div>
+                <div data-help="bt-position">
                   <label className={labelClass}>
                     Position size % of capital
                     <FieldTip text="Fraction of current equity allocated per open trade." />
@@ -1579,7 +1588,7 @@ export default function Backtester() {
                   />
                 </div>
 
-                <div>
+                <div data-help="bt-costs">
                   <label className={labelClass}>
                     Commission % per trade
                     <FieldTip text="Fee as a percent of trade notional (any value, e.g. 0.1 for 0.1%)." />
@@ -1603,7 +1612,7 @@ export default function Backtester() {
                   />
                 </div>
 
-                <div>
+                <div data-help="max-drawdown">
                   <label className={labelClass}>
                     Max drawdown % (stop trading)
                     <FieldTip text="Halt new trades once equity drawdown from peak exceeds this percent." />
@@ -1625,9 +1634,10 @@ export default function Backtester() {
               </div>
             ) : null}
 
-            <div className="space-y-2 rounded-2xl border border-white/[0.12] bg-white/[0.04] p-5 md:p-6">
+            <div className="space-y-2" data-tour="bt-run">
               <button
                 type="submit"
+                data-help="bt-run"
                 disabled={!canRun}
                 className="flex w-full items-center justify-center gap-2 rounded-full border border-white/25 bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-45"
               >
@@ -1639,11 +1649,11 @@ export default function Backtester() {
                 ) : (
                   <>
                     <Play className="h-4 w-4" />
-                    Run backtest
+                    Run backtest <RunCost tool="backtester" params={pricingParams} />
                   </>
                 )}
               </button>
-              <RunCostHint tool="backtester" />
+              <RunCostHint tool="backtester" params={pricingParams} className="text-center" />
               {!canRun && !isSubmitting ? (
                 <p className="text-center text-[10px] text-white/40">
                   {!hasModel

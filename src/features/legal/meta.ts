@@ -3,13 +3,20 @@ export const TERMS_VERSION = "2026-10-24";
 export const PRIVACY_VERSION = "2026-10-24";
 export const LEGAL_UPDATED = "24 October 2026";
 
+/** The product. The operator below is who provides it. */
+export const PRODUCT = "Convolve";
+
 /**
  * Operator details. Values in square brackets have not been supplied yet and are shown
  * verbatim on the legal pages so they cannot be mistaken for real information.
+ * ``name`` is the name the service is operated under; whether it is a registered entity
+ * or the trading name of a natural person is not confirmed, so ``contractingParty`` and
+ * ``form`` stay open.
  */
 export const OPERATOR = {
-  name: "[Legal name of the operator]",
-  form: "[Sole proprietorship / GmbH / AG — to be confirmed]",
+  name: "Nicoud Convolutional Strategies",
+  contractingParty: "[Legal name of the contracting party: the registered entity, or the natural person trading under this name]",
+  form: "[Legal form — to be confirmed]",
   address: "[Street and number], [Postcode] [City], Switzerland",
   email: "[contact email address]",
   privacyEmail: "[privacy contact email address]",
@@ -18,6 +25,11 @@ export const OPERATOR = {
   representative: "[Responsible person]",
   euRepresentative: "[EU representative under Art. 27 GDPR, if required]",
 };
+
+/** True while a legal fact is still a bracketed placeholder. */
+export function isPending(value: string): boolean {
+  return value.includes("[");
+}
 
 export const LEGAL_LINKS = [
   { label: "Privacy", href: "/privacy" },

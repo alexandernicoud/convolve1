@@ -6,8 +6,8 @@ export default function CookiesPage() {
       title="Cookies and browser storage"
       intro={
         <p>
-          Convolve does not use analytics, advertising or tracking cookies. It only stores what the website needs to
-          work in your browser, so there is no consent banner.
+          Convolve sets no cookies and uses no analytics, advertising or tracking technologies. The website only keeps
+          what it needs to work in your browser&apos;s local and session storage, so there is no consent banner.
         </p>
       }
     >
@@ -16,13 +16,19 @@ export default function CookiesPage() {
           head={["Name", "Type", "Purpose", "Duration"]}
           rows={[
             ["convolve-auth", "Local storage", "Keeps you signed in (session and refresh token)", "Until you sign out or the session ends"],
+            ["convolve-auth-code-verifier", "Local storage", "One-time code that completes sign-in with Google", "Removed when sign-in completes"],
             ["convolve_runs", "Local storage", "Remembers your active and recent research runs in the workspace", "Until cleared"],
-            ["Workspace preferences", "Local storage", "Dashboard guide dismissal, simulated wallet size and similar interface settings", "Until cleared"],
+            ["convolve_paper_wallet_usd", "Local storage", "Size of your simulated paper wallet shown in the workspace", "Until cleared"],
+            ["convolve_profile_name, convolve_profile_email", "Local storage", "Display name and email shown in the workspace interface", "Until cleared"],
+            ["convolve-pending-terms", "Session storage", "Carries your acceptance of the Terms through sign-up with Google until it is recorded", "Until the tab is closed"],
+            ["convolve_dismissed_runs", "Session storage", "Run notifications you have dismissed", "Until the tab is closed"],
+            ["convolve:tour-spot", "Session storage", "Which control the guided tour is pointing at, so a reload resumes in place", "Until the tab is closed or the tour ends"],
           ]}
         />
         <p>
           These items are strictly necessary to provide the workspace you requested. They are not shared with third
-          parties and are not used to track you across websites.
+          parties and are not used to track you across websites. Your tour progress and Terms acceptance are also stored
+          with your account on our servers, as described in the <a href="/privacy">Privacy Policy</a>.
         </p>
       </Section>
 

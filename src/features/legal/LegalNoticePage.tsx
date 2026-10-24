@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
-import { LegalLayout, Placeholder, Section } from "./LegalLayout";
-import { OPERATOR } from "./meta";
+import { Fact, LegalLayout, Section } from "./LegalLayout";
+import { OPERATOR, PRODUCT } from "./meta";
 
 export default function LegalNoticePage() {
   return (
@@ -8,7 +8,9 @@ export default function LegalNoticePage() {
       <Section id="operator" title="Operator">
         <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-[12rem_minmax(0,1fr)]">
           {[
-            ["Operator", OPERATOR.name],
+            ["Product", PRODUCT],
+            ["Operated under the name", OPERATOR.name],
+            ["Contracting party", OPERATOR.contractingParty],
             ["Legal form", OPERATOR.form],
             ["Address", OPERATOR.address],
             ["Email", OPERATOR.email],
@@ -18,14 +20,16 @@ export default function LegalNoticePage() {
           ].map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-white/45">{k}</dt>
-              <dd>{v.includes("[") ? <Placeholder>{v}</Placeholder> : v}</dd>
+              <dd>
+                <Fact value={v} />
+              </dd>
             </div>
           ))}
         </dl>
       </Section>
       <Section id="disclaimer" title="Disclaimer">
         <p>
-          The content of this website is provided for information about the Convolve software. It is not investment
+          The content of this website is provided by {OPERATOR.name} for information about the Convolve software. It is not investment
           advice and not an offer or recommendation to buy or sell financial instruments. See the{" "}
           <Link to="/risk-disclosure">risk disclosure</Link>.
         </p>
@@ -37,7 +41,7 @@ export default function LegalNoticePage() {
       </Section>
       <Section id="copyright" title="Copyright">
         <p>
-          Texts, graphics, visualisations and software on this website belong to the operator unless stated otherwise.
+          Texts, graphics, visualisations and software on this website belong to {OPERATOR.name} unless stated otherwise.
           Reproduction requires prior written permission.
         </p>
       </Section>

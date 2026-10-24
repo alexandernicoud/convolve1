@@ -73,17 +73,17 @@ export default function ToolLayout({
                 : "lg:grid-cols-[minmax(0,1fr)_min(22rem,34vw)]"
             }`}
           >
-            <div className={`${inputShellClass} min-h-0 min-w-0`} style={{ animationDelay: "100ms" }}>
+            <div className={`${inputShellClass} min-h-0 min-w-0 lg:max-h-[calc(100dvh-10rem)]`} style={{ animationDelay: "100ms" }}>
               <h2 className="mb-2 flex shrink-0 items-center gap-2 text-base font-medium text-[#F5F5F5]">
                 <div className="h-2 w-2 shrink-0 rounded-full bg-white" />
                 Configuration
               </h2>
-              <div className="min-h-0 max-h-[min(92dvh,1200px)] flex-1 overflow-y-auto overscroll-contain lg:max-h-[calc(100dvh-7rem)]">
+              <div className="min-h-0 max-h-[min(92dvh,1200px)] flex-1 overflow-y-auto overscroll-contain lg:max-h-none">
                 {inputPanel}
               </div>
             </div>
             <div
-              className={`${outputShellClass} flex max-h-[min(52dvh,520px)] min-h-0 min-w-0 flex-col lg:sticky lg:top-0 lg:max-h-[calc(100dvh-7rem)]`}
+              className={`${outputShellClass} flex max-h-[min(52dvh,520px)] min-h-0 min-w-0 flex-col lg:sticky lg:top-0 lg:max-h-[calc(100dvh-10rem)]`}
               style={{ animationDelay: "200ms" }}
             >
               <h2 className="mb-2 flex shrink-0 items-center gap-2 text-base font-medium text-[#F5F5F5]">

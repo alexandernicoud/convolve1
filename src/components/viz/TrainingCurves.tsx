@@ -34,9 +34,12 @@ export function TrainingCurves({
   metrics = ["loss", "accuracy"],
   compact,
   exportName,
+  bestLabel = "best val loss",
 }: {
   history: EpochRow[];
   bestEpoch?: number | null;
+  /** Tooltip suffix for the best epoch (the run's selection metric). */
+  bestLabel?: string;
   height?: number;
   metrics?: Metric[];
   compact?: boolean;
@@ -158,7 +161,7 @@ export function TrainingCurves({
                 cursor={{ stroke: "rgba(255,255,255,0.25)", strokeWidth: 1 }}
                 content={
                   <ChartTooltip
-                    labelFormat={(l) => `Epoch ${l}${bestEpoch != null && Number(l) === bestEpoch ? " · best val loss" : ""}`}
+                    labelFormat={(l) => `Epoch ${l}${bestEpoch != null && Number(l) === bestEpoch ? ` · ${bestLabel}` : ""}`}
                     format={(v) => c.fmt(v)}
                   />
                 }

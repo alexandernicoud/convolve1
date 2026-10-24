@@ -30,6 +30,7 @@ export function Panel({
   children,
   className,
   bodyClassName,
+  help,
 }: {
   title?: ReactNode;
   description?: ReactNode;
@@ -37,9 +38,11 @@ export function Panel({
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
+  /** Explain-mode annotation id (see features/help/annotations.ts). */
+  help?: string;
 }) {
   return (
-    <section className={cx(surface, "flex min-w-0 flex-col", className)}>
+    <section className={cx(surface, "flex min-w-0 flex-col", className)} data-help={help}>
       {title || aside ? (
         <header className="flex items-start justify-between gap-4 px-5 pb-3 pt-4">
           <div className="min-w-0">

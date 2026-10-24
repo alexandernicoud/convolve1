@@ -62,6 +62,25 @@ def accept_terms(body: TermsAcceptance, request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+class OnboardingUpdate(BaseModel):
+    status: str = Field(max_length=20)
+    step: int = Field(ge=0, le=20)
+    welcome_seen: bool = True
+
+
+@router.get("/onboarding")
+def get_onboarding(request: Request) -> Dict[str, Any]:
+    return svc.get_onboarding(require_user_id(request))
+
+
+@router.put("/onboarding")
+def put_onboarding(body: OnboardingUpdate, request: Request) -> Dict[str, Any]:
+    try:
+        return svc.save_onboarding(require_user_id(request), body.status, body.step, body.welcome_seen)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/usage")
 def get_usage(request: Request) -> Dict[str, Any]:
     return svc.get_usage(require_user_id(request))

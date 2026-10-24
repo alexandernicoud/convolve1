@@ -23,6 +23,7 @@ from starlette.concurrency import run_in_threadpool
 import threading
 from threading import Thread
 
+from app import pricing
 from app.process_registry import kill_managed, popen_managed, running_processes, wait_managed
 from app.bots_api import router as bots_router, run_active_bots_once
 from app.dashboard_api import router as dashboard_router
@@ -71,6 +72,8 @@ from app.paths import (
     find_backtest_dir,
     is_user_uuid,
     validate_id,
+    runs_root,
+    datasets_root,
 )
 from app.services.bot_scheduler import start_bot_scheduler
 from app.services import trainer_jobs
@@ -341,6 +344,42 @@ class TrainerRequest(BaseModel):
     random_seed: Optional[int] = None
     # Chart-generator run the training dataset came from (enables model→dataset metadata linkage)
     generator_run_id: Optional[str] = None
+    # Opt-in research options (runners/trainer_runner.py). None keeps the original behaviour:
+    # convolve-cnn-v1, random split, PNG-folder input.
+    architecture: Optional[str] = None
+    validation_method: Optional[str] = None
+    embargo_days: Optional[int] = None
+    input_pipeline: Optional[str] = None
+    # "gpu" only when a GPU pool is configured (TRAINER_GPU_EXECUTION). Training stays float32.
+    accelerator: Optional[str] = None
+    # Trainer 2.0 options (runners/trainer_options.py validates them; absent keys mean defaults).
+    test_fraction: Optional[float] = None
+    evaluate_test: Optional[bool] = None
+    purge_chart_windows: Optional[bool] = None
+    embargo_bars: Optional[int] = None
+    label_horizon_bars: Optional[int] = None
+    label_timeframe: Optional[str] = None
+    optimizer: Optional[Dict[str, Any]] = None
+    lr_schedule: Optional[Dict[str, Any]] = None
+    regularization: Optional[Dict[str, Any]] = None
+    early_stopping: Optional[Dict[str, Any]] = None
+    selection_metric: Optional[str] = None
+    class_weighting: Optional[str] = None
+    augmentation: Optional[List[str]] = None
+    transfer: Optional[Dict[str, Any]] = None
+
+
+class SplitPreviewRequest(BaseModel):
+    dataset_id: str
+    generator_run_id: Optional[str] = None
+    validation_method: Optional[str] = None
+    val_split: Optional[float] = None
+    test_fraction: Optional[float] = None
+    random_seed: Optional[int] = None
+    purge_chart_windows: Optional[bool] = None
+    embargo_bars: Optional[int] = None
+    label_horizon_bars: Optional[int] = None
+    label_timeframe: Optional[str] = None
 
 class TrainerProgressResponse(BaseModel):
     status: str  # ready, running, done, failed
@@ -976,6 +1015,17 @@ class TestDataGeneratorResultResponse(BaseModel):
     dataset_name: Optional[str] = None
     summary: Dict[str, Any]
 
+def _count_dataset_images(images_dir: Union[str, Path, None]) -> Optional[int]:
+    """Number of chart images under ``images_dir`` (pricing input); None when unreadable."""
+    if not images_dir or not os.path.isdir(images_dir):
+        return None
+    exts = (".png", ".jpg", ".jpeg", ".webp")
+    try:
+        return sum(1 for _root, _dirs, files in os.walk(images_dir) for f in files if f.lower().endswith(exts))
+    except OSError:
+        return None
+
+
 def register_run(
     run_id: str,
     tool: str,
@@ -987,19 +1037,32 @@ def register_run(
     user_id: Optional[str] = None,
     status: str = "running",
     charge: bool = True,
+    price: Optional[Any] = None,
+    http_request: Optional[Request] = None,
 ) -> None:
     """Register a new run in the global registry and persist a lightweight manifest on disk.
 
     The ownership row (and, when credits are enforced, the run's charge) is written first,
-    so a refused run leaves no registry entry or manifest behind.
+    so a refused run leaves no registry entry or manifest behind. ``price`` is the
+    server-computed ``app.pricing.Quote`` for this configuration; ``http_request`` supplies
+    the optional ``X-Expected-Credits`` and ``Idempotency-Key`` headers.
     """
-    from app.services.credits import InsufficientCredits
+    from app.services.credits import DuplicateSubmission, InsufficientCredits, PriceChanged
 
     extra = {}
     if trainer_run_id:
         extra["trainer_run_id"] = trainer_run_id
     if analysis_id:
         extra["analysis_id"] = analysis_id
+    if price is not None and charge:
+        extra["pricing"] = price.record()
+    expected_cost: Optional[int] = None
+    request_key: Optional[str] = None
+    if http_request is not None:
+        raw_expected = http_request.headers.get("x-expected-credits")
+        if raw_expected and raw_expected.strip().lstrip("-").isdigit():
+            expected_cost = int(raw_expected)
+        request_key = (http_request.headers.get("idempotency-key") or "").strip() or None
     download_zip_url = _suggest_download_zip_url(tool, run_id, trainer_run_id, analysis_id)
     try:
         record_pipeline_run(
@@ -1016,7 +1079,29 @@ def register_run(
             artifact_ref=download_zip_url,
             worker_id=current_worker_id() if user_id else None,
             charge=charge,
+            price=price,
+            expected_cost=expected_cost,
+            request_key=request_key,
         )
+    except PriceChanged as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "price_changed",
+                "message": f"This configuration costs {exc.cost} credits, not the {exc.expected} shown. Review and confirm again.",
+                "cost": exc.cost,
+                "expected": exc.expected,
+            },
+        ) from exc
+    except DuplicateSubmission as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "duplicate_submission",
+                "message": "This request was already submitted; it was not started or charged again.",
+                "run_id": exc.run_id,
+            },
+        ) from exc
     except InsufficientCredits as exc:
         raise HTTPException(
             status_code=402,
@@ -1126,7 +1211,7 @@ def get_run(run_id: str) -> Optional[GlobalRun]:
     return all_runs.get(run_id)
 
 # Global runs storage (in production, use a database)
-runs_dir = os.path.join(os.path.dirname(__file__), "..", "runs")
+runs_dir = str(runs_root())
 os.makedirs(runs_dir, exist_ok=True)
 
 # Global run registry - unified across all tools
@@ -1367,6 +1452,29 @@ def run_labeling_optimizer(request: RunRequest, run_id: str):
         # Update global run registry
         update_run_progress(run_id, 0.0, "error", f"Unexpected error: {str(e)[:100]}", "failed")
 
+def _training_sample_times(out_dir: Path, kept: set) -> Dict[str, str]:
+    """provenance/ members for the dataset ZIP: the generator's per-chart event times for the
+    charts that survived class balancing. Empty when the generator did not record them."""
+    staged = out_dir / "_provenance"
+    samples_path = staged / "samples.jsonl"
+    if not samples_path.is_file():
+        return {}
+    lines = []
+    with open(samples_path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(record, dict) and record.get("image_id") in kept:
+                lines.append(json.dumps(record))
+    out = {"provenance/samples.jsonl": "\n".join(lines) + ("\n" if lines else "")}
+    meta_path = staged / "provenance.json"
+    if meta_path.is_file():
+        out["provenance/provenance.json"] = meta_path.read_text(encoding="utf-8")
+    return out
+
+
 def run_training_chart_generator(config: Dict[str, Any], run_id: str):
     """Run the training chart generator script"""
     run_dir = get_run_dir(run_id)
@@ -1573,10 +1681,13 @@ def run_training_chart_generator(config: Dict[str, Any], run_id: str):
         update_progress("Creating ZIP archive", 98)
 
         zip_path = os.path.join(run_dir, f"training-dataset-{run_id}.zip")
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        # PNGs are already compressed: deflate costs ~6x the time for ~1% smaller files.
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_STORED) as zip_file:
             for file_name in png_files:
                 file_path = os.path.join(temp_out_dir, file_name)
                 zip_file.write(file_path, file_name)
+            for member, payload in _training_sample_times(Path(temp_out_dir), set(png_files)).items():
+                zip_file.writestr(member, payload)
 
         # Create dataset stats
         dataset_stats = {
@@ -1656,6 +1767,8 @@ async def start_run(
         "labeling-optimizer",
         f"/products/labeling-optimizer/run/{run_id}",
         user_id=get_current_user_id(http_request),
+        price=pricing.quote("labeling-optimizer", {"start": request.start, "end": request.end}),
+        http_request=http_request,
     )
 
     # Start the script in background
@@ -1779,6 +1892,15 @@ async def start_training_chart_generator(
         "training-chart-generator",
         f"/tools/generator/runs/{run_id}",
         user_id=get_current_user_id(http_request),
+        price=pricing.quote(
+            "training-chart-generator",
+            {
+                "symbols": request.symbols,
+                "charts_per_label": request.chartsPerLabel,
+                "image_dimension": request.imageDimension,
+            },
+        ),
+        http_request=http_request,
     )
 
     # Create run directory and initial progress file immediately
@@ -2171,7 +2293,7 @@ async def download_training_chart_generator_dataset(run_id: str = Depends(requir
     return stream_file_response(zip_path, f"training-dataset-{run_id}.zip", "application/zip")
 
 # Dataset storage
-datasets_dir = os.path.join(os.path.dirname(__file__), "..", "datasets")
+datasets_dir = str(datasets_root())
 os.makedirs(datasets_dir, exist_ok=True)
 
 
@@ -2280,6 +2402,10 @@ def _ingest_dataset_zip(
 
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(images_dir)
+        # Generator ZIPs carry per-chart event times; they belong next to images/.
+        extracted_provenance = os.path.join(images_dir, "provenance")
+        if os.path.isdir(extracted_provenance):
+            shutil.move(extracted_provenance, os.path.join(dataset_dir, "provenance"))
 
         # Validate and analyze extracted files
         summary = analyze_dataset(images_dir)
@@ -3009,8 +3135,9 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
     uid = get_current_user_id(http_request)
     if request.dataset_id:
         assert_cross_owned(uid, dataset_id=request.dataset_id)
+    _validate_training_options(request)
     if trainer_jobs.job_mode_enabled():
-        return await _start_trainer_job(request, uid)
+        return await _start_trainer_job(request, uid, http_request)
     try:
         from runners.trainer_runner import run_trainer, CancelledError
     except Exception as import_error:
@@ -3036,13 +3163,16 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
         raise HTTPException(status_code=400, detail="Either dataset_id or folder_name must be provided")
 
     # Register only once the request is valid: registration may charge credits.
-    register_run(run_id, "trainer", f"/tools/trainer/runs/{run_id}", user_id=uid)
+    register_run(
+        run_id, "trainer", f"/tools/trainer/runs/{run_id}", user_id=uid,
+        price=_trainer_price(request, training_folder), http_request=http_request,
+    )
 
     run_dir = Path(get_run_dir(run_id))
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # Create config with resolved folder
-    trainer_config = request.dict()
+    trainer_config = {**_trainer_config(request), **_label_window_settings(request, uid)}
     trainer_config["folder_name"] = training_folder
 
     # Persist model/training metadata next to the artifacts (no fabricated values:
@@ -3071,8 +3201,9 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
             "percent": percent,
             **data
         }
-        split = {k: data[k] for k in trainer_jobs._SPLIT_KEYS if data.get(k) is not None}
-        if split:
+        # Only the data-ready event carries train_samples; epoch events also carry "epochs".
+        if data.get("train_samples") is not None:
+            split = {k: data[k] for k in trainer_jobs._SPLIT_KEYS if data.get(k) is not None}
             trainer_runs[run_id]["training_state"] = {**split, "data_ready_at": time.time()}
         if "epoch" in data:
             trainer_runs[run_id]["last_metrics"] = {
@@ -3121,13 +3252,14 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
             }
             update_run_progress(run_id, 0.0, "cancelled", "Training cancelled", "cancelled")
         except Exception as exc:
+            message = trainer_jobs.public_failure_message(exc)
             trainer_runs[run_id]["status"] = "failed"
             trainer_runs[run_id]["progress"] = {
                 "phase": "error",
                 "percent": 0,
-                "message": str(exc),
+                "message": message,
             }
-            update_run_progress(run_id, 0.0, "error", str(exc), "failed")
+            update_run_progress(run_id, 0.0, "error", message, "failed")
             raise
         finally:
             trainer_runs[run_id]["worker_active"] = False
@@ -3138,7 +3270,152 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
     return RunResponse(run_id=run_id)
 
 
-async def _start_trainer_job(request: TrainerRequest, uid: Optional[str]) -> RunResponse:
+def _trainer_config(request: TrainerRequest) -> Dict[str, Any]:
+    """The run configuration: the request plus the protocol of the trainer that will run it.
+    Older runs have no trainer_protocol key and keep their original meaning."""
+    from runners.trainer_options import PROTOCOL
+
+    return {**request.dict(), "trainer_protocol": PROTOCOL}
+
+
+def _label_window_settings(request: TrainerRequest, uid: Optional[str]) -> Dict[str, Any]:
+    """Outcome horizon for purging: the user's explicit value, else the generator's settings."""
+    if request.label_horizon_bars is not None:
+        return {
+            "label_horizon_bars": request.label_horizon_bars,
+            "label_timeframe": request.label_timeframe or "1d",
+            "label_horizon_source": "user",
+        }
+    gid = request.generator_run_id
+    if not gid and request.dataset_id:
+        gid = _resolve_generator_run_id_for_dataset(request.dataset_id, uid)
+    gen = _load_generator_config_from_disk(str(gid)) if gid else None
+    if gen and gen.get("horizonBars") and gen.get("timeframe") in ("1d", "1wk", "1mo"):
+        return {
+            "label_horizon_bars": int(gen["horizonBars"]),
+            "label_timeframe": gen["timeframe"],
+            "label_horizon_source": "generator_config",
+        }
+    return {"label_horizon_source": None}
+
+
+def _validate_training_options(request: TrainerRequest) -> None:
+    from runners import trainer_options
+    from runners.cnn_architectures import check_input, resolve
+
+    try:
+        arch = resolve(request.architecture)
+        if not request.use_standard_config and request.image_height and request.image_width:
+            check_input(arch, (request.image_height, request.image_width))
+        else:
+            check_input(arch, (224, 224))
+        opts = trainer_options.resolve(_trainer_config(request))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if opts["transfer"]["mode"] != "scratch" and not arch.supports_transfer:
+        raise HTTPException(status_code=400, detail=f"{arch.label} has no pretrained weights; train it from scratch")
+    if request.validation_method not in (None, "random", "chronological"):
+        raise HTTPException(status_code=400, detail="validation_method must be 'random' or 'chronological'")
+    if request.input_pipeline not in (None, "files", "shards"):
+        raise HTTPException(status_code=400, detail="input_pipeline must be 'files' or 'shards'")
+    if request.embargo_days is not None and not 0 <= request.embargo_days <= 3650:
+        raise HTTPException(status_code=400, detail="embargo_days must be between 0 and 3650")
+    if request.accelerator not in (None, "cpu", "gpu"):
+        raise HTTPException(status_code=400, detail="accelerator must be 'cpu' or 'gpu'")
+    if request.accelerator == "gpu" and not (trainer_jobs.job_mode_enabled() and trainer_jobs.gpu_enabled()):
+        raise HTTPException(status_code=409, detail="GPU training is not available on this server")
+
+
+@app.get("/trainer/architectures")
+async def list_trainer_architectures():
+    """Versioned CNN profiles. convolve-cnn-v1 is the default and the original model."""
+    from runners.cnn_architectures import public_catalog
+    from runners.trainer_options import public_schema
+
+    return {
+        "architectures": public_catalog(),
+        "accelerators": ["cpu", "gpu"] if trainer_jobs.job_mode_enabled() and trainer_jobs.gpu_enabled() else ["cpu"],
+        "options": public_schema(),
+    }
+
+
+@app.post("/trainer/split-preview")
+async def trainer_split_preview(body: SplitPreviewRequest, http_request: Request):
+    """Partitions a run with these settings would use: counts, label distributions, periods and
+    purged charts. The same code splits the data at training time (runners/data_split.py)."""
+    from starlette.concurrency import run_in_threadpool
+
+    from runners import data_split
+
+    uid = get_current_user_id(http_request)
+    assert_cross_owned(uid, dataset_id=body.dataset_id)
+    if body.generator_run_id:
+        assert_cross_owned(uid, run_id=body.generator_run_id)
+    located = _locate_dataset_dir(body.dataset_id, uid)
+    images_dir = os.path.join(located, "images") if located else ""
+    if not located or not os.path.isdir(images_dir):
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    window = _label_window_settings(
+        TrainerRequest(
+            model_name="preview.keras",
+            dataset_id=body.dataset_id,
+            generator_run_id=body.generator_run_id,
+            label_horizon_bars=body.label_horizon_bars,
+            label_timeframe=body.label_timeframe,
+        ),
+        uid,
+    )
+    method = body.validation_method or "chronological"
+    try:
+        plan = await run_in_threadpool(
+            lambda: data_split.plan_from_folder(
+                images_dir,
+                horizon_bars=window.get("label_horizon_bars"),
+                timeframe=window.get("label_timeframe"),
+                method=method,
+                val_fraction=0.2 if body.val_split is None else float(body.val_split),
+                test_fraction=float(body.test_fraction or 0.0),
+                seed=7 if body.random_seed is None else int(body.random_seed),
+                purge_chart_windows=True if body.purge_chart_windows is None else bool(body.purge_chart_windows),
+                embargo_bars=int(body.embargo_bars or 0),
+            )
+        )
+    except data_split.SplitError as exc:
+        return {"ok": False, "error": str(exc), "label_window": window}
+    return {"ok": True, "plan": plan.summary(), "label_window": window}
+
+
+@app.post("/trainer/runs/{run_id}/resume")
+async def resume_trainer_run(run_id: str = Depends(require_owned_run)):
+    """Continue a failed or cancelled cloud run from its last epoch checkpoint (same run, same
+    configuration). Starting again from scratch is a new run."""
+    from starlette.concurrency import run_in_threadpool
+
+    if not trainer_jobs.job_mode_enabled():
+        raise HTTPException(status_code=409, detail="Resuming needs cloud training jobs")
+    ok, detail = await run_in_threadpool(trainer_jobs.requeue_for_resume, run_id)
+    if not ok:
+        raise HTTPException(status_code=409, detail=detail)
+    return {"run_id": run_id, "status": "queued" if detail == "queued" else "starting"}
+
+
+def _trainer_price(request: TrainerRequest, images_dir: Optional[str]):
+    return pricing.quote(
+        "trainer",
+        {
+            "use_standard_config": request.use_standard_config,
+            "image_height": request.image_height,
+            "image_width": request.image_width,
+            "epochs": request.epochs,
+            "val_split": request.val_split,
+            "dataset_images": _count_dataset_images(images_dir),
+        },
+    )
+
+
+async def _start_trainer_job(
+    request: TrainerRequest, uid: Optional[str], http_request: Optional[Request] = None
+) -> RunResponse:
     """Queue the run and start the training Cloud Run Job. TensorFlow is not loaded here."""
     from starlette.concurrency import run_in_threadpool
 
@@ -3158,16 +3435,27 @@ async def _start_trainer_job(request: TrainerRequest, uid: Optional[str]) -> Run
         stored, err = trainer_jobs.dataset_is_stored(request.dataset_id, uid) if ok else (False, publish_err)
     if not stored:
         raise HTTPException(status_code=409, detail=err)
+    epochs = 30 if request.use_standard_config else request.epochs
+    refusal = await run_in_threadpool(
+        trainer_jobs.queue_admission_error, uid, _count_dataset_images(images_dir), epochs
+    )
+    if refusal:
+        raise HTTPException(status_code=429, detail=refusal)
 
     run_id = generate_run_id()
-    register_run(run_id, "trainer", f"/tools/trainer/runs/{run_id}", user_id=uid, status="queued")
+    register_run(
+        run_id, "trainer", f"/tools/trainer/runs/{run_id}", user_id=uid, status="queued",
+        price=_trainer_price(request, images_dir), http_request=http_request,
+    )
     # The job owns progress; a cached registry entry here would hide its updates.
     all_runs.pop(run_id, None)
-    trainer_config = request.dict()
+    trainer_config = {**_trainer_config(request), **_label_window_settings(request, uid)}
     trainer_config["folder_name"] = images_dir
     metadata = _write_trainer_model_metadata(run_id, request, trainer_config)
-    trainer_jobs.save_job_payload(run_id, trainer_config, request.dataset_id, metadata)
-    ok, detail = await run_in_threadpool(trainer_jobs.dispatch, run_id)
+    trainer_jobs.save_job_payload(
+        run_id, trainer_config, request.dataset_id, metadata, accelerator=request.accelerator or "cpu"
+    )
+    ok, detail = await run_in_threadpool(trainer_jobs.submit, run_id, uid)
     if not ok:
         raise HTTPException(status_code=503, detail=detail)
     return RunResponse(run_id=run_id)
@@ -3213,6 +3501,11 @@ async def get_trainer_progress(run_id: str = Depends(require_owned_run)):
             session=session,
         )
 
+    if trainer_jobs.job_mode_enabled():
+        from starlette.concurrency import run_in_threadpool
+
+        # Pollers advance the queue: no API instance has to stay up just to start waiting runs.
+        await run_in_threadpool(trainer_jobs.pump_queue_if_due)
     job_view = trainer_jobs.progress_response(run_id)
     if job_view is not None:
         run_dir = get_run_dir(run_id)
@@ -3226,7 +3519,10 @@ async def get_trainer_progress(run_id: str = Depends(require_owned_run)):
             row=job_view.get("row") or row,
             dataset_summary=_trainer_dataset_summary(run_dir),
             worker_active=None,
+            worker_timings=job_view.get("worker_timings") or None,
         )
+        session["resumable_from_epoch"] = job_view.get("resumable_from_epoch")
+        session["queue"] = (job_view.get("progress") or {}).get("queue")
         return TrainerProgressResponse(
             status=job_view["status"],
             progress=job_view["progress"],
@@ -3491,6 +3787,8 @@ async def start_trainer_analysis(
         trainer_run_id=run_id,
         analysis_id=analysis_id,
         user_id=get_current_user_id(http_request),
+        price=pricing.quote("analysis"),
+        http_request=http_request,
     )
 
     # Initialize analysis status
@@ -3664,6 +3962,8 @@ async def start_standalone_cnn_analysis(
         trainer_run_id=run_id,
         analysis_id=analysis_id,
         user_id=uid,
+        price=pricing.quote("analysis"),
+        http_request=http_request,
     )
 
     trainer_runs[analysis_key] = {
@@ -3894,6 +4194,11 @@ async def start_backtester_run(
         "backtester",
         f"/tools/backtester/runs/{run_id}",
         user_id=uid,
+        price=pricing.quote(
+            "backtester",
+            {"dataset_images": _count_dataset_images(dataset_path), "sample_size": request.sample_size},
+        ),
+        http_request=http_request,
     )
 
     # Create run directory
@@ -4121,7 +4426,7 @@ async def start_backtest_run(
         elif not AUTH_REQUIRED:
             ds_path = (_BACKEND_ROOT.parent / raw_ds).resolve()
             if not ds_path.is_dir():
-                ds_path = (Path(datasets_dir).parent.parent / raw_ds).resolve()
+                ds_path = (Path(__file__).resolve().parent / raw_ds).resolve()
         else:
             raise HTTPException(status_code=404, detail="Dataset not found")
     elif AUTH_REQUIRED:
@@ -4173,6 +4478,11 @@ async def start_backtest_run(
         "backtester",
         f"/tools/backtester/runs/{run_id}",
         user_id=uid,
+        price=pricing.quote(
+            "backtester",
+            {"dataset_images": _count_dataset_images(ds_path), "sample_size": request.sample_size, "engine": engine},
+        ),
+        http_request=http_request,
     )
     payload["user_id"] = uid
 
@@ -4518,6 +4828,15 @@ async def start_testdata_run(
         "testdata",
         f"/tools/backtester?runId={run_id}",
         user_id=uid,
+        price=pricing.quote(
+            "testdata",
+            {
+                "symbols": request.symbols,
+                "period_length_units": request.period_length_units,
+                "img_dim": request.img_dim,
+            },
+        ),
+        http_request=http_request,
     )
 
     # Create run directory

@@ -180,7 +180,7 @@ export function AboutLanding() {
       </div>
 
       <Container className="pointer-events-none relative flex min-h-[calc(100svh-80px)] flex-col justify-between py-8 md:py-10">
-        <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.24em] text-white/45">
+        <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.22em] text-white/45">
           <span>About Convolve</span>
           <span className="hidden sm:inline">Sheet 00 · Survey origin</span>
         </div>
@@ -200,8 +200,8 @@ export function AboutLanding() {
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 0.8 }}
           >
-            <p className="text-[15.5px] leading-relaxed text-white/60">A research workspace for traders who would rather test an idea than trust one.</p>
-            <a href="#chapters" className="pointer-events-auto mt-5 inline-flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.24em] text-white/45 transition-colors hover:text-white">
+            <p className="text-[15.5px] leading-relaxed text-white/60">A quantitative research laboratory for traders who would rather engineer an idea than trust one.</p>
+            <a href="#chapters" className="pointer-events-auto mt-5 inline-flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.22em] text-white/45 transition-colors hover:text-white">
               Scroll
               <ChevronDown className="h-3.5 w-3.5 motion-safe:animate-bounce" aria-hidden />
             </a>

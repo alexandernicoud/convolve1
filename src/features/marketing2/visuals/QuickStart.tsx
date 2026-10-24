@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useReducedMotion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import { estimateMinTrainingPhaseDaysForCharts } from "@/lib/generatorDates";
 import { Kicker } from "../ui";
@@ -43,6 +44,7 @@ function Field({ label, hint, children }: { label: string; hint: string; childre
 export function QuickStart() {
   const reduce = useReducedMotion();
   const navigate = useNavigate();
+  const { session } = useAuth();
   const [symbol, setSymbol] = useState("MSFT");
   const [tf, setTf] = useState<Tf>("1d");
   const [months, setMonths] = useState(6);
@@ -58,7 +60,8 @@ export function QuickStart() {
   const years = days / 365;
   const images = charts * 2;
   const train = Math.round(images * 0.8);
-  const href = `/tools/generator?${new URLSearchParams({ symbols: sym, tf, months: String(months), charts: String(charts) })}`;
+  const generator = `/tools/generator?${new URLSearchParams({ symbols: sym, tf, months: String(months), charts: String(charts) })}`;
+  const href = session ? generator : `/signup?next=${encodeURIComponent(generator)}`;
 
   const start = () => {
     if (!sym || lit >= 0) return;

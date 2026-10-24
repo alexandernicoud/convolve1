@@ -126,11 +126,40 @@ TRAINER_EXECUTION = (
 TRAINER_JOB_NAME = os.getenv("TRAINER_JOB_NAME", "convolve-trainer").strip()
 TRAINER_JOB_PROJECT = (os.getenv("TRAINER_JOB_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "").strip()
 TRAINER_JOB_REGION = os.getenv("TRAINER_JOB_REGION", "europe-west6").strip()
+# Optional GPU pool, off unless configured. Runs only go there when they ask for
+# accelerator="gpu"; everything else stays on the CPU job above.
+#   "cloud_run_job": TRAINER_GPU_JOB_NAME in TRAINER_GPU_REGION (deploy/trainer-job-gpu.yaml).
+#     Cloud Run has no GPUs in europe-west6: data is processed outside Switzerland.
+#   "batch": Cloud Batch G2 (L4) VMs in TRAINER_GPU_REGION (europe-west6 = Zurich), job body
+#     from TRAINER_GPU_BATCH_TEMPLATE (deploy/trainer-batch-gpu-zurich.json).
+# There is deliberately no default region: data residency is a decision, not a default.
+_raw_gpu_execution = os.getenv("TRAINER_GPU_EXECUTION", "").strip().lower()
+TRAINER_GPU_EXECUTION = _raw_gpu_execution if _raw_gpu_execution in ("cloud_run_job", "batch") else ""
+TRAINER_GPU_REGION = os.getenv("TRAINER_GPU_REGION", "").strip()
+TRAINER_GPU_JOB_NAME = os.getenv("TRAINER_GPU_JOB_NAME", "convolve-trainer-gpu").strip()
+TRAINER_GPU_BATCH_TEMPLATE = os.getenv("TRAINER_GPU_BATCH_TEMPLATE", "").strip()
+TRAINER_MAX_ACTIVE_GPU_JOBS = max(0, _env_int("TRAINER_MAX_ACTIVE_GPU_JOBS", 1))
 # TensorFlow intra/inter-op and OpenMP threads inside the training job. Match the job's vCPU count.
 TRAINER_THREADS = max(1, _env_int("TRAINER_THREADS", 8))
 # A queued/running job row with no progress for this long is checked against the
 # Cloud Run execution so a crashed or timed-out job does not stay "running" forever.
 TRAINER_JOB_STALE_SECONDS = max(60, _env_int("TRAINER_JOB_STALE_SECONDS", 300))
+
+# Cloud training concurrency. Operational safeguards against runaway cost, not plan limits:
+# app.plans.compute_limits lets a plan override them once commercial limits are decided.
+# 0 means no limit. Runs over a limit wait in the queue (status queued) instead of failing.
+TRAINER_MAX_ACTIVE_JOBS = max(0, _env_int("TRAINER_MAX_ACTIVE_JOBS", 4))
+TRAINER_MAX_ACTIVE_JOBS_PER_USER = max(0, _env_int("TRAINER_MAX_ACTIVE_JOBS_PER_USER", 1))
+TRAINER_MAX_QUEUED_JOBS_PER_USER = max(0, _env_int("TRAINER_MAX_QUEUED_JOBS_PER_USER", 5))
+TRAINER_MAX_TRAINING_IMAGES = max(0, _env_int("TRAINER_MAX_TRAINING_IMAGES", 0))
+TRAINER_MAX_EPOCHS = max(0, _env_int("TRAINER_MAX_EPOCHS", 200))
+# Epoch checkpoints in the job, uploaded under checkpoints/{user}/{run}/ so a retried or
+# resumed execution continues instead of starting over. See runners/trainer_checkpoint.py.
+TRAINER_CHECKPOINTS = _env_bool("TRAINER_CHECKPOINTS", True)
+# Must equal the checkpoints/ age in deploy/upload-lifecycle.json; older runs are not offered a resume.
+TRAINER_CHECKPOINT_RETENTION_DAYS = 14
+# Must equal the job's maxRetries: an interrupted attempt below it leaves the run to the retry.
+TRAINER_JOB_MAX_RETRIES = max(0, _env_int("TRAINER_JOB_MAX_RETRIES", 0))
 
 # The scheduled bots job (`python -m app.jobs.run_due_bots`). When set, the API starts one
 # execution right after a bot is deployed so its first evaluation does not wait for the next

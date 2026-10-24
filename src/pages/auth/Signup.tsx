@@ -1,13 +1,17 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthDivider, AuthField, AuthGoogleButton, AuthShell, AuthSubmit } from "@/components/auth/AuthShell";
 import { useAuth } from "@/context/AuthContext";
 import { TermsConsent, rememberPendingAcceptance } from "@/components/auth/TermsConsent";
 import { acceptanceRecord } from "@/features/legal/meta";
+import { safeAppPath } from "@/lib/authRedirect";
 
 export default function Signup() {
   const { signUp, signInWithGoogle, resendConfirmation, configured } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const next = useMemo(() => safeAppPath(params.get("next")), [params]);
+  const loginHref = next === "/dashboard" ? "/login" : `/login?next=${encodeURIComponent(next)}`;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -24,9 +28,9 @@ export default function Signup() {
     setError(null);
     setBusy(true);
     try {
-      const result = await signUp(email.trim(), password, acceptanceRecord());
+      const result = await signUp(email.trim(), password, acceptanceRecord(), next);
       if (result.needsEmailConfirmation) setCheckEmail(true);
-      else navigate("/dashboard", { replace: true });
+      else navigate(next, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign up failed");
     } finally {
@@ -43,7 +47,7 @@ export default function Signup() {
     setBusy(true);
     try {
       rememberPendingAcceptance();
-      await signInWithGoogle("/dashboard");
+      await signInWithGoogle(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Google sign in failed");
       setBusy(false);
@@ -72,7 +76,7 @@ export default function Signup() {
           Resend confirmation
         </button>
         <p className="mt-4 text-center text-sm text-white/45">
-          <Link to="/login" className="text-white underline-offset-2 hover:underline">
+          <Link to={loginHref} className="text-white underline-offset-2 hover:underline">
             Back to sign in
           </Link>
         </p>
@@ -99,7 +103,7 @@ export default function Signup() {
       </form>
       <p className="mt-4 text-center text-sm text-white/45">
         Already have an account?{" "}
-        <Link to="/login" className="text-white underline-offset-2 hover:underline">
+        <Link to={loginHref} className="text-white underline-offset-2 hover:underline">
           Sign in
         </Link>
       </p>

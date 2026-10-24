@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { useInView, useMotionValueEvent, useReducedMotion, useScroll } from "framer-motion";
+import { useInView, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from "framer-motion";
 import { Cpu, Database, LayoutDashboard, LineChart, Rocket, ScanSearch, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import logoMark from "@/assets/convolve-mark.png";
 import { PRODUCT_PIPELINE_ITEMS } from "@/components/products/productPipelineLinks";
-import { CHAIN, asset, backtest, fleet, grid, labmaps } from "../data";
+import { asset, backtest, fleet, labmaps, training } from "../data";
 import { linePath, scale } from "../ui";
 
 export interface Stage {
@@ -25,8 +25,8 @@ export const STAGES: Stage[] = [
   { id: "analyze", name: "Analyze", line: "See what the model attends to", artifact: "Attention maps", icon: ScanSearch, href: href("analyze") },
   { id: "test", name: "Test", line: "Backtest on data it never saw", artifact: "Backtest report", icon: LineChart, href: href("test") },
   { id: "optimize", name: "Optimize", line: "Search label rules", artifact: "Label rule", icon: SlidersHorizontal, href: href("optimize") },
-  { id: "deploy", name: "Deploy", line: "Run a model as a paper bot", artifact: "Running bot", icon: Rocket, href: href("deploy") },
-  { id: "dashboard", name: "Dashboard", line: "Every run, output and bot, linked", artifact: "One surface", icon: LayoutDashboard, href: href("dashboard") },
+  { id: "deploy", name: "Deploy", line: "Schedule predictions, monitor results", artifact: "Deployed model", icon: Rocket, href: href("deploy") },
+  { id: "dashboard", name: "Dashboard", line: "Every run, output and deployment, linked", artifact: "One surface", icon: LayoutDashboard, href: href("dashboard") },
 ];
 
 const HUB = STAGES.length - 1;
@@ -102,11 +102,11 @@ export function DashboardSurface({ stage = null, region = null }: { stage?: numb
   const sample = labmaps.samples[labmaps.trace_index];
 
   const research: { stage: string; kind: string; title: string; id: string }[] = [
-    { stage: "optimize", kind: "Label search", title: "INTC · 125,000 rules scored", id: "optimizer" },
-    { stage: "generate", kind: "Generator", title: `${grid.count.toLocaleString("en-US")} images → dataset ${CHAIN.dataset}`, id: CHAIN.generatorRun },
-    { stage: "train", kind: "Training", title: `${CHAIN.modelName} · best epoch 5`, id: CHAIN.trainingRun },
-    { stage: "analyze", kind: "Analysis", title: "Grad-CAM, occlusion, representation", id: CHAIN.labSession.replace("lab_", "") },
-    { stage: "test", kind: "Backtest", title: `${pct(backtest.metrics.total_return)} net vs. benchmarks`, id: CHAIN.backtest },
+    { stage: "optimize", kind: "Label search", title: "125,000 take-profit × stop-loss × horizon rules", id: "grid" },
+    { stage: "generate", kind: "Generator", title: "price windows → 224 × 224 labelled images", id: "dataset" },
+    { stage: "train", kind: "Training", title: `${(training.params / 1e6).toFixed(1)}M parameters · best epoch restored`, id: "model" },
+    { stage: "analyze", kind: "Analysis", title: "Grad-CAM, occlusion, representation", id: "lab" },
+    { stage: "test", kind: "Backtest", title: "net of costs vs. buy-and-hold", id: "report" },
   ];
   const chain: [string, string][] = [
     ["optimize", "Label rule"],
@@ -114,7 +114,7 @@ export function DashboardSurface({ stage = null, region = null }: { stage?: numb
     ["train", "Model"],
     ["analyze", "Analysis"],
     ["test", "Backtest"],
-    ["deploy", "Bot"],
+    ["deploy", "Deployment"],
   ];
   const upTo = sid == null ? -1 : all ? 99 : chain.findIndex(([s]) => s === sid);
 
@@ -148,17 +148,17 @@ export function DashboardSurface({ stage = null, region = null }: { stage?: numb
         {/* top bar */}
         <div className="absolute left-[60px] right-0 top-0 flex h-[44px] items-center gap-3 border-b border-white/[0.07] px-4">
           <span className="text-[14px] font-medium">Overview</span>
-          <span className="rounded-full border border-white/10 px-2 py-0.5 font-mono text-[10px] text-white/45">workspace · MSFT research</span>
+          <span className="rounded-full border border-white/10 px-2 py-0.5 font-mono text-[10px] text-white/45">workspace · research</span>
           <span className="ml-auto rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-white/60">Search runs…</span>
           <span className="rounded-md bg-white px-2.5 py-1 text-[11px] font-medium text-black">New run</span>
         </div>
 
         {/* KPIs */}
         {[
-          { x: 72, stages: ["deploy"], label: "Bots running", value: String(running), note: "illustrative" },
-          { x: 294, stages: ["deploy"], label: "Fleet P&L · 30 d", value: fmtUsd(pnl.last), note: "illustrative" },
-          { x: 516, stages: ["test"], label: "Last backtest", value: pct(backtest.metrics.total_return), note: `${CHAIN.backtest} · real` },
-          { x: 738, stages: ["generate"], label: "Dataset", value: grid.count.toLocaleString("en-US"), note: `${CHAIN.dataset} · real` },
+          { x: 72, stages: ["deploy"], label: "Deployments live", value: String(running), note: "illustrative" },
+          { x: 294, stages: ["deploy"], label: "Simulated P&L · 30 d", value: fmtUsd(pnl.last), note: "illustrative" },
+          { x: 516, stages: ["test"], label: "Unseen test charts", value: String(backtest.test_n), note: "never used in training" },
+          { x: 738, stages: ["train"], label: "Model parameters", value: training.params.toLocaleString("en-US"), note: "trainable" },
         ].map((c) => (
           <Panel key={c.label} lit={lit(c.stages, "monitor")} dim={dim} left={c.x} className="top-[54px] h-[72px] w-[210px] px-3 py-2">
             <div className="text-[10px] text-white/45">{c.label}</div>
@@ -170,7 +170,7 @@ export function DashboardSurface({ stage = null, region = null }: { stage?: numb
         {/* fleet chart */}
         <Panel lit={lit(["deploy"], "bots")} dim={dim} className="left-[72px] top-[134px] h-[246px] w-[490px] p-3">
           <div className="flex items-baseline justify-between">
-            <span className="text-[11px] text-white/50">Fleet net P&L</span>
+            <span className="text-[11px] text-white/50">Simulated net P&L</span>
             <span className="rounded-full border border-dashed border-white/30 px-1.5 font-mono text-[8.5px] uppercase tracking-[0.12em] text-white/55">demo</span>
           </div>
           <svg viewBox="0 0 470 160" className="mt-2 h-[198px] w-full">
@@ -217,7 +217,7 @@ export function DashboardSurface({ stage = null, region = null }: { stage?: numb
         {/* bots table */}
         <Panel lit={lit(["deploy"], "bots")} dim={dim} className="left-[72px] top-[392px] h-[196px] w-[340px] p-3">
           <div className="flex items-baseline justify-between">
-            <span className="text-[11px] text-white/50">Bots</span>
+            <span className="text-[11px] text-white/50">Deployments</span>
             <span className="rounded-full border border-dashed border-white/30 px-1.5 font-mono text-[8.5px] uppercase tracking-[0.12em] text-white/55">demo</span>
           </div>
           <table className="mt-2 w-full text-[11px]">
@@ -277,8 +277,8 @@ export function DashboardSurface({ stage = null, region = null }: { stage?: numb
             ))}
           </div>
           <div className="mt-3 space-y-1 font-mono text-[9.5px] text-white/40">
-            <div>dataset {CHAIN.dataset} · {grid.count.toLocaleString("en-US")} images</div>
-            <div>backtest {CHAIN.backtest} · threshold {backtest.threshold}</div>
+            <div>input · 224 × 224 × 3 = 150,528 values</div>
+            <div>threshold fixed on validation data</div>
           </div>
         </Panel>
 
@@ -403,16 +403,21 @@ function StageList({ active, onHover, compact = false }: { active: number; onHov
 }
 
 /** Seven stages converging into one dashboard. `scroll`: the page scroll walks the stages; `auto`: cycles while visible. */
-export function ProductStack({ mode = "scroll" }: { mode?: "scroll" | "auto" }) {
+export function ProductStack({ mode = "scroll", progress }: { mode?: "scroll" | "auto"; progress?: MotionValue<number> }) {
   const reduce = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
   const [driven, setDriven] = useState(reduce ? HUB : 0);
   const [hover, setHover] = useState<number | null>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start 0.8", "end 0.55"] });
-  useMotionValueEvent(scrollYProgress, "change", (v) => {
+  const pinned = useTransform(progress ?? scrollYProgress, [0.04, 0.86], [0, 1], { clamp: true });
+  const source = progress ? pinned : scrollYProgress;
+  const drive = (v: number) => {
     if (mode !== "scroll" || reduce) return;
     setDriven(Math.min(HUB, Math.max(0, Math.floor(v * STAGES.length))));
-  });
+  };
+  useMotionValueEvent(source, "change", drive);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => drive(source.get()), [source]);
   const inView = useInView(ref, { margin: "0px 0px -20% 0px" });
   useEffect(() => {
     if (mode !== "auto" || reduce || !inView || hover != null) return;
@@ -437,7 +442,7 @@ export function ProductStack({ mode = "scroll" }: { mode?: "scroll" | "auto" }) 
         </Laptop>
       </div>
       <p className="mt-6 max-w-2xl font-mono text-[10.5px] leading-relaxed text-white/35">
-        Illustrative dashboard. Research runs come from the real MSFT run; bots and fleet P&L are simulated.
+        Illustrative dashboard. Research entries are real outputs; deployments and P&L are simulated.
       </p>
     </div>
   );

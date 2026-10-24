@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  canonicalDevOrigin,
   LOCAL_DEV_ORIGIN,
   oauthCallbackPath,
   oauthRedirectTo,
@@ -15,6 +16,14 @@ test("OAuth redirect in dev always uses localhost:5173, even if the tab is 127.0
   assert.equal(to.includes("127.0.0.1"), false);
   assert.equal(to.includes("/auth/callback"), true);
   assert.equal(to.includes("next=%2Fdashboard"), true);
+});
+
+test("dev OAuth redirect keeps the tab's port and never uses the production site", () => {
+  assert.equal(oauthRedirectTo("http://localhost:5174", "/dashboard", true), "http://localhost:5174/auth/callback?next=%2Fdashboard");
+  assert.equal(oauthRedirectTo("http://127.0.0.1:5174", "/account", true), "http://localhost:5174/auth/callback?next=%2Faccount");
+  assert.equal(canonicalDevOrigin("http://localhost:5173"), "http://localhost:5173");
+  assert.equal(canonicalDevOrigin("http://[::1]:5173"), "http://localhost:5173");
+  assert.equal(oauthRedirectTo("http://localhost:5173", "/dashboard", true).includes("we-convolve.com"), false);
 });
 
 test("OAuth callback is a public path, not a protected app route", () => {

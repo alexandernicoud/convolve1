@@ -12,25 +12,8 @@ from typing import Any, Dict, List, Optional
 
 DEFAULT_PLAN_ID = "free"
 
-# Credits charged when a run is accepted. Only tools listed here are charged; every
-# entry is a flat per-run price (the previous browser-only system charged 10 per run).
-RUN_COSTS: Dict[str, int] = {
-    "training-chart-generator": 10,
-    "trainer": 10,
-    "analysis": 10,
-    "backtester": 10,
-    "testdata": 10,
-    "labeling-optimizer": 10,
-}
-
-TOOL_LABELS: Dict[str, str] = {
-    "training-chart-generator": "Dataset generator",
-    "trainer": "CNN training",
-    "analysis": "Model analysis",
-    "backtester": "Backtest",
-    "testdata": "Test data",
-    "labeling-optimizer": "Labeling optimizer",
-}
+# Run prices depend on the run's configuration and are defined in ``app.pricing``.
+from app.pricing import PRICING_VERSION, TOOL_LABELS, catalogue as price_catalogue, default_cost  # noqa: E402
 
 PLANS: List[Dict[str, Any]] = [
     {
@@ -76,6 +59,26 @@ PLANS: List[Dict[str, Any]] = [
 ]
 
 
+# Per-plan compute limits. No commercial limits are decided, so no plan overrides anything yet
+# and every plan gets the operational defaults from app.config (TRAINER_MAX_*).
+PLAN_COMPUTE_LIMITS: Dict[str, Dict[str, Optional[int]]] = {plan["id"]: {} for plan in PLANS}
+
+
+def compute_limits(plan_id: Optional[str]) -> Dict[str, int]:
+    """Effective limits for a plan; 0 means unlimited."""
+    from app import config
+
+    limits = {
+        "max_active_training_jobs": config.TRAINER_MAX_ACTIVE_JOBS_PER_USER,
+        "max_queued_training_jobs": config.TRAINER_MAX_QUEUED_JOBS_PER_USER,
+        "max_training_images": config.TRAINER_MAX_TRAINING_IMAGES,
+        "max_epochs": config.TRAINER_MAX_EPOCHS,
+    }
+    overrides = PLAN_COMPUTE_LIMITS.get(get_plan(plan_id)["id"]) or {}
+    limits.update({k: int(v) for k, v in overrides.items() if v is not None and k in limits})
+    return limits
+
+
 def get_plan(plan_id: Optional[str]) -> Dict[str, Any]:
     for plan in PLANS:
         if plan["id"] == plan_id:
@@ -84,7 +87,8 @@ def get_plan(plan_id: Optional[str]) -> Dict[str, Any]:
 
 
 def run_cost(tool: str) -> int:
-    return int(RUN_COSTS.get(tool, 0))
+    """Price of ``tool`` at its default configuration (used only when no quote is available)."""
+    return default_cost(tool)
 
 
 def public_catalogue() -> Dict[str, Any]:
@@ -94,8 +98,7 @@ def public_catalogue() -> Dict[str, Any]:
         "charging_enabled": config.CREDITS_MODE == "enforce",
         "plans": PLANS,
         "default_plan_id": DEFAULT_PLAN_ID,
-        "run_costs": [
-            {"tool": tool, "label": TOOL_LABELS.get(tool, tool), "credits": cost} for tool, cost in RUN_COSTS.items()
-        ],
+        "pricing_version": PRICING_VERSION,
+        "run_costs": price_catalogue(),
         "billing_available": False,
     }

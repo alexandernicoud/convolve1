@@ -6,8 +6,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { labelingOptimizerApi } from "@/lib/api";
 import { useRunsStore } from "@/state/runsStore";
-import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
-import { RunCostHint } from "@/components/RunCostHint";
+import { confirmRun, chargeRunCredits } from "@/state/creditsStore";
+import { RunCost, RunCostHint } from "@/components/RunCostHint";
 import { Slider } from "@/components/ui/slider";
 import FieldTip from "@/components/generator/FieldTip";
 import StepSection from "@/components/generator/StepSection";
@@ -112,8 +112,10 @@ export default function LabelingOptimizerTechnical() {
   const endIso = watch("end");
   const todayIsoMax = useMemo(() => isoDateString(startOfLocalDay(new Date())), []);
 
+  const pricingParams = useMemo(() => ({ start: startIso, end: endIso }), [startIso, endIso]);
+
   const onSubmit = async (data: FormData) => {
-    if (!requestRunCredits("labeling-optimizer")) return;
+    if (!(await confirmRun("labeling-optimizer", { start: data.start, end: data.end }))) return;
     setIsSubmitting(true);
     setError(null);
 
@@ -210,7 +212,7 @@ export default function LabelingOptimizerTechnical() {
                 }
               />
 
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2" data-help="opt-window">
                 <div>
                   <label className={labelClass}>
                     Start date <span className="text-[#e5e5e5]">*</span>
@@ -277,7 +279,12 @@ export default function LabelingOptimizerTechnical() {
               title="Search grid & constraints"
               description="Define the TP/SL and horizon ranges to sweep, plus filters that discard thin strategies."
             >
-              <div className="space-y-5">
+              <div className="space-y-5" data-help="opt-grid">
+                <p className="rounded-xl border border-amber-300/25 bg-amber-300/[0.06] px-4 py-3 text-[12.5px] leading-relaxed text-amber-100/85">
+                  The current engine searches a fixed grid on daily bars: take-profit 0.5–40% and stop-loss 0.5–20% (25 steps
+                  each), horizons 1–200 bars, at least 50 trades, 0.1% fee per side. The fields below are saved with the run
+                  for reference but do not change the search yet; only the symbol and date window do.
+                </p>
                 <div>
                   <div className="mb-3 flex items-center text-sm font-medium text-white/80">
                     Take-profit &amp; stop-loss ranges
@@ -414,9 +421,10 @@ export default function LabelingOptimizerTechnical() {
               </div>
             )}
 
-            <div className="space-y-2 rounded-2xl border border-white/[0.12] bg-white/[0.04] p-5 md:p-6">
+            <div className="space-y-2">
               <button
                 type="submit"
+                data-help="opt-run"
                 disabled={isSubmitting || selectedSymbols.length === 0}
                 className="flex w-full items-center justify-center gap-2 rounded-full border border-white/25 bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -427,16 +435,12 @@ export default function LabelingOptimizerTechnical() {
                   </>
                 ) : (
                   <>
-                    Run labeling optimizer
+                    Optimize labels <RunCost tool="labeling-optimizer" params={pricingParams} />
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
               </button>
-              <RunCostHint tool="labeling-optimizer" />
-              <p className="text-center text-[10px] leading-snug text-[rgba(255,255,255,0.42)]">
-                The engine currently runs on symbol + date window; grid fields are saved with the run for the results
-                view and future wiring.
-              </p>
+              <RunCostHint tool="labeling-optimizer" params={pricingParams} className="text-center" />
             </div>
       </form>
     </div>

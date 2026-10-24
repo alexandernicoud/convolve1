@@ -135,11 +135,14 @@ def record_pipeline_run(
     artifact_ref: Optional[str] = None,
     worker_id: Optional[str] = None,
     charge: bool = False,
+    price: Optional[Any] = None,
+    expected_cost: Optional[int] = None,
+    request_key: Optional[str] = None,
 ) -> None:
     """Insert ownership row. No-op when user_id is missing or not a UUID (legacy env).
 
-    With ``charge`` the run's credit cost is debited in the same transaction as the
-    insert; ``InsufficientCredits`` leaves nothing behind.
+    With ``charge`` the run's credit cost (``price``, an ``app.pricing.Quote``) is debited
+    in the same transaction as the insert; a refused charge leaves nothing behind.
     """
     from app.services import credits
 
@@ -159,7 +162,13 @@ def record_pipeline_run(
         extra_json = json.dumps(extra) if extra else None
         if existing is None:
             if charge:
-                credits.charge_for_run(db, uid, run_id, tool)
+                credits.charge_for_run(
+                    db, uid, run_id, tool,
+                    cost=price.credits if price is not None else None,
+                    expected=expected_cost,
+                    request_key=request_key,
+                    note=price.note() if price is not None else None,
+                )
             db.add(
                 PipelineRun(
                     id=run_id,
@@ -191,7 +200,7 @@ def record_pipeline_run(
                 existing.extra_json = extra_json
             db.add(existing)
         db.commit()
-    except credits.InsufficientCredits:
+    except (credits.InsufficientCredits, credits.PriceChanged, credits.DuplicateSubmission):
         db.rollback()
         raise
     except Exception:

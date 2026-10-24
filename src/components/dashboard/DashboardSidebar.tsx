@@ -26,14 +26,14 @@ const formatCreditsCompact = (n: number): string => {
 };
 
 const nav = [
-  { to: "/dashboard", label: "Overview", tag: "Manage", icon: LayoutDashboard },
-  { to: "/tools/generator", label: "Datasets", tag: "Generate", icon: Database },
-  { to: "/tools/trainer", label: "Models", tag: "Train", icon: Brain },
-  { to: "/tools/analysis", label: "Analysis", tag: "Analyse", icon: Microscope },
-  { to: "/tools/backtester", label: "Backtesting", tag: "Test", icon: LineChart },
-  { to: "/products/labeling-optimizer/technical", label: "Labeling", tag: "Optimize", icon: Tags },
-  { to: "/tools/deploy", label: "Deploy", tag: "Deploy", icon: Rocket },
-  { to: "/tools/run-log", label: "Analytics", tag: "Review", icon: BarChart3 },
+  { to: "/dashboard", label: "Overview", tag: "Manage", icon: LayoutDashboard, tour: "nav-monitor" },
+  { to: "/tools/generator", label: "Datasets", tag: "Generate", icon: Database, tour: "nav-generate" },
+  { to: "/tools/trainer", label: "Models", tag: "Train", icon: Brain, tour: "nav-train" },
+  { to: "/tools/analysis", label: "Analysis", tag: "Analyse", icon: Microscope, tour: "nav-analyze" },
+  { to: "/tools/backtester", label: "Backtesting", tag: "Test", icon: LineChart, tour: "nav-backtest" },
+  { to: "/products/labeling-optimizer/technical", label: "Labeling", tag: "Optimize", icon: Tags, tour: "nav-labeling" },
+  { to: "/tools/deploy", label: "Deploy (paper)", tag: "Deploy", icon: Rocket, tour: "nav-deploy" },
+  { to: "/tools/run-log", label: "Run history", tag: "Review", icon: BarChart3, tour: "nav-review" },
 ] as const;
 
 export function DashboardSidebar() {
@@ -79,13 +79,14 @@ export function DashboardSidebar() {
         )}
       >
       <nav className="flex flex-1 flex-col items-center gap-0.5 px-1.5 py-3">
-        {nav.map(({ to, label, tag, icon: Icon }) => {
+        {nav.map(({ to, label, tag, icon: Icon, tour }) => {
           const active = linkActive(to);
           return (
             <Tooltip key={to} delayDuration={200}>
               <TooltipTrigger asChild>
                 <Link
                   to={to}
+                  data-tour={tour}
                   className={`flex w-full flex-col items-center gap-0.5 rounded-xl px-0.5 py-1.5 transition-all duration-200 ${
                     active
                       ? "bg-white/15 text-white shadow-[0_0_24px_rgba(255,255,255,0.12)] ring-2 ring-white/35 ring-offset-2 ring-offset-black"
@@ -162,18 +163,23 @@ export function DashboardSidebar() {
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
             <Link
-              to="/contact"
-              className="flex w-full flex-col items-center gap-0.5 rounded-xl py-1 text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
+              to="/help"
+              data-tour="nav-help"
+              className={`flex w-full flex-col items-center gap-0.5 rounded-xl py-1 transition-colors ${
+                pathname === "/help"
+                  ? "bg-white/12 text-white ring-1 ring-white/30"
+                  : "text-white/70 hover:bg-white/[0.06] hover:text-white"
+              }`}
             >
               <HelpCircle className="h-[20px] w-[20px] shrink-0" aria-hidden />
               <span className="text-center text-[7px] font-semibold uppercase leading-tight tracking-wide text-white/55">
                 Help
               </span>
-              <span className="sr-only">Help and questions</span>
+              <span className="sr-only">Help center and guided tour</span>
             </Link>
           </TooltipTrigger>
           <TooltipContent side="right" className="max-w-[220px] border-white/10 bg-[#0a0a0a] text-neutral-200">
-            Questions? Reach us here — we’re happy to help.
+            Help center, guided tour and explanations
           </TooltipContent>
         </Tooltip>
         <Tooltip delayDuration={200}>

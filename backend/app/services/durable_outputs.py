@@ -411,8 +411,11 @@ def _publish_dataset_dir(
     meta = _read_json(summary)
     prefix = f"datasets/{dataset_id}"
     store = get_artifact_store()
+    # Per-chart event times; the trainer purges overlapping samples from them.
+    provenance_dir = dataset_path / "provenance"
+    provenance = sorted(p for p in provenance_dir.iterdir() if p.is_file()) if provenance_dir.is_dir() else []
     if not getattr(store, "prefers_archives", True):
-        files = [summary] + images
+        files = [summary] + provenance + images
         zip_path = dataset_path / f"{dataset_id}.zip"
         if zip_path.is_file():
             files.append(zip_path)
@@ -428,7 +431,7 @@ def _publish_dataset_dir(
         facts = _build_dataset_archive(dataset_path, images, archive_path)
         key = f"users/{canonical_user_id(user_id)}/{prefix}/{DATASET_ARCHIVE}"
         archive = {"rel": DATASET_ARCHIVE, "key": key, "uri": store.put_file(key, archive_path), **facts}
-    stored = _put_tree(user_id, prefix, dataset_path, [summary])
+    stored = _put_tree(user_id, prefix, dataset_path, [summary] + provenance)
     merge_dataset_extra(
         dataset_id,
         {
@@ -490,7 +493,15 @@ def _trainer_files(root: Path) -> Optional[List[Path]]:
     if not models or not summary.is_file():
         return None
     files = list(models) + [summary]
-    for name in ("history.json", "model_metadata.json"):
+    for name in (
+        "history.json",
+        "model_metadata.json",
+        "timings.json",
+        "training_state.json",
+        "evaluation.json",
+        "model_manifest.json",
+        "split_manifest.json.gz",
+    ):
         path = root / name
         if path.is_file():
             files.append(path)

@@ -137,10 +137,18 @@ class LoadedModel:
     penultimate_dim: int
     layers: List[Dict[str, Any]]
     lock: threading.Lock = field(default_factory=threading.Lock)
+    predict_fn: Any = None
+    # "chain": layers re-run one by one. "graph": residual/branched networks run as one
+    # functional model exposing the listed feature maps and the classifier input.
+    mode: str = "chain"
+    preferred_layer: Optional[str] = None
 
     @property
     def last_conv(self) -> Optional[str]:
-        return self.conv_layers[-1]["name"] if self.conv_layers else None
+        names = [c["name"] for c in self.conv_layers]
+        if self.preferred_layer in names:
+            return self.preferred_layer
+        return names[-1] if names else None
 
     def describe(self) -> Dict[str, Any]:
         return {
@@ -153,6 +161,7 @@ class LoadedModel:
             "default_layer": self.last_conv,
             "penultimate_dim": self.penultimate_dim,
             "layers": self.layers,
+            "graph_mode": self.mode,
         }
 
 
@@ -170,7 +179,82 @@ def _shape(t: Any) -> List[Optional[int]]:
     return [None if d is None else int(d) for d in tuple(t.shape)[1:]]
 
 
-def _build(model: Any, fingerprint: str) -> LoadedModel:
+def keras_input_layer() -> Any:
+    import keras
+
+    return keras.layers.InputLayer
+
+
+def _is_4d(t: Any) -> bool:
+    try:
+        return len(tuple(t.shape)) == 4
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _build_graph(model: Any, fingerprint: str, head: str, n_classes: int, h: int, w: int, hint: Optional[str]) -> LoadedModel:
+    """Residual or branched functional networks (ResNet, EfficientNet): the last feature map at
+    each spatial resolution (plus the manifest's Grad-CAM layer) and the classifier input."""
+    import keras
+
+    final = model.layers[-1]
+    if any(isinstance(layer, keras.Model) for layer in model.layers):
+        raise UnsupportedModel("Nested sub-models are not supported; save the network with flattened layers")
+    try:
+        penultimate = final.input
+    except Exception as exc:  # noqa: BLE001
+        raise UnsupportedModel("The classifier input is not reachable in this model graph") from exc
+    if len(_shape(penultimate)) != 1:
+        raise UnsupportedModel("The layer before the classifier must be a flat vector")
+    feature: List[Any] = []
+    for layer in model.layers[:-1]:
+        try:
+            out = layer.output
+        except Exception:  # noqa: BLE001
+            continue
+        if isinstance(out, (list, tuple)) or not _is_4d(out) or isinstance(layer, keras.layers.InputLayer):
+            continue
+        if max(int(d or 0) for d in tuple(out.shape)[1:3]) <= 1:
+            continue  # squeeze-and-excitation gates: no spatial extent to localize
+        feature.append(layer)
+    if not feature:
+        raise UnsupportedModel("No convolutional feature maps found")
+    chosen: List[Any] = []
+    for i, layer in enumerate(feature):
+        here = tuple(layer.output.shape)[1:3]
+        nxt = tuple(feature[i + 1].output.shape)[1:3] if i + 1 < len(feature) else None
+        if nxt != here or layer.name == hint:
+            chosen.append(layer)
+    graph = keras.Model(model.inputs, [layer.output for layer in chosen] + [penultimate])
+    kernel, bias = final.get_weights()
+    conv_layers = [{"name": layer.name, "output_shape": _shape(layer.output)} for layer in chosen]
+    layers = [
+        {
+            "name": layer.name,
+            "type": layer.__class__.__name__,
+            "output_shape": _shape(layer.output) if not isinstance(layer.output, (list, tuple)) else None,
+            "params": int(layer.count_params()),
+        }
+        for layer in model.layers
+    ]
+    return LoadedModel(
+        fingerprint=fingerprint,
+        model=model,
+        graph=graph,
+        input_size=(h, w),
+        conv_layers=conv_layers,
+        head=head,
+        n_classes=n_classes,
+        final_kernel=kernel.astype(np.float32),
+        final_bias=bias.astype(np.float32),
+        penultimate_dim=int(np.prod([d for d in _shape(penultimate) if d])),
+        layers=layers,
+        mode="graph",
+        preferred_layer=hint,
+    )
+
+
+def _build(model: Any, fingerprint: str, hint: Optional[str] = None) -> LoadedModel:
     import keras
 
     if not model.layers:
@@ -196,23 +280,30 @@ def _build(model: Any, fingerprint: str) -> LoadedModel:
 
     # Re-trace the layers on a fresh input so intermediate tensors are reachable for both
     # Sequential and simple functional (single-chain) models.
+    if not _is_chain(model):
+        return _build_graph(model, fingerprint, head, n_classes, h, w, hint)
     inp = keras.Input(shape=(h, w, 3))
     x = inp
     outputs: Dict[str, Any] = {}
+    body = [l for l in model.layers[:-1] if not isinstance(l, keras.layers.InputLayer)]
     try:
-        for layer in model.layers[:-1]:
+        for layer in body:
             x = layer(x)
             outputs[layer.name] = x
     except Exception as exc:
         raise UnsupportedModel("Only single-chain (Sequential-style) models are supported") from exc
     penultimate = x
-    conv_names = [l.name for l in model.layers[:-1] if isinstance(l, keras.layers.Conv2D)]
+    conv_names = [
+        l.name
+        for l in body
+        if isinstance(l, keras.layers.Conv2D) or (l.name == hint and _is_4d(outputs[l.name]))
+    ]
     if not conv_names:
         raise UnsupportedModel("No Conv2D layers found")
     graph = keras.Model(inp, [outputs[n] for n in conv_names] + [penultimate])
 
     layers = []
-    for layer in model.layers:
+    for layer in body + [final]:
         out = outputs.get(layer.name)
         layers.append(
             {
@@ -239,7 +330,25 @@ def _build(model: Any, fingerprint: str) -> LoadedModel:
         final_bias=bias.astype(np.float32),
         penultimate_dim=pdim,
         layers=layers,
+        preferred_layer=hint,
     )
+
+
+def _is_chain(model: Any) -> bool:
+    """True when every layer consumes exactly the previous layer's output (Sequential-style)."""
+    import keras
+
+    if isinstance(model, keras.Sequential):
+        return True
+    layers = [l for l in model.layers if not isinstance(l, keras.layers.InputLayer)]
+    try:
+        for prev, layer in zip(layers, layers[1:]):
+            inbound = layer.input
+            if isinstance(inbound, (list, tuple)) or inbound is not prev.output:
+                return False
+    except Exception:  # noqa: BLE001
+        return False
+    return True
 
 
 _cache: "OrderedDict[str, LoadedModel]" = OrderedDict()
@@ -256,8 +365,12 @@ def get_model(path: str) -> LoadedModel:
             return hit
     import keras
 
+    from runners.model_manifest import read_embedded
+
     model = keras.models.load_model(path, compile=False)
-    lm = _build(model, fp)
+    manifest = read_embedded(path) or {}
+    hint = (manifest.get("architecture") or {}).get("gradcam_layer")
+    lm = _build(model, fp, hint if isinstance(hint, str) else None)
     with _cache_lock:
         _cache[fp] = lm
         _cache.move_to_end(fp)
@@ -281,10 +394,16 @@ def _forward(lm: LoadedModel, x: Any):
     with respect to any intermediate activation.
     """
     tf = _tf()
+    if lm.mode == "graph":
+        outs = lm.graph(tf.convert_to_tensor(x), training=False)
+        convs, h = list(outs[:-1]), outs[-1]
+        return convs, h, tf.matmul(h, lm.final_kernel) + lm.final_bias
     conv_names = {c["name"] for c in lm.conv_layers}
     h = tf.convert_to_tensor(x)
     convs = []
     for layer in lm.model.layers[:-1]:
+        if isinstance(layer, keras_input_layer()):
+            continue
         h = layer(h, training=False)
         if layer.name in conv_names:
             convs.append(h)
@@ -312,12 +431,27 @@ def probabilities(lm: LoadedModel, z: np.ndarray) -> np.ndarray:
     return e / e.sum(axis=1, keepdims=True)
 
 
+def _graph_predict(lm: LoadedModel):
+    """``_forward`` as one compiled graph for tape-free prediction (same ops, ~2x eager on CPU).
+
+    Gradient methods keep the eager path: a tape cannot see activations inside a tf.function.
+    """
+    if lm.predict_fn is None:
+        def fwd(x):
+            _, pen, z = _forward(lm, x)
+            return pen, z
+
+        lm.predict_fn = _tf().function(fwd, reduce_retracing=True)
+    return lm.predict_fn
+
+
 def predict(lm: LoadedModel, x: np.ndarray, batch: int = 32) -> Tuple[np.ndarray, np.ndarray]:
     """(probabilities (N, k), penultimate (N, d)) in batches."""
     probs, pens = [], []
     with lm.lock:
+        fwd = _graph_predict(lm)
         for i in range(0, len(x), batch):
-            _, pen, z = _forward(lm, x[i : i + batch])
+            pen, z = fwd(x[i : i + batch])
             probs.append(probabilities(lm, z.numpy()))
             pens.append(pen.numpy())
     return np.concatenate(probs), np.concatenate(pens)
@@ -421,6 +555,30 @@ def image_path(images_dir: str, image_id: str) -> Optional[str]:
     if not real.startswith(root + os.sep) or not os.path.isfile(real):
         return None
     return real
+
+
+PARTITION_NAMES = {"train": "training", "val": "validation", "test": "test"}
+
+
+def recorded_partitions(trainer_dir: str) -> Optional[Dict[str, str]]:
+    """Image id -> training / validation / test / excluded from the run's split manifest
+    (Trainer protocol 2). None for older runs."""
+    import gzip
+
+    path = os.path.join(trainer_dir, "split_manifest.json.gz")
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, ValueError):
+        return None
+    out: Dict[str, str] = {}
+    for part, ids in (manifest.get("ids") or {}).items():
+        for i in ids or []:
+            out[str(i)] = PARTITION_NAMES.get(part, part)
+    for row in manifest.get("excluded") or []:
+        if isinstance(row, dict) and row.get("id"):
+            out[str(row["id"])] = "excluded"
+    return out or None
 
 
 def split_membership(

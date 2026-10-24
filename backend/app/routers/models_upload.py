@@ -8,18 +8,15 @@ from fastapi import APIRouter, File, Request, UploadFile
 from app.auth import get_current_user_id
 from app.config import MODEL_STORAGE_ROOT
 from app.ownership import record_user_model
-from app.paths import find_keras_sidecar, local_keras_path
+from app.paths import find_keras_sidecar, local_keras_path, runs_root
 from app.schemas.model_upload import ModelUploadResponse
 from app.services import direct_uploads
-from app.services.model_name_match import find_trainer_match_by_filename
+from app.services.model_name_match import find_trainer_match_by_filename, find_trainer_match_by_manifest
 from app.storage import get_keras_model_storage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["models"])
-
-# Trainer run dirs live next to the app package: backend/runs
-_RUNS_DIR = Path(__file__).resolve().parents[2] / "runs"
 
 
 def _merge_upload_sidecar(
@@ -47,7 +44,7 @@ def _merge_upload_sidecar(
         **match,
         "model_id": model_id,
         "original_filename": original_filename or existing.get("original_filename"),
-        "source": "uploaded_matched_trained",
+        "source": "uploaded_matched_trained" if match.get("training_run_id") else existing.get("source", "uploaded"),
     }
     try:
         with open(dest, "w", encoding="utf-8") as f:
@@ -72,10 +69,22 @@ def finalize_model_upload(upload_id: str, request: Request) -> ModelUploadRespon
     uid = get_current_user_id(request)
     with direct_uploads.adopt_upload(uid, upload_id, "model") as (staged, local):
         artifact = get_keras_model_storage().save_keras_file(local, staged.filename, user_id=uid)
-    return _finish_model_upload(artifact, uid)
+        by_manifest = _manifest_match(str(local), artifact.model_id, uid)
+    return _finish_model_upload(artifact, uid, by_manifest=by_manifest)
 
 
-def _finish_model_upload(artifact, uid) -> ModelUploadResponse:
+def _manifest_match(path: str, model_id: str, uid):
+    try:
+        return find_trainer_match_by_manifest(path, user_id=uid)
+    except Exception as exc:  # noqa: BLE001 - lineage is optional; the upload itself succeeded
+        logger.warning("Embedded manifest check failed for %s: %s", model_id, exc)
+        return None
+
+
+_UNSET = object()
+
+
+def _finish_model_upload(artifact, uid, by_manifest=_UNSET) -> ModelUploadResponse:
     record_user_model(
         artifact.model_id,
         uid,
@@ -85,9 +94,16 @@ def _finish_model_upload(artifact, uid) -> ModelUploadResponse:
         extra={"original_filename": artifact.original_filename},
     )
 
-    match = find_trainer_match_by_filename(
-        artifact.original_filename, str(_RUNS_DIR), user_id=uid
-    )
+    if by_manifest is _UNSET:
+        by_manifest = _manifest_match(str(artifact.absolute_path or ""), artifact.model_id, uid)
+    if by_manifest and by_manifest.get("manifest_verification") == "verified":
+        match = by_manifest
+    else:
+        match = find_trainer_match_by_filename(
+            artifact.original_filename, str(runs_root()), user_id=uid
+        )
+        if by_manifest:
+            match = {**(match or {}), **by_manifest}
     if match:
         _merge_upload_sidecar(artifact.model_id, artifact.original_filename, match, user_id=uid)
 

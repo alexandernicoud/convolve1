@@ -13,8 +13,8 @@ import {
   type InternalModel,
   type DatasetListItem,
 } from "@/lib/api";
-import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
-import { RunCostHint } from "@/components/RunCostHint";
+import { confirmRun, chargeRunCredits } from "@/state/creditsStore";
+import { RunCost, RunCostHint } from "@/components/RunCostHint";
 import { cn } from "@/lib/utils";
 
 type UploadedModel = {
@@ -202,7 +202,7 @@ export default function AnalysisTechnical() {
       setError("Pick a test folder, upload a ZIP, or generate one first.");
       return;
     }
-    if (!requestRunCredits("analysis")) return;
+    if (!(await confirmRun("analysis"))) return;
     setError(null);
     setRunning(true);
     setPhase("Starting…");
@@ -406,9 +406,15 @@ export default function AnalysisTechnical() {
               )}
             >
               {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
-              {running ? "Running…" : "Run analysis"}
+              {running ? (
+                "Running…"
+              ) : (
+                <>
+                  Run analysis <RunCost tool="analysis" />
+                </>
+              )}
             </button>
-            <RunCostHint tool="analysis" className="sm:text-left" />
+            <RunCostHint tool="analysis" className="text-center sm:text-left" />
           </div>
           {running && phase ? <span className="text-[12px] tabular-nums text-white/45">{phase}</span> : null}
         </div>

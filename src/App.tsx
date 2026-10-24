@@ -32,7 +32,10 @@ import NotFound from "./pages/NotFound";
 import RunLog from "./pages/RunLog";
 import Account from "./pages/Account";
 import PricingPage from "./features/pricing/PricingPage";
-import CreditGuardModal from "@/components/CreditGuardModal";
+import CreditGuardModal, { RunConfirmModal } from "@/components/CreditGuardModal";
+import { OnboardingHost } from "@/features/onboarding/OnboardingHost";
+import { ExplainLayer } from "@/features/help/ExplainMode";
+import HelpPage from "@/features/help/HelpPage";
 import Login from "./pages/auth/Login";
 import AuthCallback from "./pages/auth/AuthCallback";
 import Signup from "./pages/auth/Signup";
@@ -112,7 +115,12 @@ function AppShell() {
   const { pathname } = useLocation();
   const { headerContentPushPx } = useHeaderReveal();
   const isMarketing2 =
-    pathname === "/" || pathname === "/about" || pathname === "/pricing" || pathname === "/products" || isLegalPath(pathname);
+    pathname === "/" ||
+    pathname === "/about" ||
+    pathname === "/pricing" ||
+    pathname === "/products" ||
+    pathname === "/help" ||
+    isLegalPath(pathname);
   const showFooter = !isCompactHeaderPathname(pathname) && !isMarketing2;
   const isHomeLanding =
     pathname === "/" ||
@@ -198,6 +206,7 @@ function AppShell() {
           <Route path="/pricing" element={<PageWrapper><PricingPage /></PageWrapper>} />
           <Route path="/products2" element={<KeepHashRedirect to="/products" />} />
           <Route path="/contact" element={<PageWrapper><Contact /></PageWrapper>} />
+          <Route path="/help" element={<PageWrapper><HelpPage /></PageWrapper>} />
           <Route path="/privacy" element={<PageWrapper><PrivacyPage /></PageWrapper>} />
           <Route path="/datenschutz" element={<Navigate to="/privacy" replace />} />
           <Route path="/terms" element={<PageWrapper><TermsPage /></PageWrapper>} />
@@ -471,6 +480,9 @@ function AppShell() {
       </main>
       {showFooter ? <Footer /> : null}
       <CreditGuardModal />
+      <RunConfirmModal />
+      <OnboardingHost active={isProtectedAppPath(pathname)} />
+      <ExplainLayer />
     </div>
   );
 }

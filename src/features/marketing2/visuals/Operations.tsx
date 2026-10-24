@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useInView, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { CHAIN, backtest, fleet, grid, training } from "../data";
+import { backtest, fleet, grid, training } from "../data";
 import { ProvenanceTag, linePath, scale } from "../ui";
 
 /* ------------------------------------------------------------------ demo fleet */
@@ -81,7 +81,7 @@ const BOTS: Bot[] = fleet.bots.map((b, i) => {
     name: b.name,
     symbol: b.symbol,
     tf,
-    model: real ? CHAIN.modelName : `${b.symbol.split(/[.-]/)[0]}-${tf.toLowerCase()}-v${1 + Math.floor(r() * 4)}`,
+    model: real ? `${b.symbol}-${tf.toLowerCase()}-cnn` : `${b.symbol.split(/[.-]/)[0]}-${tf.toLowerCase()}-v${1 + Math.floor(r() * 4)}`,
     realModel: real,
     status,
     ret: b.ret,
@@ -133,7 +133,7 @@ function FleetChart({ bot }: { bot: Bot }) {
     <div>
       <div className="flex items-baseline justify-between gap-3">
         <div>
-          <div className="text-[11px] text-white/40">Fleet net P&L · 30 days</div>
+          <div className="text-[11px] text-white/40">Simulated net P&L · 30 days</div>
           <div className="text-[20px] font-medium tracking-tight text-white tabular-nums">+${d.last.toFixed(0)}</div>
         </div>
         <div className="flex gap-3 font-mono text-[9.5px] text-white/40">
@@ -179,12 +179,12 @@ interface ChainNode {
 function chainFor(bot: Bot): ChainNode[] {
   if (bot.realModel) {
     return [
-      { kind: "Label rule", title: `+${grid.tp * 100}% / −${grid.sl * 100}% / ${grid.horizon} bars`, id: "entered manually", real: true },
-      { kind: "Dataset", title: `${grid.count.toLocaleString("en-US")} chart images`, id: CHAIN.dataset, real: true },
-      { kind: "Model", title: CHAIN.modelName, id: CHAIN.trainingRun, real: true },
-      { kind: "Analysis", title: "Interpretability lab", id: CHAIN.labSession.replace("lab_", ""), real: true },
-      { kind: "Backtest", title: `${pct(backtest.metrics.total_return)} net · ${training.symbol}`, id: CHAIN.backtest, real: true },
-      { kind: "Bot", title: bot.name, id: "demo paper bot", real: false },
+      { kind: "Label rule", title: `+${grid.tp * 100}% / −${grid.sl * 100}% / ${grid.horizon} bars`, id: "take-profit / stop-loss / horizon", real: true },
+      { kind: "Dataset", title: "Labelled chart images", id: "224 × 224 × 3", real: true },
+      { kind: "Model", title: "CNN · best epoch", id: `${(training.params / 1e6).toFixed(1)}M parameters`, real: true },
+      { kind: "Analysis", title: "Interpretability lab", id: "Grad-CAM · occlusion", real: true },
+      { kind: "Backtest", title: "Out of sample, net of costs", id: "threshold fixed on validation", real: true },
+      { kind: "Deployment", title: bot.name, id: "simulated execution", real: false },
     ];
   }
   return [
@@ -193,7 +193,7 @@ function chainFor(bot: Bot): ChainNode[] {
     { kind: "Model", title: bot.model, id: "demo", real: false },
     { kind: "Analysis", title: "Interpretability lab", id: "demo", real: false },
     { kind: "Backtest", title: `${bot.symbol} backtest`, id: "demo", real: false },
-    { kind: "Bot", title: bot.name, id: "demo paper bot", real: false },
+    { kind: "Deployment", title: bot.name, id: "simulated execution", real: false },
   ];
 }
 
@@ -282,7 +282,7 @@ export function Operations() {
     <div>
       <div className="overflow-hidden rounded-[18px] border border-white/[0.09] bg-[#08090b]">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-white/[0.07] px-4 py-2.5 sm:px-5">
-          <span className="text-[13px] font-medium text-white">Deploy · Bot operations</span>
+          <span className="text-[13px] font-medium text-white">Deploy · Operations</span>
           <span className="rounded-full border border-dashed border-white/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-white/70">Illustrative data</span>
           <div className="ml-auto flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[10px] text-white/50">
             {(Object.keys(COUNTS) as Status[]).map((k) => (
@@ -304,7 +304,7 @@ export function Operations() {
             <table className="mt-3 w-full text-left text-[12px]">
               <thead>
                 <tr className="font-mono text-[9px] uppercase tracking-[0.12em] text-white/35">
-                  <th className="pb-1.5 font-normal">Bot</th>
+                  <th className="pb-1.5 font-normal">Deployment</th>
                   <th className="pb-1.5 font-normal">Asset</th>
                   <th className="hidden pb-1.5 font-normal sm:table-cell">Model</th>
                   <th className="pb-1.5 font-normal">Status</th>
@@ -351,7 +351,7 @@ export function Operations() {
               </tbody>
             </table>
             <button type="button" onClick={() => setAll((v) => !v)} className="mt-2 font-mono text-[10.5px] text-white/45 transition-colors hover:text-white">
-              {all ? "Show fewer" : `Show all ${BOTS.length} bots`}
+              {all ? "Show fewer" : `Show all ${BOTS.length} deployments`}
             </button>
           </div>
 
@@ -385,7 +385,7 @@ export function Operations() {
                 <dl className="mt-2.5 space-y-1 text-[11.5px]">
                   {[
                     ["Schedule", bot.schedule],
-                    ["Signal", `p ≥ ${bot.threshold.toFixed(2)} · paper wallet`],
+                    ["Signal", `p ≥ ${bot.threshold.toFixed(2)} · simulated fills`],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-3">
                       <dt className="text-white/40">{k}</dt>
@@ -416,7 +416,7 @@ export function Operations() {
         </div>
       </div>
       <div className="mt-3">
-        <ProvenanceTag kind="illustrative" detail="Bots, P&L and executions are simulated. The MSFT run through the backtest is real." />
+        <ProvenanceTag kind="illustrative" detail="Deployments, P&L and executions are simulated; the research chain behind the first one is real." />
       </div>
     </div>
   );

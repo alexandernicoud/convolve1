@@ -177,8 +177,8 @@ export default function LabPage() {
         </Link>
       </header>
 
-      <section className={cx(surface, "grid gap-4 px-5 py-4 md:grid-cols-2")}>
-        <label className="flex min-w-0 flex-col gap-1.5">
+      <section className={cx(surface, "grid gap-4 px-5 py-4 md:grid-cols-2")} data-tour="lab-select">
+        <label className="flex min-w-0 flex-col gap-1.5" data-help="lab-model">
           <span className="text-[12.5px] text-white/55">Model</span>
           <select className={inputCls} value={selectedModel} onChange={(e) => patch({ model: e.target.value || null, dataset: null, session: null, image: null })}>
             <option value="">Select a model…</option>
@@ -191,7 +191,7 @@ export default function LabPage() {
             ))}
           </select>
         </label>
-        <label className="flex min-w-0 flex-col gap-1.5">
+        <label className="flex min-w-0 flex-col gap-1.5" data-help="lab-images">
           <span className="text-[12.5px] text-white/55">Images</span>
           <select className={inputCls} value={datasetId ?? ""} disabled={!model} onChange={(e) => patch({ dataset: e.target.value || null, session: null, image: null })}>
             <option value="">{model ? "Select a dataset…" : "Select a model first"}</option>
@@ -218,14 +218,16 @@ export default function LabPage() {
         <div className={cx(surface, "h-32 animate-pulse")} aria-busy={ctxLoading} />
       ) : (
         <>
-          <ContextStrip context={context} sessionId={sessionId} />
+          <div data-help="lab-context">
+            <ContextStrip context={context} sessionId={sessionId} />
+          </div>
           {!context.dataset ? (
             <Panel title="Choose images">
               <p className="pl-4 text-[14px] text-white/50">This model has no recorded training dataset. Pick a dataset of charts in the same format.</p>
             </Panel>
           ) : shared ? (
             <LabCtx.Provider value={shared}>
-              <nav className="flex gap-1 overflow-x-auto border-b border-white/[0.08]" aria-label="Lab modules">
+              <nav className="flex gap-1 overflow-x-auto border-b border-white/[0.08]" aria-label="Lab modules" data-tour="lab-modules" data-help="lab-modules">
                 {TABS.map((t) => (
                   <button
                     key={t.id}

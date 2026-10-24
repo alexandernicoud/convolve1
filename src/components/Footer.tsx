@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import logoMark from "@/assets/convolve-mark.png";
-import { LEGAL_LINKS } from "@/features/legal/meta";
+import { LEGAL_LINKS, OPERATOR } from "@/features/legal/meta";
 
 const links = [
   { label: "Home", href: "/" },
@@ -33,7 +33,7 @@ export default function Footer() {
           </nav>
         </div>
         <div className="mt-10 flex flex-col gap-4 text-xs text-muted-foreground/80 md:flex-row md:items-center md:justify-between">
-          <p>© {new Date().getFullYear()} Convolve. Visual AI for trading research.</p>
+          <p>© {new Date().getFullYear()} {OPERATOR.name}. Convolve: visual AI for trading research.</p>
           <nav className="flex flex-wrap gap-x-5 gap-y-2" aria-label="Legal">
             {LEGAL_LINKS.map((l) => (
               <Link key={l.href} to={l.href} className="transition-colors hover:text-foreground">

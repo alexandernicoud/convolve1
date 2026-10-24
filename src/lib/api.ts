@@ -57,6 +57,10 @@ export async function fetchApi(path: string, init?: RequestInit): Promise<Respon
     if (token && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
     }
+    if ((init?.method ?? "GET").toUpperCase() === "POST") {
+      const { takeRunStartHeaders } = await import("@/state/creditsStore");
+      for (const [k, v] of Object.entries(takeRunStartHeaders(path))) headers.set(k, v);
+    }
     const res = await fetch(url, { ...init, headers });
     if (res.status === 402) announceInsufficientCredits(res.clone());
     return res;
@@ -207,6 +211,182 @@ export interface TrainerRunRequest {
   random_seed?: number;
   /** Chart-generator run the dataset came from (enables model→training metadata linkage). */
   generator_run_id?: string;
+  /** Omitted: the original network (convolve-cnn-v1). Others are experimental profiles. */
+  architecture?: string;
+  /** Omitted: chronological for new runs (the server records trainer_protocol 2). */
+  validation_method?: ValidationMethod;
+  embargo_days?: number;
+  /** Only offered when the server has a GPU pool (see TrainerCatalog.accelerators). */
+  accelerator?: 'cpu' | 'gpu';
+  /** Trainer 2.0 options; omitted keys use the server defaults (TrainerOptionsSchema). */
+  test_fraction?: number;
+  evaluate_test?: boolean;
+  purge_chart_windows?: boolean;
+  embargo_bars?: number;
+  label_horizon_bars?: number;
+  label_timeframe?: '1d' | '1wk' | '1mo';
+  optimizer?: OptimizerSettings;
+  lr_schedule?: ScheduleSettings;
+  regularization?: { dropout?: number | null; l2?: number };
+  early_stopping?: { enabled?: boolean; patience?: number; min_delta?: number };
+  selection_metric?: SelectionMetric;
+  class_weighting?: 'none' | 'balanced';
+  augmentation?: string[];
+  transfer?: { mode: TransferMode; trainable_layers?: number };
+}
+
+export type ValidationMethod = 'random' | 'chronological';
+export type SelectionMetric = 'val_loss' | 'val_balanced_accuracy' | 'val_auc' | 'val_pr_auc' | 'val_accuracy';
+export type TransferMode = 'scratch' | 'frozen' | 'fine_tune';
+export type OptimizerSettings = {
+  name: 'adam' | 'adamw' | 'sgd';
+  learning_rate?: number;
+  weight_decay?: number;
+  momentum?: number;
+  nesterov?: boolean;
+  clipnorm?: number | null;
+};
+export type ScheduleSettings = {
+  name: 'constant' | 'reduce_on_plateau' | 'cosine' | 'warmup_cosine';
+  factor?: number;
+  patience?: number;
+  min_learning_rate?: number;
+  alpha?: number;
+  warmup_epochs?: number;
+};
+
+export interface TrainerArchitecture {
+  id: string;
+  label: string;
+  description: string;
+  experimental: boolean;
+  default: boolean;
+  parameters_224: number;
+  forward_gflops_224: number;
+  family?: 'sequential' | 'builder';
+  status_note?: string | null;
+  supports_transfer?: boolean;
+  min_input?: number;
+  default_dropout?: number | null;
+  gradcam_layer?: string | null;
+  stages?: string[];
+}
+
+export interface TrainerAugmentation {
+  id: string;
+  allowed: boolean;
+  label: string;
+  detail: string;
+}
+
+export interface TrainerOptionsSchema {
+  protocol: number;
+  optimizers: Record<OptimizerSettings['name'], Record<string, number | boolean | null>>;
+  lr_schedules: Record<ScheduleSettings['name'], Record<string, number>>;
+  selection_metrics: SelectionMetric[];
+  class_weighting: Array<'none' | 'balanced'>;
+  augmentations: TrainerAugmentation[];
+  transfer_modes: TransferMode[];
+  early_stopping: { patience: number; min_delta: number };
+}
+
+export interface TrainerCatalog {
+  architectures: TrainerArchitecture[];
+  accelerators: Array<'cpu' | 'gpu'>;
+  options?: TrainerOptionsSchema;
+}
+
+export interface SplitPreviewRequest {
+  dataset_id: string;
+  generator_run_id?: string;
+  validation_method?: ValidationMethod;
+  val_split?: number;
+  test_fraction?: number;
+  random_seed?: number;
+  purge_chart_windows?: boolean;
+  embargo_bars?: number;
+  label_horizon_bars?: number;
+  label_timeframe?: string;
+}
+
+export interface SplitPartition {
+  samples: number;
+  label_counts: Record<string, number>;
+  period: [string, string] | null;
+  decision_period: [string, string] | null;
+  symbols: string[];
+  ids_sha256: string;
+}
+
+/** runners/data_split.py SplitPlan.summary() */
+export interface SplitSummary {
+  split_version: number;
+  method: ValidationMethod;
+  partitions: Partial<Record<'train' | 'val' | 'test', SplitPartition>>;
+  boundaries: { val_start?: string | null; test_start?: string | null };
+  excluded_total: number;
+  excluded_by_reason: Record<string, number>;
+  label_purge: 'applied' | 'unverified' | 'not_applicable';
+  metadata_sources: Record<string, number>;
+  settings: Record<string, unknown>;
+  warnings: string[];
+  manifest_sha256: string;
+}
+
+export interface SplitPreviewResponse {
+  ok: boolean;
+  plan?: SplitSummary;
+  error?: string;
+  label_window: { label_horizon_bars?: number; label_timeframe?: string; label_horizon_source: 'user' | 'generator_config' | null };
+}
+
+/** runners/eval_metrics.py binary_metrics() */
+export interface PartitionMetrics {
+  n: number;
+  status?: 'reserved_not_evaluated' | 'evaluated_once_at_end';
+  threshold?: number;
+  label_counts?: Record<string, number>;
+  predicted_counts?: Record<string, number>;
+  confusion_matrix?: { labels: number[]; rows_true_cols_pred: number[][] };
+  accuracy?: number;
+  balanced_accuracy?: number | null;
+  precision?: number | null;
+  recall?: number | null;
+  f1?: number | null;
+  macro_f1?: number | null;
+  roc_auc?: number | null;
+  pr_auc?: number | null;
+  pr_auc_no_skill?: number;
+  log_loss?: number;
+  brier?: number;
+  mean_probability?: number;
+  probability_histogram?: { edges: number[]; label_0: number[]; label_1: number[] };
+  undefined?: Record<string, string>;
+  baseline?: {
+    source?: string;
+    majority_label?: number;
+    tie?: boolean;
+    accuracy?: number;
+    balanced_accuracy?: number | null;
+    prior_label_1?: number;
+    log_loss?: number;
+    brier?: number;
+  };
+}
+
+export interface RunEvaluation {
+  validation?: PartitionMetrics;
+  test?: PartitionMetrics;
+  threshold_note?: string;
+  selection_metric?: string;
+  [key: string]: unknown;
+}
+
+export interface TrainerQueueStatus {
+  /** 1 = next to start. Counts only runs that would start before this one. */
+  position: number;
+  waiting_for: 'user' | 'global' | 'gpu' | 'capacity';
+  accelerator?: 'cpu' | 'gpu';
 }
 
 /** One row from `backend/runs/.../history.json` (per epoch). Older runs may omit label_1_recall fields. */
@@ -288,13 +468,47 @@ export interface TrainingEpoch {
   label_1_recall?: number | null;
   val_label_1_recall?: number | null;
   timestamp?: number;
+  /** Trainer protocol 2 only. */
+  val_auc?: number | null;
+  val_pr_auc?: number | null;
+  val_balanced_accuracy?: number | null;
+  val_precision?: number | null;
+  val_recall?: number | null;
+  val_f1?: number | null;
+  learning_rate?: number | null;
 }
 
 export interface TrainingArchitectureLayer {
   name: string;
-  shape: number[];
+  shape: number[] | null;
   params: number;
   activation?: string;
+  type?: string;
+  trainable?: boolean;
+}
+
+export type TrainingTimingPhase =
+  | "waiting_for_machine"
+  | "dataset_download"
+  | "framework_start"
+  | "data_preparation"
+  | "model_build"
+  | "first_batch"
+  | "training"
+  | "validation"
+  | "model_save"
+  | "upload";
+
+export interface TrainingTimings {
+  phases: { key: TrainingTimingPhase | string; seconds: number }[];
+  measured_seconds: number;
+  epochs_measured?: number;
+  epoch_seconds_median?: number | null;
+  train_images_per_second?: number | null;
+  cpu_count?: number | null;
+  cpu_utilization?: number | null;
+  peak_rss_mb?: number | null;
+  model_file_mb?: number | null;
 }
 
 export interface TrainingSession {
@@ -316,19 +530,74 @@ export interface TrainingSession {
     epochs?: number;
     val_split?: number;
     random_seed?: number;
+    architecture?: string;
+    validation_method?: ValidationMethod;
+    input_pipeline?: string;
+    /** 1 = runs before Trainer 2.0 (random split, Keras defaults); 2 = Trainer 2.0. */
+    trainer_protocol?: number;
+    test_fraction?: number;
+    evaluate_test?: boolean;
+    label_horizon_bars?: number;
+    label_timeframe?: string;
+    label_horizon_source?: 'user' | 'generator_config' | null;
   };
   architecture?: {
+    id?: string;
     family: string;
-    layers: TrainingArchitectureLayer[];
-    total_params: number;
+    layers: TrainingArchitectureLayer[] | null;
+    stages?: string[];
+    total_params: number | null;
     loss: string;
-    optimizer: string;
-    early_stopping: { monitor: string; patience: number; restore_best_weights: boolean };
+    /** Protocol 1: a description string. Protocol 2: the recorded settings. */
+    optimizer?: string | OptimizerSettings;
+    lr_schedule?: ScheduleSettings;
+    regularization?: { dropout?: number | null; l2?: number };
+    early_stopping?: { monitor: string; patience: number; restore_best_weights: boolean; min_delta?: number; enabled?: boolean };
   } | null;
+  trainer_protocol?: number;
+  /** Resolved Trainer 2.0 options (null for older runs). */
+  options?: Record<string, unknown> & {
+    optimizer?: OptimizerSettings;
+    lr_schedule?: ScheduleSettings;
+    selection_metric?: SelectionMetric;
+    class_weighting?: string;
+    augmentation?: string[];
+    transfer?: { mode: TransferMode; trainable_layers?: number };
+    regularization?: { dropout?: number | null; l2?: number };
+    early_stopping?: { enabled: boolean; patience: number; min_delta: number };
+    test_fraction?: number;
+    evaluate_test?: boolean;
+    deterministic_ops?: boolean;
+  } | null;
+  selection_metric?: { name: string; mode: 'min' | 'max' };
   train_samples?: number | null;
   val_samples?: number | null;
+  test_samples?: number | null;
   train_label_counts?: Record<string, number> | null;
   val_label_counts?: Record<string, number> | null;
+  test_label_counts?: Record<string, number> | null;
+  split?: SplitSummary | null;
+  evaluation?: RunEvaluation | null;
+  stopping?: { reason: 'early_stopping' | 'max_epochs' | string; detail?: string; monitor?: string; mode?: string; early_stopping_enabled?: boolean } | null;
+  model?: {
+    architecture?: string;
+    family?: string;
+    parameters?: number;
+    trainable_parameters?: number;
+    forward_gflops?: number;
+    layer_count?: number;
+    gradcam_layer?: string | null;
+    pretrained_weights?: Record<string, unknown> | null;
+  } | null;
+  reproducibility?: {
+    random_seed?: number;
+    seeded?: string[];
+    op_determinism?: boolean;
+    sample_order?: string;
+    split_manifest?: string;
+    environment?: Record<string, unknown>;
+    weights_sha256?: string;
+  } | null;
   epochs_total?: number | null;
   epochs_completed: number;
   history: TrainingEpoch[];
@@ -340,6 +609,19 @@ export interface TrainingSession {
   finished_at?: number | null;
   error?: string | null;
   worker_active?: boolean | null;
+  /** Measured wall time per phase (absent for runs recorded before timings existed). */
+  timings?: TrainingTimings | null;
+  /** Position inside the epoch that is currently running; null between reports. */
+  live_epoch?: {
+    epoch_in_progress?: number | null;
+    epochs?: number | null;
+    batch?: number | null;
+    batches?: number | null;
+    images_per_second?: number | null;
+    elapsed_seconds?: number | null;
+    /** Set while the epoch's validation images are being scored. */
+    validating?: boolean | null;
+  } | null;
   summary?: {
     epochs_configured?: number;
     epochs_trained?: number;
@@ -351,6 +633,24 @@ export interface TrainingSession {
     summary_version?: number;
     completed_at?: number;
   };
+  /** Set while the run waits for a training machine (cloud training only). */
+  queue?: TrainerQueueStatus | null;
+  /** Failed or cancelled cloud run with a checkpoint: "Resume" continues after this epoch. */
+  resumable_from_epoch?: number | null;
+  /** What the trainer actually used (architecture, split, device, resume). */
+  training_setup?: {
+    architecture?: string;
+    validation_method?: ValidationMethod;
+    embargo_days?: number;
+    input_pipeline?: string;
+    precision?: string;
+    device?: string;
+    resumed_from_epoch?: number;
+    resume_exact?: boolean;
+    train_period?: string[];
+    val_period?: string[];
+    purged_overlapping_train_samples?: number;
+  } | null;
 }
 
 export interface AnalysisResponse {
@@ -682,6 +982,25 @@ export const trainerApi = {
   async cancelRun(runId: string): Promise<{ status: string; run_id: string }> {
     return apiRequest<{ status: string; run_id: string }>(`/trainer/runs/${runId}/cancel`, {
       method: 'POST',
+    });
+  },
+
+  /** Continue a failed/cancelled cloud run from its last checkpoint (same run, same settings). */
+  async resumeRun(runId: string): Promise<{ status: string; run_id: string }> {
+    return apiRequest<{ status: string; run_id: string }>(`/trainer/runs/${encodeURIComponent(runId)}/resume`, {
+      method: 'POST',
+    });
+  },
+
+  async getCatalog(): Promise<TrainerCatalog> {
+    return apiRequest<TrainerCatalog>('/trainer/architectures');
+  },
+
+  /** Partitions a run with these settings would use (same code as training; nothing is charged). */
+  async splitPreview(body: SplitPreviewRequest): Promise<SplitPreviewResponse> {
+    return apiRequest<SplitPreviewResponse>('/trainer/split-preview', {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
   },
 

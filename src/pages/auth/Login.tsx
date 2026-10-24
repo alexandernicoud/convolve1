@@ -90,7 +90,7 @@ export default function Login() {
       </p>
       <p className="mt-2 text-center text-sm text-white/45">
         No account?{" "}
-        <Link to="/signup" className="text-white underline-offset-2 hover:underline">
+        <Link to={next === "/dashboard" ? "/signup" : `/signup?next=${encodeURIComponent(next)}`} className="text-white underline-offset-2 hover:underline">
           Sign up
         </Link>
       </p>

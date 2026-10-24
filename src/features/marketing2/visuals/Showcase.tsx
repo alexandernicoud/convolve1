@@ -3,7 +3,8 @@ import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScro
 import { Maximize2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { screen, type Provenance } from "../data";
-import { EASE, Kicker, ProvenanceTag, useMediaQuery } from "../ui";
+import { SYSTEM } from "../figures";
+import { EASE, Kicker, ProvenanceTag, TYPE, useMediaQuery } from "../ui";
 import { GeneratorDemo, TrainerDemo } from "./LiveTools";
 
 /** [left, top, width, height] in percent of the screenshot. Every screenshot is 1920 × 1200 (16:10). */
@@ -41,7 +42,7 @@ export const SHOT: Record<string, Shot> = {
   heatmap: {
     key: "heatmap",
     file: "opt_heatmap",
-    path: "Optimize / INTC label search / Overview",
+    path: "Optimize / Label search / Overview",
     alt: "Labeling optimizer overview: take-profit by stop-loss heatmap at a one-day horizon",
     notes: [
       { label: "Evidence first", body: "The best rule, its limiting assumptions and a recommendation, before any chart.", rect: [1, 0, 98, 19] },
@@ -51,13 +52,13 @@ export const SHOT: Record<string, Shot> = {
   },
   space: {
     key: "space",
-    file: "opt_space",
-    path: "Optimize / INTC label search / Search space",
-    alt: "Labeling optimizer search space: a 3D cube of take-profit, stop-loss and horizon cells",
+    file: "opt_scatter",
+    path: "Optimize / Label search / Search space",
+    alt: "Labeling optimizer parameter-space scatter: all 125,000 grid cells, market-valued CAGR against label-payoff CAGR, ranked candidates ringed",
     notes: [
-      { label: "Parameter cube", body: "Take-profit, stop-loss and horizon on three axes; the top 25% of cells by score are drawn.", rect: [20, 26, 56, 49] },
-      { label: "Density filters", body: "Top 1% to all cells, a log horizon axis and faint remaining cells.", rect: [2, 19, 58, 5] },
-      { label: "Linked selection", body: "A cell picked here is the same cell in the heatmap and the candidate table.", rect: [80, 24, 18, 20] },
+      { label: "125,000 cells", body: "Every take-profit, stop-loss and horizon rule of one run, shaded by horizon.", rect: [13, 6, 20, 72] },
+      { label: "Ranked candidates", body: "The 15 best label payoffs, 582% to 842%, fall to between −43% and +42% once open trades are valued at market.", rect: [62, 34, 17, 31] },
+      { label: "Selected cell", body: "The same cell is selected in the heatmap, the 3D view and the candidate table.", rect: [82, 56, 5, 8] },
     ],
   },
   representation: {
@@ -75,10 +76,10 @@ export const SHOT: Record<string, Shot> = {
     key: "btOverview",
     file: "bt_overview",
     path: "Test / Backtest workspace / Overview",
-    alt: "Backtest overview: key figures, equity against SPY and MSFT buy-and-hold, and a comparison table",
+    alt: "Backtest overview: key figures, equity against SPY and buy-and-hold, and a comparison table",
     notes: [
       { label: "One-sentence verdict", body: "Return at the locked threshold, net of costs, next to its benchmarks.", rect: [1, 10, 98, 17] },
-      { label: "Equity and benchmarks", body: "Strategy, SPY, MSFT and an exposure-matched mix from the same start.", rect: [1, 30, 98, 42] },
+      { label: "Equity and benchmarks", body: "Strategy, SPY, the asset itself and an exposure-matched mix from the same start.", rect: [1, 30, 98, 42] },
       { label: "Comparison table", body: "Return, drawdown and Sharpe for every series.", rect: [1, 76, 98, 21] },
     ],
   },
@@ -113,7 +114,7 @@ const TOOLS: Tool[] = [
     title: "Find a label rule worth learning",
     summary: "Every take-profit, stop-loss and horizon pair, scored and audited at market prices.",
     provenance: "real",
-    source: "INTC · 125,000 cells",
+    source: "125,000 rule combinations scored",
     views: [
       { key: "heatmap", label: "Heatmap", heading: "Score every label rule before you train.", path: SHOT.heatmap.path, shot: SHOT.heatmap },
       { key: "space", label: "Search space", heading: "See the whole search space at once.", path: SHOT.space.path, shot: SHOT.space },
@@ -125,16 +126,16 @@ const TOOLS: Tool[] = [
     title: "Turn prices into a labelled dataset",
     summary: "Each window becomes the exact 224 × 224 image the network reads, labelled by what happened next.",
     provenance: "real",
-    source: "MSFT · real windows and dataset images",
+    source: "Real price windows and dataset images",
     views: [
       {
         key: "gen",
         label: "Prices to dataset",
         heading: "Turn prices into labelled chart images.",
-        path: "Generate / MSFT · 1D · 6-month windows",
+        path: "Generate / Daily bars · 6-month windows",
         live: (sub) => <GeneratorDemo sample={sub == null ? undefined : Math.min(5, Math.floor(sub * 6))} />,
         points: [
-          { label: "Window", body: "Six months of real MSFT prices." },
+          { label: "Window", body: "Six months of real daily prices." },
           { label: "Image", body: "Rendered at 224 × 224." },
           { label: "Label", body: "+2% before −1% within 7 bars." },
         ],
@@ -144,21 +145,21 @@ const TOOLS: Tool[] = [
   {
     key: "trainer",
     tool: "Trainer",
-    title: "Train a CNN, keep the best epoch",
-    summary: "Real layer shapes and feature maps. Early stopping restores the best weights.",
+    title: "Train a network. Change the architecture.",
+    summary: `One dataset, ${SYSTEM.architectureCount} networks, each a different hypothesis about which chart features matter. Test whether a change actually improves the result.`,
     provenance: "real",
-    source: "MSFT4000 · 2,323 train / 581 validation",
+    source: "2,323 training / 581 validation charts",
     views: [
       {
         key: "train",
         label: "Architecture and curves",
-        heading: "Train a CNN and keep the best epoch.",
-        path: "Train / MSFT4000 / Training session",
+        heading: "One dataset. Different networks. Different hypotheses.",
+        path: "Train / Training session",
         live: (sub) => <TrainerDemo focus={sub == null ? undefined : Math.min(8, Math.floor(sub * 9))} />,
         points: [
-          { label: "Architecture", body: "Three conv blocks, dense, sigmoid." },
-          { label: "Curves", body: "Validation loss bottoms at epoch 5." },
-          { label: "Artifact", body: "A saved model, ready to analyse." },
+          { label: "Architecture", body: `The original CNN shown here, or one of ${SYSTEM.architectureCount - 1} others up to ResNet-18 and EfficientNet-B0.` },
+          { label: "Curves", body: "Validation loss bottoms at epoch 5; that epoch is kept." },
+          { label: "Compare", body: "Same split, same metrics. A larger network is not assumed better." },
         ],
       },
     ],
@@ -169,16 +170,16 @@ const TOOLS: Tool[] = [
     title: "Inspect what the model learned",
     summary: "Attention, masking tests and the internal representation, on the model's own charts.",
     provenance: "real",
-    source: "MSFT model · 500 images · penultimate layer",
+    source: "500 charts · penultimate layer",
     views: [{ key: "rep", label: "Representation", heading: "Inspect what the model learned.", path: SHOT.representation.path, shot: SHOT.representation }],
   },
   {
     key: "backtester",
     tool: "Backtester",
     title: "Test it on data it never saw",
-    summary: "Threshold locked on validation, costs charged, benchmarks on every run. This one lost 9.3%.",
+    summary: "Threshold locked on validation, costs charged, benchmarks on every run. A losing result is still a result.",
     provenance: "real",
-    source: "MSFT · 897 days · threshold 0.38",
+    source: "897 unseen trading days",
     views: [
       { key: "ov", label: "Overview", heading: "Test it on data it never saw.", path: SHOT.btOverview.path, shot: SHOT.btOverview },
       { key: "rb", label: "Robustness", heading: "Check whether the result holds up.", path: SHOT.btRobust.path, shot: SHOT.btRobust },
@@ -430,7 +431,7 @@ function StackedShowcase() {
         return (
           <div key={tl.key}>
             <Kicker index={String(i + 1).padStart(2, "0")}>{tl.tool}</Kicker>
-            <h3 className="mt-3 text-[24px] font-normal leading-[1.15] tracking-[-0.025em] text-white">{v.heading}</h3>
+            <h3 className={`mt-3 ${TYPE.h3Card}`}>{v.heading}</h3>
             <div className="mt-5">
               {v.shot ? (
                 <ScreenFrame shot={v.shot} onExpand={() => openShot(v.shot!)} />

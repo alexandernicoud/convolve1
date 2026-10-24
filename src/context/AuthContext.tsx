@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
-import { oauthRedirectTo } from "@/lib/authRedirect";
+import { canonicalDevOrigin, oauthRedirectTo, safeAppPath } from "@/lib/authRedirect";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 
 type AuthContextValue = {
@@ -21,6 +21,7 @@ type AuthContextValue = {
     email: string,
     password: string,
     metadata?: Record<string, unknown>,
+    nextPath?: string,
   ) => Promise<{ needsEmailConfirmation: boolean }>;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: (redirectPath?: string) => Promise<void>;
@@ -50,6 +51,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
+    if (import.meta.env.DEV) {
+      // PKCE verifiers live in per-origin storage and the allow-list names localhost, so every
+      // auth flow must start and end on the localhost origin.
+      const canonical = canonicalDevOrigin(window.location.origin);
+      if (canonical !== window.location.origin) {
+        window.location.replace(`${canonical}${window.location.pathname}${window.location.search}${window.location.hash}`);
+        return;
+      }
+    }
     const supabase = getSupabaseClient();
     let cancelled = false;
 
@@ -70,12 +80,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string, metadata?: Record<string, unknown>) => {
+  const signUp = useCallback(async (email: string, password: string, metadata?: Record<string, unknown>, nextPath?: string) => {
     const supabase = getSupabaseClient();
+    const next = nextPath ? safeAppPath(nextPath) : null;
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: originUrl("/login"), data: metadata },
+      options: { emailRedirectTo: originUrl(next ? `/login?next=${encodeURIComponent(next)}` : "/login"), data: metadata },
     });
     if (error) throw error;
     return { needsEmailConfirmation: !data.session };

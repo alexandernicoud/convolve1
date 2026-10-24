@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
-export const I = ({ children }: { children: ReactNode }) => <i className="font-serif">{children}</i>;
+export const I = ({ children }: { children: ReactNode }) => <i>{children}</i>;
 
 export function Sum({ sub, sup }: { sub: ReactNode; sup?: ReactNode }) {
   return (

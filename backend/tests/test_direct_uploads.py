@@ -278,15 +278,18 @@ def test_durable_paths_stay_outside_upload_prefix(client, user_a, upload_store, 
         _drop_dataset(dataset_id, user_a)
 
 
-def test_lifecycle_rule_only_expires_staged_uploads():
+def test_lifecycle_rules_only_expire_staged_uploads_and_training_checkpoints():
+    from app.config import TRAINER_CHECKPOINT_RETENTION_DAYS
+
     rules = json.loads((DEPLOY / "upload-lifecycle.json").read_text())["rule"]
-    assert len(rules) == 1
-    rule = rules[0]
-    assert rule["action"] == {"type": "Delete"}
-    assert rule["condition"]["matchesPrefix"] == [direct_uploads.UPLOAD_PREFIX]
-    assert set(rule["condition"]) == {"age", "matchesPrefix"}
+    by_prefix = {tuple(r["condition"]["matchesPrefix"]): r for r in rules}
+    assert set(by_prefix) == {(direct_uploads.UPLOAD_PREFIX,), ("checkpoints/",)}
+    for rule in rules:
+        assert rule["action"] == {"type": "Delete"}
+        assert set(rule["condition"]) == {"age", "matchesPrefix"}
+    assert by_prefix[("checkpoints/",)]["condition"]["age"] == TRAINER_CHECKPOINT_RETENTION_DAYS
     for durable in ("users/", "datasets/", "models/"):
-        assert not durable.startswith(direct_uploads.UPLOAD_PREFIX)
+        assert not durable.startswith(direct_uploads.UPLOAD_PREFIX) and not durable.startswith("checkpoints/")
 
 
 def test_upload_cors_allows_only_browser_put_from_production_origins():

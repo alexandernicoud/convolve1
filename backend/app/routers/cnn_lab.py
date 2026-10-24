@@ -113,12 +113,26 @@ def _layout(r: Resolved) -> Dict[str, Any]:
     return {"verified": source == "generator", "source": source if isinstance(source, str) else None}
 
 
+def _partitions(r: Resolved) -> Optional[Dict[str, str]]:
+    if r.model_kind != "trained" or not r.trainer_dir or r.dataset_id != r.default_dataset_id:
+        return None
+    return core.recorded_partitions(r.trainer_dir)
+
+
 def _split(r: Resolved, order: List[str]):
     """Validation membership applies only when the dataset is the one the model was trained on."""
     if r.model_kind != "trained" or not r.trainer_dir:
         return "not_applicable", None, "Uploaded models carry no training split."
     if not r.default_dataset_id or r.dataset_id != r.default_dataset_id:
         return "not_applicable", None, "This dataset is not the one the model was trained on; every image is unseen by training."
+    parts = _partitions(r)
+    if parts is not None:
+        held_out = {i for i, p in parts.items() if p != "training"}
+        return (
+            "recorded",
+            held_out,
+            "Training, validation, test and excluded (purged) images were recorded by the trainer; only training images were seen during training.",
+        )
     st = core.read_json(os.path.join(r.trainer_dir, "training_state.json"))
     sm = core.read_json(os.path.join(r.trainer_dir, "summary.json"))
     status, val = core.split_membership(order, st, sm)
@@ -145,7 +159,10 @@ def _ctx(r: Resolved, lm: core.LoadedModel) -> experiments.Ctx:
     images = _require_dataset(r)
     recs, order = core.scan_images(images)
     status, val, _ = _split(r, order)
-    return experiments.Ctx(lm=lm, images_dir=images, records=recs, split_status=status, val_set=val, layout=_layout(r))
+    return experiments.Ctx(
+        lm=lm, images_dir=images, records=recs, split_status=status, val_set=val, layout=_layout(r),
+        partitions=_partitions(r) if status == "recorded" else None,
+    )
 
 
 # --------------------------------------------------------------------------- context & images
@@ -196,7 +213,7 @@ def lab_images(
     dataset_id: str,
     label: Optional[int] = None,
     symbol: Optional[str] = None,
-    split: Literal["all", "validation", "training"] = "all",
+    split: Literal["all", "validation", "training", "test", "excluded"] = "all",
     q: Optional[str] = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(48, ge=1, le=96),

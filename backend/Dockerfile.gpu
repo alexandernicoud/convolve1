@@ -1,0 +1,32 @@
+# GPU variant of the backend image, for the training job only (deploy/trainer-job-gpu.yaml,
+# deploy/trainer-batch-gpu-zurich.json). The API, bots job and CPU trainer keep using Dockerfile.
+#
+# Same Python, same requirements.txt, same tensorflow/keras pins (app.ml_versions checks them),
+# plus the CUDA 12 / cuDNN 9 user-space libraries from the tensorflow[and-cuda] extra.
+# The NVIDIA driver comes from the host (Cloud Run GPU: driver 580; Batch: installGpuDrivers),
+# so no CUDA base image is needed. Without a GPU the image still trains on CPU.
+#
+#   docker build -f Dockerfile.gpu -t convolve-trainer-gpu .
+#
+# Not built or run in CI yet: verify with `python -m app.jobs.train_worker --check` on an L4
+# (expects "OK accelerator: GPU: NVIDIA L4") before any production use.
+
+FROM python:3.11-slim
+
+WORKDIR /app/backend
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
+# Fail --check instead of silently training on CPU when the GPU is missing.
+ENV TRAINER_REQUIRE_GPU=1
+# Let TensorFlow allocate GPU memory as needed instead of reserving all of it up front.
+ENV TF_FORCE_GPU_ALLOW_GROWTH=true
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir "tensorflow[and-cuda]==$(python -c 'import tensorflow as t; print(t.__version__)')"
+
+COPY . .
+
+CMD ["python", "-m", "app.jobs.train_worker"]

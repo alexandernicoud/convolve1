@@ -1,0 +1,68 @@
+{
+  "//": [
+    "OPTIONAL Swiss-only GPU pool: Cloud Batch on a Compute Engine G2 VM (1x NVIDIA L4) in",
+    "europe-west6 (Zurich). Not applied by any script. The API reads this file as the job body",
+    "(TRAINER_GPU_EXECUTION=batch, TRAINER_GPU_REGION=europe-west6,",
+    "TRAINER_GPU_BATCH_TEMPLATE=deploy/trainer-batch-gpu-zurich.json) and injects only CONVOLVE_RUN_ID.",
+    "This '//' key is removed before the request.",
+    "Replace REPLACE_*; DATABASE_URL comes from Secret Manager, never from this file.",
+    "Verify once before use: G2 quota in europe-west6, the GPU image, and",
+    "  gcloud batch jobs submit check-gpu --location=europe-west6 --config=<this file with",
+    "  commands [python,-m,app.jobs.train_worker,--check]>  -> 'OK accelerator: GPU: NVIDIA L4'.",
+    "provisioningModel SPOT is cheaper; preemption is handled by maxRetryCount + checkpoints."
+  ],
+  "taskGroups": [
+    {
+      "taskCount": 1,
+      "parallelism": 1,
+      "taskSpec": {
+        "runnables": [
+          {
+            "container": {
+              "imageUri": "REPLACE_GPU_IMAGE",
+              "commands": ["python", "-m", "app.jobs.train_worker"]
+            }
+          }
+        ],
+        "computeResource": {"cpuMilli": 8000, "memoryMib": 30000},
+        "maxRetryCount": 2,
+        "maxRunDuration": "3600s",
+        "environment": {
+          "variables": {
+            "APP_PROFILE": "cloud",
+            "APP_MODE": "job",
+            "MODEL_BUCKET": "REPLACE_MODEL_BUCKET",
+            "TRAINER_THREADS": "8",
+            "OMP_NUM_THREADS": "8",
+            "TF_NUM_INTRAOP_THREADS": "8",
+            "TF_NUM_INTEROP_THREADS": "8",
+            "TRAINER_REQUIRE_GPU": "1",
+            "TRAINER_JOB_MAX_RETRIES": "2",
+            "TRAINER_CHECKPOINTS": "true",
+            "LIVE_DEPLOY_ENABLED": "false",
+            "SCHEDULED_BOTS_ENABLED": "false"
+          },
+          "secretVariables": {
+            "DATABASE_URL": "projects/REPLACE_PROJECT/secrets/REPLACE_DATABASE_URL_SECRET/versions/latest"
+          }
+        }
+      }
+    }
+  ],
+  "allocationPolicy": {
+    "location": {"allowedLocations": ["zones/europe-west6-b", "zones/europe-west6-c"]},
+    "instances": [
+      {
+        "installGpuDrivers": true,
+        "policy": {
+          "machineType": "g2-standard-8",
+          "provisioningModel": "STANDARD",
+          "accelerators": [{"type": "nvidia-l4", "count": 1}]
+        }
+      }
+    ],
+    "serviceAccount": {"email": "REPLACE_TRAINER_SERVICE_ACCOUNT"}
+  },
+  "labels": {"app": "convolve", "component": "trainer-gpu"},
+  "logsPolicy": {"destination": "CLOUD_LOGGING"}
+}

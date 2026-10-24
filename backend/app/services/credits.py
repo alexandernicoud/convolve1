@@ -5,7 +5,11 @@ Rules:
   with a unique idempotency key, in the same transaction as the balance change.
 - Charges use a conditional UPDATE (``balance >= cost``) so concurrent launches cannot
   overspend; the table also has a ``balance >= 0`` check.
-- Costs come from ``app.plans.RUN_COSTS``; clients never send a price.
+- Costs come from ``app.pricing`` (computed from the run's configuration on the server);
+  clients never send a price. A client may send the price it showed the user; a higher
+  server price refuses the run (``PriceChanged``) instead of charging more than shown.
+- A client request key (``Idempotency-Key``) makes the charge key per request, so a
+  double-submitted form is charged once (``DuplicateSubmission``).
 - Refund policy: a charged run that ends ``failed`` or ``interrupted`` is refunded in full;
   ``cancelled`` is refunded only if it was still queued. Refunds are keyed by run, so
   retries and the startup sweep can never refund twice.
@@ -40,6 +44,19 @@ class InsufficientCredits(Exception):
         self.cost = cost
 
 
+class PriceChanged(Exception):
+    def __init__(self, expected: int, cost: int):
+        super().__init__(f"Price changed: {expected} shown, {cost} required")
+        self.expected = expected
+        self.cost = cost
+
+
+class DuplicateSubmission(Exception):
+    def __init__(self, run_id: Optional[str]):
+        super().__init__(f"Duplicate submission of run {run_id}")
+        self.run_id = run_id
+
+
 def enforced() -> bool:
     return config.CREDITS_MODE == "enforce"
 
@@ -50,6 +67,10 @@ def _uuid(user_id: Any) -> uuid.UUID:
 
 def charge_key(run_id: str) -> str:
     return f"charge:{run_id}"
+
+
+def request_charge_key(uid: uuid.UUID, request_key: str) -> str:
+    return f"charge:req:{uid}:{request_key[:120]}"
 
 
 def refund_key(run_id: str) -> str:
@@ -139,16 +160,34 @@ def ensure_allocations(user_id: Any, now: Optional[datetime] = None) -> None:
         _apply_once(uid, amount, "allocation", f"allocation:{uid}:{month}", note=f"Allocation {month}")
 
 
-def charge_for_run(db: Session, user_id: Any, run_id: str, tool: str) -> int:
-    """Debit the run's cost inside the caller's transaction. Returns the cost charged."""
+def charge_for_run(
+    db: Session, user_id: Any, run_id: str, tool: str, *,
+    cost: Optional[int] = None, expected: Optional[int] = None, request_key: Optional[str] = None,
+    note: Optional[str] = None,
+) -> int:
+    """Debit the run's cost inside the caller's transaction. Returns the cost charged.
+
+    ``cost`` is the server-computed price (``app.pricing``); without it the tool's
+    default-configuration price applies.
+    """
     if not enforced():
         return 0
-    cost = run_cost(tool)
+    cost = run_cost(tool) if cost is None else int(cost)
     if cost <= 0:
         return 0
+    if expected is not None and cost > expected:
+        raise PriceChanged(expected, cost)
     uid = _uuid(user_id)
-    key = charge_key(run_id)
-    if db.query(CreditLedgerEntry.id).filter(CreditLedgerEntry.idempotency_key == key).first():
+    if request_key:
+        key = request_charge_key(uid, request_key)
+        prior = db.query(CreditLedgerEntry.run_id).filter(CreditLedgerEntry.idempotency_key == key).first()
+        if prior is not None:
+            raise DuplicateSubmission(prior[0])
+    else:
+        key = charge_key(run_id)
+    if db.query(CreditLedgerEntry.id).filter(
+        CreditLedgerEntry.run_id == run_id, CreditLedgerEntry.reason == "charge"
+    ).first():
         return 0
     _account(db, uid)
     result = db.execute(
@@ -161,9 +200,13 @@ def charge_for_run(db: Session, user_id: Any, run_id: str, tool: str) -> int:
         raise InsufficientCredits(int(balance), cost)
     db.add(CreditLedgerEntry(
         user_id=uid, delta=-cost, balance_after=balance, reason="charge", idempotency_key=key,
-        run_id=run_id, tool=tool,
+        run_id=run_id, tool=tool, note=note,
     ))
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        # A concurrent submission with the same request key won the unique index.
+        raise DuplicateSubmission(None) from exc
     return cost
 
 
@@ -173,7 +216,7 @@ def refund_run(run_id: str, note: str) -> bool:
     try:
         charge = (
             db.query(CreditLedgerEntry)
-            .filter(CreditLedgerEntry.idempotency_key == charge_key(run_id))
+            .filter(CreditLedgerEntry.run_id == run_id, CreditLedgerEntry.reason == "charge")
             .first()
         )
         if charge is None:
@@ -343,9 +386,14 @@ def summary(user_id: str, days: int = 30) -> Dict[str, Any]:
         db.close()
 
 
-def quote(user_id: Optional[str], tool: str) -> Dict[str, Any]:
-    cost = run_cost(tool)
-    out: Dict[str, Any] = {"tool": tool, "cost": cost, "mode": config.CREDITS_MODE, "balance": None}
+def quote(user_id: Optional[str], tool: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app import pricing
+
+    priced = pricing.quote(tool, params)
+    cost = priced.credits
+    out: Dict[str, Any] = {
+        "tool": tool, "cost": cost, "mode": config.CREDITS_MODE, "balance": None, "pricing": priced.as_dict(),
+    }
     if user_id and enforced():
         ensure_allocations(user_id)
         db = SessionLocal()
@@ -357,6 +405,10 @@ def quote(user_id: Optional[str], tool: str) -> Dict[str, Any]:
         out["sufficient"] = out["balance"] >= cost
     else:
         out["sufficient"] = True
+    # Ask for confirmation on large runs, or on runs that would use most of the balance.
+    out["confirm"] = cost >= pricing.CONFIRM_ABOVE or (
+        out["balance"] is not None and cost > 0 and cost * 2 > out["balance"]
+    )
     return out
 
 

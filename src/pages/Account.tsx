@@ -174,10 +174,16 @@ export default function Account() {
           )}
 
           {tab === "usage" && (
-            <UsageTab credits={credits} usage={usage} plans={plans} />
+            <div data-help="account-usage">
+              <UsageTab credits={credits} usage={usage} plans={plans} />
+            </div>
           )}
 
-          {tab === "plan" && <PlanTab profile={profile} plans={plans} credits={credits} />}
+          {tab === "plan" && (
+            <div data-help="account-plan">
+              <PlanTab profile={profile} plans={plans} credits={credits} />
+            </div>
+          )}
 
           {tab === "security" && (
             <>

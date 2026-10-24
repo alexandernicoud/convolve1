@@ -133,7 +133,7 @@ def test_concurrent_launches_cannot_overspend(enforce, client, user_a):
         t.join()
     assert results.count(200) == 50 // COST
     assert results.count(402) == 12 - 50 // COST
-    assert _balance(user_a) == 0
+    assert _balance(user_a) == 50 % COST
 
 
 def test_refund_policy_and_idempotency(enforce, client, user_a):

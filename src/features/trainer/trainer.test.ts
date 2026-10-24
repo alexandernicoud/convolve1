@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { TrainerProgressResponse, TrainingSession } from "@/lib/api";
-import { elapsedSeconds, epochProgress, isTerminal, marketLabel, nextPollDelay, patienceUsed, remainingUpperBound, stageOf, storeStatus } from "./lib";
-import { standardArchitecturePreview } from "./architecture";
+import { elapsedSeconds, epochProgress, fmtPhaseSeconds, isTerminal, marketLabel, nextPollDelay, patienceUsed, remainingUpperBound, stageOf, storeStatus, timingRows } from "./lib";
+import { architecturePreview, standardArchitecturePreview } from "./architecture";
 import { ema } from "@/lib/viz/smoothing";
 import { fmtClock, fmtDuration, fmtInt, fmtNum, fmtPct, fmtPp, MISSING, niceScale, paddedDomain, toCsv } from "@/lib/viz/format";
 
@@ -41,6 +41,32 @@ test("remaining time is an upper bound and needs two measured epochs", () => {
   assert.equal(remainingUpperBound(session({ epochs_completed: 10, epochs_total: 30 })), null);
 });
 
+test("timing rows keep measured phases in order with shares and the largest flagged", () => {
+  const rows = timingRows({
+    phases: [
+      { key: "waiting_for_machine", seconds: 15 },
+      { key: "dataset_download", seconds: 0.4 },
+      { key: "training", seconds: 580 },
+      { key: "validation", seconds: 30 },
+    ],
+    measured_seconds: 625.4,
+  });
+  assert.deepEqual(rows.map((r) => r.key), ["waiting_for_machine", "dataset_download", "training", "validation"]);
+  assert.equal(rows[0].label, "Waiting for a machine");
+  assert.ok(Math.abs(rows.reduce((s, r) => s + r.share, 0) - 1) < 1e-9);
+  assert.deepEqual(rows.filter((r) => r.largest).map((r) => r.key), ["training"]);
+  assert.deepEqual(timingRows(null), []);
+  assert.deepEqual(timingRows({ phases: [], measured_seconds: 0 }), []);
+});
+
+test("phase durations keep sub-second phases visible", () => {
+  assert.equal(fmtPhaseSeconds(0.003), "< 0.1 s");
+  assert.equal(fmtPhaseSeconds(0.42), "0.4 s");
+  assert.equal(fmtPhaseSeconds(5.13), "5.1 s");
+  assert.equal(fmtPhaseSeconds(52.6), "53 s");
+  assert.equal(fmtPhaseSeconds(634.8), "10 min 35 s");
+});
+
 test("patience counts epochs since the best validation loss", () => {
   assert.deepEqual(patienceUsed(session({ epochs_completed: 9, best_epoch: 6 })), { since: 3, patience: 5 });
   assert.equal(patienceUsed(session({ epochs_completed: 9 })), null);
@@ -64,6 +90,20 @@ test("architecture preview matches the backend parameter count at 224 px", () =>
   assert.equal(a.totalParams, 896 + 18496 + 73856 + (26 * 26 * 128 * 128 + 128) + 129);
   assert.deepEqual(a.layers[a.layers.length - 1].shape, [1]);
   assert.equal(standardArchitecturePreview(8, 8).totalParams, null);
+});
+
+test("every profile preview matches Keras count_params at 224 px", () => {
+  // Values from backend/runners/cnn_architectures.py complexity() == model.count_params().
+  const expected: Record<string, number> = {
+    "convolve-cnn-v1": 11_169_089,
+    "convolve-cnn-compact-v1": 650_465,
+    "convolve-cnn-balanced-v1": 1_462_993,
+    "convolve-cnn-deep-v1": 1_355_457,
+  };
+  for (const [id, params] of Object.entries(expected)) {
+    assert.equal(architecturePreview(id, 224, 224).totalParams, params, id);
+  }
+  assert.equal(architecturePreview("unknown", 224, 224).family, "Convolve standard CNN");
 });
 
 test("ema keeps nulls as gaps and is bias-corrected", () => {

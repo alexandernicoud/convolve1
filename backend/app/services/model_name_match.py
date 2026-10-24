@@ -51,6 +51,83 @@ def _find_model_file(run_dir: str) -> Optional[str]:
     return None
 
 
+_COPIED_META_KEYS = (
+    "dataset_id",
+    "generator_run_id",
+    "generator_config",
+    "training_config",
+    "symbols",
+    "useCandles",
+    "timeframe",
+    "timespanUnit",
+    "timespanCount",
+    "chartsPerLabel",
+    "horizonBars",
+    "takeProfitFraction",
+    "stopLossFraction",
+    "imageDimension",
+    "training_period_start",
+    "training_period_end",
+)
+
+
+def find_trainer_match_by_manifest(model_path: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Lineage from the manifest the trainer embeds in the .keras archive.
+
+    ``verified``: the named run belongs to the uploader and the uploaded file is byte-identical to
+    the model that run produced (sha256 recorded at training time). ``claimed``: the manifest is
+    present but cannot be confirmed; it is kept for display and never treated as lineage.
+    Returns None when the file carries no manifest.
+    """
+    from app.config import AUTH_REQUIRED
+    from app.ownership import owned_run_ids
+    from app.paths import iter_run_dirs, is_user_uuid
+    from runners import model_manifest as mm
+
+    if not model_path or not os.path.isfile(model_path):
+        return None
+    manifest = mm.read_embedded(Path(model_path))
+    if manifest is None:
+        return None
+    claimed = {
+        "manifest_verification": "claimed",
+        "embedded_manifest": {
+            k: manifest.get(k)
+            for k in ("run_id", "model_name", "trainer_protocol", "architecture", "input", "output", "dataset", "created_at")
+        },
+    }
+    run_id = str(manifest.get("run_id") or "")
+    if not run_id:
+        return claimed
+    owned: Optional[set] = None
+    if AUTH_REQUIRED and user_id and is_user_uuid(user_id):
+        owned = owned_run_ids(user_id)
+    for name, run_dir_p, owner in iter_run_dirs():
+        if name != run_id:
+            continue
+        if owned is not None and name not in owned and owner != user_id:
+            return claimed
+        sidecar = mm.read_sidecar(run_dir_p) or {}
+        if not sidecar.get("model_file_sha256") or sidecar["model_file_sha256"] != mm.file_sha256(Path(model_path)):
+            return claimed
+        meta = _read_json(os.path.join(str(run_dir_p), "model_metadata.json"))
+        out: Dict[str, Any] = {
+            "schema_version": 1,
+            "source": "uploaded_matched_trained",
+            "matched_by_manifest": True,
+            "manifest_verification": "verified",
+            "matched_at": time.time(),
+            "training_run_id": run_id,
+            "model_name": meta.get("model_name") or manifest.get("model_name"),
+            "embedded_manifest": claimed["embedded_manifest"],
+        }
+        for key in _COPIED_META_KEYS:
+            if meta.get(key) is not None:
+                out[key] = meta[key]
+        return out
+    return claimed
+
+
 def find_trainer_match_by_filename(
     original_filename: str,
     runs_dir: str,

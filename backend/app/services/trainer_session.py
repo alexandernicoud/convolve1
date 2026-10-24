@@ -19,8 +19,21 @@ HISTORY_KEYS = (
     "val_accuracy",
     "label_1_recall",
     "val_label_1_recall",
+    # Trainer protocol 2 (absent in older runs).
+    "auc",
+    "pr_auc",
+    "balanced_accuracy",
+    "val_auc",
+    "val_pr_auc",
+    "val_balanced_accuracy",
+    "val_precision",
+    "val_recall",
+    "val_f1",
+    "learning_rate",
 )
-VAL_KEYS = ("val_loss", "val_accuracy", "val_label_1_recall")
+VAL_KEYS = tuple(k for k in HISTORY_KEYS if k.startswith("val_"))
+# Recorded with each saved run; protocol 1 runs selected on val_loss.
+SELECTION_MODES = {"val_loss": "min"}
 HISTORY_LIMIT = 2000
 
 # UI stage per trainer phase. Only phases the runner actually emits are listed.
@@ -120,15 +133,16 @@ def disk_history(run_dir: str) -> List[Dict[str, Any]]:
     return read_jsonl(os.path.join(run_dir, "metrics.jsonl"))
 
 
-def best_epoch(history: List[Dict[str, Any]]) -> Optional[int]:
-    """Lowest val_loss, first occurrence (the epoch Keras EarlyStopping restores)."""
+def best_epoch(history: List[Dict[str, Any]], monitor: str = "val_loss", mode: str = "min") -> Optional[int]:
+    """Best value of the run's selection metric, first occurrence (the epoch Keras
+    EarlyStopping restores)."""
     best: Optional[int] = None
-    best_value = float("inf")
+    best_value: Optional[float] = None
     for row in history:
-        value = row.get("val_loss")
+        value = row.get(monitor)
         if value is None:
             continue
-        if value < best_value:
+        if best_value is None or (value < best_value if mode == "min" else value > best_value):
             best_value = value
             best = int(row["epoch"])
     return best
@@ -146,31 +160,52 @@ def epoch_durations(history: List[Dict[str, Any]], data_ready_at: Optional[float
     return out
 
 
-def standard_architecture(image_size: Optional[List[int]]) -> Optional[Dict[str, Any]]:
-    """Layer table of the fixed trainer CNN (runners/trainer_runner.py) for a given input size."""
-    if not image_size or len(image_size) != 2:
+def standard_architecture(
+    image_size: Optional[List[int]],
+    architecture: Optional[str] = None,
+    *,
+    model_layers: Optional[List[Dict[str, Any]]] = None,
+    model_params: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    """Layer table of the trained CNN (runners/cnn_architectures.py) for a given input size."""
+    from runners.cnn_architectures import DEFAULT_ARCHITECTURE, ARCHITECTURES
+
+    arch = ARCHITECTURES.get(architecture or DEFAULT_ARCHITECTURE)
+    if arch is None or not image_size or len(image_size) != 2:
         return None
     try:
         h, w = int(image_size[0]), int(image_size[1])
     except (TypeError, ValueError):
         return None
+    if arch.family == "builder":
+        # Graph networks: the run summary has the measured layer table and parameter count.
+        return {
+            "id": arch.id,
+            "family": arch.label,
+            "stages": list(arch.stages),
+            "layers": model_layers or None,
+            "total_params": model_params,
+            "loss": "binary_crossentropy",
+        }
     layers: List[Dict[str, Any]] = [{"name": "Input", "shape": [h, w, 3], "params": 0}]
     channels = 3
-    for filters in (32, 64, 128):
-        h, w = h - 2, w - 2
+    for filters, k in arch.conv_blocks:
+        h, w = h - (k - 1), w - (k - 1)
         if h <= 0 or w <= 0:
             return None
-        params = 3 * 3 * channels * filters + filters
-        layers.append({"name": f"Conv2D 3×3 · {filters}", "shape": [h, w, filters], "params": params, "activation": "relu"})
+        params = k * k * channels * filters + filters
+        layers.append({"name": f"Conv2D {k}×{k} · {filters}", "shape": [h, w, filters], "params": params, "activation": "relu"})
         h, w = h // 2, w // 2
         layers.append({"name": "MaxPool 2×2", "shape": [h, w, filters], "params": 0})
         channels = filters
     flat = h * w * channels
+    units = arch.dense_units
     layers.append({"name": "Flatten", "shape": [flat], "params": 0})
-    layers.append({"name": "Dense · 128", "shape": [128], "params": flat * 128 + 128, "activation": "relu"})
-    layers.append({"name": "Dense · 1", "shape": [1], "params": 129, "activation": "sigmoid"})
+    layers.append({"name": f"Dense · {units}", "shape": [units], "params": flat * units + units, "activation": "relu"})
+    layers.append({"name": "Dense · 1", "shape": [1], "params": units + 1, "activation": "sigmoid"})
     return {
-        "family": "Convolve standard CNN",
+        "id": arch.id,
+        "family": "Convolve standard CNN" if arch.id == DEFAULT_ARCHITECTURE else arch.label,
         "layers": layers,
         "total_params": sum(layer["params"] for layer in layers),
         "loss": "binary_crossentropy",
@@ -216,7 +251,61 @@ def _config_block(cfg: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("image_size", "batch_size", "epochs", "val_split", "random_seed"):
         if state.get(key) is not None:
             out[key] = state[key]
+    # Opt-in options; absent means the original architecture, random split and PNG pipeline.
+    for key in ("architecture", "validation_method", "input_pipeline"):
+        if cfg.get(key):
+            out[key] = cfg[key]
+    protocol = int(cfg.get("trainer_protocol") or 1)
+    out["trainer_protocol"] = protocol
+    if protocol >= 2:
+        out.setdefault("validation_method", "chronological")
+        for key in ("test_fraction", "evaluate_test", "label_horizon_bars", "label_timeframe", "label_horizon_source"):
+            if cfg.get(key) is not None:
+                out[key] = cfg[key]
+    else:
+        out.setdefault("validation_method", "random")
     return out
+
+
+def timings_block(trainer: Optional[Dict[str, Any]], worker: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Measured wall time per phase, in run order. Phases that were not measured are omitted."""
+    trainer = trainer if isinstance(trainer, dict) else {}
+    worker = worker if isinstance(worker, dict) else {}
+    stages = trainer.get("stages") if isinstance(trainer.get("stages"), dict) else {}
+    if not stages and not worker:
+        return None
+    epochs = [e for e in trainer.get("epochs") or [] if isinstance(e, dict)]
+    validation = sum(_num(e.get("val_seconds")) or 0.0 for e in epochs) if epochs else None
+    fit = _num(stages.get("fit_seconds"))
+
+    def total(*keys: str) -> Optional[float]:
+        values = [_num(stages.get(k)) for k in keys]
+        return sum(v for v in values if v is not None) if any(v is not None for v in values) else None
+
+    raw = [
+        ("waiting_for_machine", _num(worker.get("queue_to_claim_seconds"))),
+        ("dataset_download", _num(worker.get("dataset_restore_seconds"))),
+        ("framework_start", _num(worker.get("tensorflow_import_seconds")) or _num(stages.get("tf_import_seconds"))),
+        ("data_preparation", total("scan_seconds", "split_seconds", "pipeline_build_seconds")),
+        ("model_build", _num(stages.get("model_build_seconds"))),
+        ("first_batch", _num(stages.get("first_batch_seconds"))),
+        ("training", (fit - validation - (_num(stages.get("first_batch_seconds")) or 0.0)) if fit is not None and validation is not None else fit),
+        ("validation", validation if fit is not None else None),
+        ("model_save", _num(stages.get("model_save_seconds"))),
+        ("upload", _num(worker.get("publish_seconds"))),
+    ]
+    phases = [{"key": key, "seconds": round(max(0.0, value), 2)} for key, value in raw if value is not None]
+    return {
+        "phases": phases,
+        "measured_seconds": round(sum(p["seconds"] for p in phases), 2),
+        "epochs_measured": len(epochs),
+        "epoch_seconds_median": _num(trainer.get("epoch_seconds_median")),
+        "train_images_per_second": _num(trainer.get("train_images_per_second")),
+        "cpu_count": trainer.get("cpu_count"),
+        "cpu_utilization": _num(trainer.get("cpu_utilization")),
+        "peak_rss_mb": _num(trainer.get("peak_rss_mb")),
+        "model_file_mb": _num(stages.get("model_file_mb")),
+    }
 
 
 def build_session(
@@ -230,9 +319,11 @@ def build_session(
     row: Optional[Dict[str, Any]] = None,
     dataset_summary: Optional[Dict[str, Any]] = None,
     worker_active: Optional[bool] = None,
+    worker_timings: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Session payload: identity, dataset, config, timing, full history, best epoch, summary."""
     run_dir = run_dir if run_dir and os.path.isdir(run_dir) else None
+    trainer_timings = (read_json(os.path.join(run_dir, "timings.json")) if run_dir else None) or progress.get("timings")
     meta = (read_json(os.path.join(run_dir, "model_metadata.json")) if run_dir else None) or {}
     summary = (read_json(os.path.join(run_dir, "summary.json")) if run_dir else None) or {}
     disk_state = (read_json(os.path.join(run_dir, "training_state.json")) if run_dir else None) or {}
@@ -270,7 +361,18 @@ def build_session(
     elif config.get("epochs"):
         epochs_total = config.get("epochs")
 
-    best = best_epoch(history)
+    stopping = summary.get("stopping") if isinstance(summary.get("stopping"), dict) else {}
+    options = summary.get("options") if isinstance(summary.get("options"), dict) else None
+    if options is None and cfg.get("trainer_protocol"):
+        from runners.trainer_options import OptionsError, resolve
+
+        try:
+            options = resolve(cfg)
+        except (OptionsError, ValueError, TypeError):
+            options = None
+    selection = stopping.get("monitor") or (options or {}).get("selection_metric") or cfg.get("selection_metric") or "val_loss"
+    mode = stopping.get("mode") or ("min" if selection == "val_loss" else "max")
+    best = best_epoch(history, selection, mode)
     by_epoch = {r["epoch"]: r for r in history}
     durations = epoch_durations(history, _num(state.get("data_ready_at")))
 
@@ -278,17 +380,47 @@ def build_session(
     finished_at = (row or {}).get("finished_at") or _num(summary.get("completed_at"))
 
     model_name = meta.get("model_name") or summary.get("model_name") or cfg.get("model_name")
+    model_block = summary.get("model") if isinstance(summary.get("model"), dict) else None
+    architecture = standard_architecture(
+        config.get("image_size"),
+        config.get("architecture"),
+        model_layers=(model_block or {}).get("layers"),
+        model_params=(model_block or {}).get("parameters"),
+    )
+    if architecture and options:
+        architecture["optimizer"] = options.get("optimizer")
+        architecture["lr_schedule"] = options.get("lr_schedule")
+        architecture["regularization"] = options.get("regularization")
+        architecture["early_stopping"] = {
+            **(options.get("early_stopping") or {}),
+            "monitor": selection,
+            "restore_best_weights": True,
+        }
+        if model_block and model_block.get("parameters") is not None:
+            architecture["total_params"] = model_block["parameters"]
+    evaluation = read_json(os.path.join(run_dir, "evaluation.json")) if run_dir else None
+    split = state.get("split") or ((summary.get("training_setup") or {}).get("split") if isinstance(summary.get("training_setup"), dict) else None)
     session: Dict[str, Any] = {
         "run_id": run_id,
         "stage": stage,
         "model_name": model_name,
         "dataset": _dataset_block(meta, dataset_summary),
         "config": config,
-        "architecture": standard_architecture(config.get("image_size")),
+        "architecture": architecture,
+        "trainer_protocol": config["trainer_protocol"],
+        "options": options,
+        "selection_metric": {"name": selection, "mode": mode},
         "train_samples": summary.get("train_samples", state.get("train_samples")),
         "val_samples": val_samples,
+        "test_samples": summary.get("test_samples", state.get("test_samples")),
         "train_label_counts": state.get("train_label_counts"),
         "val_label_counts": state.get("val_label_counts"),
+        "test_label_counts": state.get("test_label_counts"),
+        "split": split if isinstance(split, dict) else None,
+        "evaluation": evaluation if isinstance(evaluation, dict) else None,
+        "stopping": stopping or None,
+        "model": model_block,
+        "reproducibility": summary.get("reproducibility") if isinstance(summary.get("reproducibility"), dict) else None,
         "epochs_total": epochs_total,
         "epochs_completed": len(history),
         "history": history,
@@ -300,7 +432,13 @@ def build_session(
         "finished_at": finished_at or None,
         "error": None,
         "worker_active": worker_active,
+        "timings": timings_block(trainer_timings, worker_timings),
+        "live_epoch": None,
     }
+    if stage == "training" and progress.get("batch") is not None:
+        session["live_epoch"] = {
+            k: progress.get(k) for k in ("epoch_in_progress", "epochs", "batch", "batches", "images_per_second", "elapsed_seconds", "validating")
+        }
     if summary:
         session["summary"] = {
             k: summary.get(k)
@@ -321,6 +459,8 @@ def build_session(
             # model corresponds to the best epoch measured from history (if validation existed).
             session["summary"]["saved_weights_epoch"] = best or (history[-1]["epoch"] if history else None)
             session["summary"]["saved_weights_inferred"] = True
+    if isinstance(summary.get("training_setup"), dict):
+        session["training_setup"] = summary["training_setup"]
     if stage == "failed":
         session["error"] = progress.get("message") or progress.get("error") or (row or {}).get("error_summary")
     return session

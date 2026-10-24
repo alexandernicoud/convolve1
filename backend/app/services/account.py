@@ -135,6 +135,68 @@ def accept_terms(user_id: str, terms_version: str, privacy_version: str) -> Dict
     return get_profile(user_id)
 
 
+# --------------------------------------------------------------------------- onboarding
+
+# Must match TOUR_STEPS in src/features/onboarding/steps.ts.
+ONBOARDING_STEPS = ("generate", "train", "analyze", "backtest", "deploy", "monitor")
+ONBOARDING_STATUSES = ("new", "active", "dismissed", "completed")
+
+
+def _onboarding_default() -> Dict[str, Any]:
+    return {"status": "new", "step": 0, "welcome_seen": False, "updated_at": None, "completed_at": None}
+
+
+def get_onboarding(user_id: str) -> Dict[str, Any]:
+    import json
+
+    db = SessionLocal()
+    try:
+        p = db.get(Profile, uuid.UUID(user_id))
+        raw = p.onboarding_json if p else None
+    finally:
+        db.close()
+    state = _onboarding_default()
+    if raw:
+        try:
+            stored = json.loads(raw)
+            if isinstance(stored, dict):
+                state.update({k: stored[k] for k in state if k in stored})
+        except ValueError:
+            logger.warning("Ignoring unreadable onboarding state for %s", user_id)
+    state["steps"] = list(ONBOARDING_STEPS)
+    return state
+
+
+def save_onboarding(user_id: str, status: str, step: int, welcome_seen: bool) -> Dict[str, Any]:
+    import json
+
+    if status not in ONBOARDING_STATUSES:
+        raise ValueError("Unknown onboarding status")
+    if not 0 <= step < len(ONBOARDING_STEPS):
+        raise ValueError("Unknown onboarding step")
+    uid = uuid.UUID(user_id)
+    now = datetime.now(timezone.utc).isoformat()
+    previous = get_onboarding(user_id)
+    state = {
+        "status": status,
+        "step": step,
+        "welcome_seen": bool(welcome_seen or previous["welcome_seen"]),
+        "updated_at": now,
+        "completed_at": now if status == "completed" else previous.get("completed_at"),
+    }
+    db = SessionLocal()
+    try:
+        p = db.get(Profile, uid)
+        if p is None:
+            p = Profile(id=uid)
+            db.add(p)
+        p.onboarding_json = json.dumps(state)
+        db.commit()
+    finally:
+        db.close()
+    return {**state, "steps": list(ONBOARDING_STEPS)}
+
+
 # --------------------------------------------------------------------------- usage
 
 TERMINAL_FAILURES = ("failed", "interrupted")

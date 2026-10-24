@@ -598,4 +598,26 @@
     }
   }
 
+  /* Explain mode: annotated controls are outlined and inert (see features/help/ExplainMode). */
+  body.explain-mode [data-help],
+  body.explain-mode [data-panel] {
+    outline: 1px dashed rgba(255, 255, 255, 0.45);
+    outline-offset: 3px;
+    border-radius: 10px;
+    cursor: help;
+  }
+
+  body.explain-mode [data-help]:hover,
+  body.explain-mode [data-panel]:hover {
+    outline: 2px solid rgba(255, 255, 255, 0.85);
+  }
+
+  body.explain-mode :not([data-explain-ui], [data-explain-ui] *) {
+    cursor: help;
+  }
+
+  body.explain-mode [data-scroll-pane] {
+    padding-bottom: 7rem;
+  }
+
 }

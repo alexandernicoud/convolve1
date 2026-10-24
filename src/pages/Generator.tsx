@@ -9,8 +9,8 @@ import SymbolBasket from "@/components/generator/SymbolBasket";
 import { TIMESPAN_PRESETS } from "@/components/generator/timespanPresets";
 import { trainingChartGeneratorApi, ApiError, type ChartPreviewResult } from "@/lib/api";
 import { useRunsStore } from "@/state/runsStore";
-import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
-import { RunCostHint } from "@/components/RunCostHint";
+import { confirmRun, chargeRunCredits } from "@/state/creditsStore";
+import { RunCost, RunCostHint } from "@/components/RunCostHint";
 import {
   calendarDaysBetween,
   computeEndOffsetFromReferenceEnd,
@@ -179,6 +179,15 @@ export default function Generator() {
     navigate(`/tools/generator/runs/${encodeURIComponent(q)}`, { replace: true });
   }, [searchParams, navigate]);
 
+  const pricingParams = useMemo(
+    () => ({
+      symbols: Array.isArray(config.symbols) ? (config.symbols as string[]).join(",") : String(config.symbols ?? ""),
+      charts_per_label: config.chartsPerLabel,
+      image_dimension: config.imageDimension,
+    }),
+    [config.symbols, config.chartsPerLabel, config.imageDimension],
+  );
+
   const handleGenerate = async () => {
     const validationError = validateConfig();
     if (validationError) {
@@ -187,7 +196,7 @@ export default function Generator() {
       return;
     }
 
-    if (!requestRunCredits("training-chart-generator")) return;
+    if (!(await confirmRun("training-chart-generator", pricingParams))) return;
 
     setError(null);
     setErrorDetails(null);
@@ -360,13 +369,15 @@ export default function Generator() {
         title="Choose the stocks"
         description="Add the real stocks you want charts for (e.g. Apple → AAPL, Microsoft → MSFT). Each stock gets labeled chart images for both classes (TP hit vs SL hit)."
       >
-        <SymbolBasket
-          selectedSymbols={selectedSymbols}
-          onAdd={addSymbol}
-          onRemove={removeSymbol}
-          label="Stock symbols"
-          tipText="This is the actual stock ticker on Yahoo Finance — not a crypto pair or made-up code. Search by company name (Apple) or ticker (AAPL), then pick a suggestion."
-        />
+        <div data-tour="gen-assets" data-help="gen-assets">
+          <SymbolBasket
+            selectedSymbols={selectedSymbols}
+            onAdd={addSymbol}
+            onRemove={removeSymbol}
+            label="Stock symbols"
+            tipText="This is the actual stock ticker on Yahoo Finance — not a crypto pair or made-up code. Search by company name (Apple) or ticker (AAPL), then pick a suggestion."
+          />
+        </div>
       </StepSection>
 
       {/* Step 2 — Training window */}
@@ -375,7 +386,7 @@ export default function Generator() {
         title="Set the training window"
         description="Decide how much data to create and which calendar period it covers. Drag the timeline or use the date fields."
       >
-        <div className="mb-4">
+        <div className="mb-4" data-tour="gen-window" data-help="gen-size">
           <div className="mb-2 text-sm font-medium text-white/70">
             Dataset size mode
             <FieldTip text="Fixed dataset size: you set charts per label first, then pin where the newest bars end. Fixed training period: you set the calendar span; charts per label follows the estimate when the window changes." />
@@ -533,7 +544,7 @@ export default function Generator() {
         ) : null}
 
         {/* Class-balance disclaimer + choice */}
-        <div className="mt-4 rounded-xl border border-amber-300/25 bg-amber-300/[0.06] p-4">
+        <div className="mt-4 rounded-xl border border-amber-300/25 bg-amber-300/[0.06] p-4" data-help="gen-balance">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300/90" aria-hidden />
             <div className="min-w-0">
@@ -632,7 +643,7 @@ export default function Generator() {
                 <option value="line">Line Chart</option>
               </select>
             </div>
-            <div>
+            <div data-tour="gen-timeframe" data-help="gen-timeframe">
               <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
                 Timeframe <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="Bar size for history: daily, weekly, or monthly candles." />
@@ -672,7 +683,7 @@ export default function Generator() {
                 ))}
               </select>
             </div>
-            <div>
+            <div data-tour="gen-labeling" data-help="gen-horizon">
               <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
                 Future Horizon (bars) <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="How many future bars define the label horizon for each sample." />
@@ -685,7 +696,7 @@ export default function Generator() {
                 className="w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] focus:border-white/30 focus:ring-1 focus:ring-white/50"
               />
             </div>
-            <div>
+            <div data-help="take-profit">
               <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
                 Take Profit (%) <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="Up move as a percentage of the entry price — e.g. 2 means a +2% take-profit threshold." />
@@ -703,7 +714,7 @@ export default function Generator() {
                 className="w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] focus:border-white/30 focus:ring-1 focus:ring-white/50"
               />
             </div>
-            <div>
+            <div data-help="stop-loss">
               <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
                 Stop Loss (%) <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="Down move as a percentage of the entry price — e.g. 1 means a −1% stop-loss threshold." />
@@ -903,33 +914,11 @@ export default function Generator() {
         </div>
       </details>
 
-      {/* Preview */}
-      <div className="rounded-2xl border border-white/[0.15] bg-white/[0.06] p-5 md:p-6">
-        <h3 className="text-base font-semibold text-white">Preview</h3>
-        <p className="mt-3 text-lg text-[#F5F5F5]">
-          <span className="text-white/50">Chart images to generate: </span>
-          <span className="font-mono text-2xl font-semibold tabular-nums text-white">
-            {selectedSymbols.length === 0 ? "—" : previewPack.chartImageCount}
-          </span>
-          {selectedSymbols.length > 0 ? (
-            <span className="text-white/45">
-              {" "}
-              ({selectedSymbols.length} symbol{selectedSymbols.length === 1 ? "" : "s"} × {config.chartsPerLabel} per
-              label × 2 labels)
-            </span>
-          ) : null}
+      {previewPack.tight ? (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100/90">
+          The training window looks tight versus horizon + chart history — leave more calendar room if you can.
         </p>
-        <p className="mt-2 text-sm leading-relaxed text-white/45">
-          Each image is labeled by whether price hits +{(config.takeProfitFraction * 100).toFixed(1)}% (TP, label 1)
-          before −{(config.stopLossFraction * 100).toFixed(1)}% (SL, label 0) within the next {config.horizonBars}{" "}
-          bars. Label balance follows real market outcomes.
-        </p>
-        {previewPack.tight ? (
-          <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100/90">
-            The training window looks tight versus horizon + chart history — leave more calendar room if you can.
-          </p>
-        ) : null}
-      </div>
+      ) : null}
 
       {error && (
         <div className="rounded-lg border border-[#f87171]/20 bg-[#f87171]/10 p-4">
@@ -962,17 +951,24 @@ export default function Generator() {
         </div>
       )}
 
-      <div className="space-y-1.5">
+      <div className="space-y-1.5" data-tour="gen-run">
         <button
           type="button"
+          data-help="gen-run"
           onClick={() => void handleGenerate()}
           disabled={starting}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-8 py-3.5 text-base font-semibold text-[#0a0a0a] transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Play className="h-5 w-5" />
-          {starting ? "Starting…" : "Generate training dataset"}
+          {starting ? (
+            "Starting…"
+          ) : (
+            <>
+              Generate dataset <RunCost tool="training-chart-generator" params={pricingParams} />
+            </>
+          )}
         </button>
-        <RunCostHint tool="training-chart-generator" />
+        <RunCostHint tool="training-chart-generator" params={pricingParams} className="text-center" />
       </div>
     </div>
   );

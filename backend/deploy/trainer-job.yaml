@@ -30,8 +30,11 @@ spec:
       taskCount: 1
       template:
         spec:
-          # No retries: a failed attempt is final (no checkpoints or resume).
-          maxRetries: 0
+          # A retry only takes over a run whose attempt crashed or was stopped while running
+          # (claim() requires status running and the same execution/task); it continues from the
+          # last epoch checkpoint. A run the worker marked failed is final. Keep in sync with
+          # TRAINER_JOB_MAX_RETRIES. Worst case compute is (maxRetries + 1) x timeoutSeconds.
+          maxRetries: 2
           # 8 vCPU default training measured at ~7-15 min; 2 vCPU at up to ~42 min.
           timeoutSeconds: 3600
           # Dedicated account, e.g. convolve-trainer@PROJECT.iam.gserviceaccount.com.
@@ -61,6 +64,11 @@ spec:
                   value: "8"
                 - name: TF_NUM_INTEROP_THREADS
                   value: "8"
+                - name: TRAINER_JOB_MAX_RETRIES
+                  value: "2"
+                # Per-epoch checkpoints under gs://MODEL_BUCKET/checkpoints/ (lifecycle: deploy/upload-lifecycle.json).
+                - name: TRAINER_CHECKPOINTS
+                  value: "true"
                 - name: LIVE_DEPLOY_ENABLED
                   value: "false"
                 - name: SCHEDULED_BOTS_ENABLED

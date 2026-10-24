@@ -102,5 +102,13 @@ export function useTrainingRun(runId: string | undefined) {
     refresh();
   }, [runId, refresh]);
 
-  return { data, connection, failures, lastOkAt, refresh, cancel };
+  const resume = useCallback(async () => {
+    if (!runId) return;
+    await trainerApi.resumeRun(runId);
+    const store = useRunsStore.getState();
+    if (store.runsById[runId]) store.updateRun(runId, { status: "running", stage: "queued", message: "Resuming from checkpoint" });
+    refresh();
+  }, [runId, refresh]);
+
+  return { data, connection, failures, lastOkAt, refresh, cancel, resume };
 }

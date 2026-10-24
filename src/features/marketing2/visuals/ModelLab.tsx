@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { useReducedMotion, type MotionValue } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { CHAIN, asset, labmaps, type LabMethod } from "../data";
+import { asset, labmaps, type LabMethod } from "../data";
 import { FitLine, Frac, I, Sum } from "./math";
 import { ProvenanceTag, fmtDate, useStep } from "../ui";
 
@@ -198,7 +198,7 @@ function Explorer({ phase = 4 }: { phase?: number }) {
           </button>
         ))}
         <span className="ml-auto hidden font-mono text-[10px] text-white/30 md:inline">
-          {CHAIN.modelName} · {fmtDate(s.date, { day: "numeric", month: "short", year: "numeric" })}
+          test chart · {fmtDate(s.date, { day: "numeric", month: "short", year: "numeric" })}
         </span>
       </div>
 
@@ -499,7 +499,7 @@ export function ModelLab({ progress }: { progress?: MotionValue<number> }) {
       ) : null}
       <Explorer phase={phase} />
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <ProvenanceTag kind="real" detail="MSFT model · 6 test windows · computed with the Analysis Lab" />
+        <ProvenanceTag kind="real" detail="6 unseen test charts · computed with the Analysis Lab" />
         <span className="font-mono text-[10.5px] text-white/30">Maps share the chart's 224 × 224 pixel grid</span>
       </div>
     </div>

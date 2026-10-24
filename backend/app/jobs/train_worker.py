@@ -16,10 +16,20 @@ import logging
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from app.config import APP_PROFILE, MODEL_BUCKET, TRAINER_THREADS, configure_logging
+_PROCESS_T0 = time.perf_counter()
+
+from app.config import (  # noqa: E402
+    APP_PROFILE,
+    MODEL_BUCKET,
+    TRAINER_CHECKPOINTS,
+    TRAINER_JOB_MAX_RETRIES,
+    TRAINER_THREADS,
+    configure_logging,
+)
 
 logger = logging.getLogger("app.jobs.train_worker")
 
@@ -48,11 +58,29 @@ def _apply_tf_threads(threads: int) -> None:
         logger.warning("TensorFlow thread pools already initialised; keeping existing settings")
 
 
-def worker_id() -> str:
+def task_attempt() -> int:
+    """Retry attempt of this task: Cloud Run Jobs or Cloud Batch (GPU pool in Zurich)."""
+    try:
+        return int(os.getenv("CLOUD_RUN_TASK_ATTEMPT") or os.getenv("BATCH_TASK_RETRY_ATTEMPT") or "0")
+    except ValueError:
+        return 0
+
+
+def task_prefix() -> Optional[str]:
+    """Identifies this task across its retry attempts."""
     execution = os.getenv("CLOUD_RUN_EXECUTION", "")
-    task = os.getenv("CLOUD_RUN_TASK_INDEX", "0")
     if execution:
-        return f"job/{execution}/{task}"
+        return f"job/{execution}/{os.getenv('CLOUD_RUN_TASK_INDEX', '0')}/"
+    batch_job = os.getenv("BATCH_JOB_UID") or os.getenv("BATCH_JOB_ID")
+    if batch_job:
+        return f"job/batch-{batch_job}/{os.getenv('BATCH_TASK_INDEX', '0')}/"
+    return None
+
+
+def worker_id() -> str:
+    prefix = task_prefix()
+    if prefix:
+        return f"{prefix}{task_attempt()}"
     return f"job/local/{os.getpid()}"
 
 
@@ -64,19 +92,30 @@ def run_job(run_id: str, trainer=None) -> int:
     from app.services.durable_outputs import restore_dataset
 
     run_id = validate_id(run_id, kind="run id")
-    job = trainer_jobs.claim(run_id, worker_id())
+    retry_of = task_prefix() if task_attempt() > 0 else None
+    me = worker_id()
+    job = trainer_jobs.claim(run_id, me, retry_of=retry_of)
     if job is None:
         logger.info("Run %s is not queued; nothing to do", run_id)
         return 0
+    cancel_flag = trainer_jobs.DbCancelFlag(run_id, owner=me)
+    claimed_at = time.time()
     _active_run = run_id
     user_id = job["user_id"]
+    timings: Dict[str, Any] = {"worker_claimed_at": claimed_at, "process_to_claim_seconds": round(time.perf_counter() - _PROCESS_T0, 2)}
+    if isinstance(job.get("requested_at"), (int, float)):
+        # API dispatch, Cloud Run scheduling, container start and Python start-up together.
+        timings["queue_to_claim_seconds"] = round(claimed_at - float(job["requested_at"]), 2)
     try:
         config: Dict[str, Any] = dict(job.get("config") or {})
         dataset_id = str(job.get("dataset_id") or "")
         model_name = str(config.get("model_name") or "")
         if not model_name or Path(model_name).name != model_name:
             raise ValueError("model_name must be a plain file name")
-        if not dataset_id or not restore_dataset(dataset_id, user_id):
+        t_restore = time.perf_counter()
+        restored = bool(dataset_id) and restore_dataset(dataset_id, user_id)
+        timings["dataset_restore_seconds"] = round(time.perf_counter() - t_restore, 2)
+        if not restored:
             raise FileNotFoundError(f"Dataset {dataset_id or '(none)'} could not be restored from storage")
         images = dataset_dir_for(dataset_id, user_id) / "images"
         if not images.is_dir():
@@ -91,25 +130,67 @@ def run_job(run_id: str, trainer=None) -> int:
 
             (run_dir / "model_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
+        t_import = time.perf_counter()
         if trainer is None:
             _apply_tf_threads(TRAINER_THREADS)
             from runners.trainer_runner import run_trainer as trainer
         from runners.trainer_runner import CancelledError
 
+        timings["tensorflow_import_seconds"] = round(time.perf_counter() - t_import, 2)
+        trainer_jobs.save_worker_timings(run_id, timings)
+
         def progress(phase: str, percent: float, data: Dict[str, Any]) -> None:
             trainer_jobs.report_progress(run_id, phase, percent, data)
 
+        trainer_kwargs: Dict[str, Any] = {"cancel_event": cancel_flag}
+        if TRAINER_CHECKPOINTS:
+            ckpt_dir = run_dir / "checkpoint"
+            t_ckpt = time.perf_counter()
+            restored_epochs = trainer_jobs.restore_checkpoint(run_id, ckpt_dir)
+            if restored_epochs:
+                timings["checkpoint_restore_seconds"] = round(time.perf_counter() - t_ckpt, 2)
+                timings["checkpoint_restored_epochs"] = restored_epochs
+            elif job.get("has_checkpoint"):
+                # Recorded but not restorable (expired or unreadable): say so instead of
+                # presenting a fresh start as a resume.
+                timings["checkpoint_unavailable"] = True
+                trainer_jobs.report_progress(
+                    run_id, "loading", 1, {"message": "The saved checkpoint is no longer available; training restarts from epoch 1"}
+                )
+            upload_seconds = [0.0]
+
+            def on_saved(directory, state) -> None:
+                if cancel_flag.is_set(fresh=True) and cancel_flag.superseded:
+                    return
+                t_up = time.perf_counter()
+                try:
+                    trainer_jobs.store_checkpoint(run_id, user_id, directory, state)
+                except Exception:
+                    # Training goes on; only the ability to resume from this epoch is lost.
+                    logger.exception("Could not upload checkpoint for %s", run_id)
+                upload_seconds[0] += time.perf_counter() - t_up
+                timings["checkpoint_upload_seconds"] = round(upload_seconds[0], 2)
+
+            trainer_kwargs["checkpoint"] = {"dir": ckpt_dir, "run_id": run_id, "user_id": user_id, "on_saved": on_saved}
+
         try:
-            trainer(config, run_dir, progress, cancel_event=trainer_jobs.DbCancelFlag(run_id))
+            trainer(config, run_dir, progress, **trainer_kwargs)
         except CancelledError:
+            if cancel_flag.superseded:
+                logger.warning("Run %s is now held by another worker; stopping without writing", run_id)
+                return 0
             trainer_jobs.finish_cancelled(run_id)
             logger.info("Run %s cancelled", run_id)
             return 0
 
-        if trainer_jobs.DbCancelFlag(run_id).is_set():
-            logger.info("Run %s was cancelled after training finished; not storing results", run_id)
+        if cancel_flag.is_set(fresh=True):
+            logger.info("Run %s was cancelled or taken over after training finished; not storing results", run_id)
             return 0
+        t_publish = time.perf_counter()
         ok, err = trainer_jobs.finish_succeeded(run_id)
+        timings["publish_seconds"] = round(time.perf_counter() - t_publish, 2)
+        timings["worker_total_seconds"] = round(time.time() - claimed_at, 2)
+        trainer_jobs.save_worker_timings(run_id, timings)
         if not ok:
             logger.error("Run %s not marked succeeded: %s", run_id, err)
             return 1
@@ -117,10 +198,35 @@ def run_job(run_id: str, trainer=None) -> int:
         return 0
     except Exception as exc:
         logger.exception("Run %s failed", run_id)
-        trainer_jobs.finish_failed(run_id, f"Training failed: {exc}")
+        if cancel_flag.is_set(fresh=True) and cancel_flag.superseded:
+            return 1
+        trainer_jobs.finish_failed(run_id, trainer_jobs.public_failure_message(exc))
         return 1
     finally:
         _active_run = None
+
+
+def _accelerator_check():
+    """GPU visible to TensorFlow. Required only when TRAINER_REQUIRE_GPU is set (GPU job spec);
+    without it a CPU-only machine is the normal production path."""
+    require = os.getenv("TRAINER_REQUIRE_GPU", "").strip().lower() in ("1", "true", "yes")
+    try:
+        import tensorflow as tf
+
+        gpus = tf.config.list_physical_devices("GPU")
+        built_cuda = tf.test.is_built_with_cuda()
+    except Exception as exc:  # noqa: BLE001
+        return ("accelerator", not require, f"TensorFlow could not list devices: {type(exc).__name__}")
+    if gpus:
+        names = []
+        for gpu in gpus:
+            try:
+                names.append(tf.config.experimental.get_device_details(gpu).get("device_name") or gpu.name)
+            except Exception:  # noqa: BLE001
+                names.append(gpu.name)
+        return ("accelerator", True, f"GPU: {', '.join(names)}")
+    detail = "CPU only" + ("" if built_cuda else " (TensorFlow build without CUDA)")
+    return ("accelerator", not require, detail + ("; TRAINER_REQUIRE_GPU is set" if require else ""))
 
 
 def check_access() -> int:
@@ -136,6 +242,7 @@ def check_access() -> int:
 
     problems = ml_versions.version_mismatches()
     checks = [("ML package pins", not problems, "; ".join(problems) or ml_versions.describe())]
+    checks.append(_accelerator_check())
 
     with engine.connect() as conn, conn.begin():
         if conn.dialect.name == "postgresql":
@@ -177,7 +284,13 @@ def _on_sigterm(signum, frame) -> None:
     if run_id:
         from app.services import trainer_jobs
 
-        trainer_jobs.finish_failed(run_id, "Training job was stopped before it finished (timeout or shutdown)")
+        if TRAINER_CHECKPOINTS and task_attempt() < TRAINER_JOB_MAX_RETRIES:
+            # Cloud Run retries this task; the next attempt claims the row and resumes.
+            from app.ownership import update_pipeline_run_state
+
+            update_pipeline_run_state(run_id, message="Training machine was interrupted; continuing from the last checkpoint")
+        else:
+            trainer_jobs.finish_failed(run_id, "Training job was stopped before it finished (timeout or shutdown)")
     os._exit(128 + signum)
 
 
@@ -197,7 +310,25 @@ def main(argv: Optional[list] = None) -> int:
         return 2
     signal.signal(signal.SIGTERM, _on_sigterm)
     logger.info("Training job for %s (threads=%s)", run_id, TRAINER_THREADS)
-    return run_job(run_id)
+    code = run_job(run_id)
+    start_next_queued()
+    return code
+
+
+def start_next_queued() -> None:
+    """With TRAINER_WORKER_STARTS_QUEUED, the finishing worker starts waiting runs itself, so the
+    queue moves even when no browser is polling. Needs run.jobs.runWithOverrides on the trainer
+    job(s) for this service account; best effort, a failure only delays the next start."""
+    if os.getenv("TRAINER_WORKER_STARTS_QUEUED", "").strip().lower() not in ("1", "true", "yes"):
+        return
+    from app.services import trainer_jobs
+
+    try:
+        started = trainer_jobs.pump_queue()
+        if started:
+            logger.info("Started %d queued run(s)", len(started))
+    except Exception:
+        logger.exception("Could not start queued runs")
 
 
 if __name__ == "__main__":

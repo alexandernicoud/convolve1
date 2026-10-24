@@ -1,5 +1,21 @@
-/** Local Vite origin. Never mix with 127.0.0.1 — PKCE storage is origin-scoped. */
+/** Default local Vite origin. Never mix with 127.0.0.1 — PKCE storage is origin-scoped. */
 export const LOCAL_DEV_ORIGIN = "http://localhost:5173";
+
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "[::1]", "0.0.0.0"]);
+
+/**
+ * Dev origin as listed in the Supabase redirect allow-list: loopback IPs become `localhost`, the
+ * port is kept (5173, 5174, …). Production origins are returned unchanged.
+ */
+export function canonicalDevOrigin(origin: string): string {
+  try {
+    const url = new URL(origin);
+    if (LOOPBACK_HOSTS.has(url.hostname)) url.hostname = "localhost";
+    return url.origin;
+  } catch {
+    return LOCAL_DEV_ORIGIN;
+  }
+}
 
 export function safeAppPath(raw: string | null | undefined, fallback = "/dashboard"): string {
   const path = (raw || "").trim();
@@ -13,7 +29,7 @@ export function oauthCallbackPath(nextPath: string): string {
 }
 
 export function oauthRedirectTo(origin: string, nextPath: string, isDev: boolean): string {
-  const base = (isDev ? LOCAL_DEV_ORIGIN : origin).replace(/\/+$/, "");
+  const base = (isDev ? canonicalDevOrigin(origin) : origin).replace(/\/+$/, "");
   return `${base}${oauthCallbackPath(nextPath)}`;
 }
 

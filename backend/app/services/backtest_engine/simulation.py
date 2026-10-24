@@ -131,8 +131,13 @@ def simulate(
     threshold: float,
     start_date: Optional[pd.Timestamp] = None,
     purged: Optional[set] = None,
+    outcomes: Optional[Dict[str, to.Outcome]] = None,
 ) -> SimResult:
-    """Run the simulation. ``signals`` are all predictions; only prob >= threshold are entry candidates."""
+    """Run the simulation. ``signals`` are all predictions; only prob >= threshold are entry candidates.
+
+    ``outcomes`` (sample_id -> resolve_outcome on the same bars and spec) lets repeated simulations of
+    one signal set skip re-resolving; outcomes are read, never modified.
+    """
     cfg.validate()
     purged = purged or set()
     c, sl = cfg.commission_pct / 100.0, cfg.slippage_pct / 100.0
@@ -156,7 +161,9 @@ def simulate(
         if df is None:
             skipped.append({"sample_id": sig.sample_id, "symbol": sig.symbol, "entry_ts": None, "prob": sig.prob, "reason": SKIP_INVALID_DATA})
             continue
-        out = to.resolve_outcome(df, sig.decision_ts, spec)
+        out = outcomes.get(sig.sample_id) if outcomes is not None else None
+        if out is None:
+            out = to.resolve_outcome(df, sig.decision_ts, spec)
         if out.status == to.STATUS_INVALID:
             skipped.append({"sample_id": sig.sample_id, "symbol": sig.symbol, "entry_ts": None, "prob": sig.prob,
                             "reason": SKIP_INVALID_DATA, "detail": out.invalid_reason})

@@ -7,6 +7,10 @@ import { fmtClock, fmtDateTime, fmtDuration, fmtInt, fmtNum, fmtPct, isFiniteNum
 import { SEMANTIC } from "@/lib/viz/tokens";
 import { btn, btnPrimary, Caveat, cx, EmptyState, KV, Panel, PanelTitle, surface } from "@/features/review/components/primitives";
 import { useTrainingRun } from "./useTrainingRun";
+import { LiveComputation } from "./LiveComputation";
+import { DiagnosticsPanel, EvaluationPanel, isProtocol2, SelectionCurves, SplitPanel } from "./EvaluationPanels";
+import { SELECTION_NAME, selectionName } from "./evaluation";
+import { OPTIMIZER_LABEL, SCHEDULE_LABEL } from "./options";
 import {
   elapsedSeconds,
   epochProgress,
@@ -17,7 +21,9 @@ import {
   STAGE_DETAIL,
   STAGE_LABEL,
   STAGE_ORDER,
+  fmtPhaseSeconds,
   stageOf,
+  timingRows,
 } from "./lib";
 
 export function LegacyTrainerAnalysisRedirect() {
@@ -37,9 +43,10 @@ function useNow(active: boolean) {
 
 export default function TrainingSessionPage() {
   const { runId } = useParams();
-  const { data, connection, failures, refresh, cancel } = useTrainingRun(runId);
+  const { data, connection, failures, refresh, cancel, resume } = useTrainingRun(runId);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [resuming, setResuming] = useState(false);
 
   const session = data?.session ?? null;
   const stage = stageOf(data);
@@ -83,7 +90,21 @@ export default function TrainingSessionPage() {
     }
   };
 
+  const onResume = async () => {
+    setResuming(true);
+    setCancelError(null);
+    try {
+      await resume();
+    } catch (e) {
+      setCancelError(e instanceof Error ? e.message : "Could not resume the run");
+    } finally {
+      setResuming(false);
+    }
+  };
+
   const stopping = data.status === "cancelled" && session?.worker_active === true;
+  const resumeFrom = !running && !stopping ? session?.resumable_from_epoch ?? null : null;
+  const resumePanel = resumeFrom ? <ResumeOffer epoch={resumeFrom} resuming={resuming} onResume={onResume} /> : null;
 
   return (
     <div className="mx-auto w-full max-w-[100rem] space-y-5 pb-10">
@@ -116,22 +137,43 @@ export default function TrainingSessionPage() {
 
       {stage === "failed" ? <FailurePanel session={session} data={data} /> : null}
       {stage === "cancelled" ? <CancelledPanel session={session} stopping={stopping} /> : null}
+      {resumePanel}
 
       <ProgressPanel data={data} session={session} stage={stage} now={now} running={running} />
+      {session && stage !== "failed" && stage !== "cancelled" ? <LiveComputation session={session} running={running} /> : null}
 
       {stage === "completed" && session ? <CompletedPanel runId={runId} session={session} /> : null}
+      {stage === "completed" && session ? <EvaluationPanel session={session} /> : null}
+      {!running && session?.timings ? <TimingPanel session={session} /> : null}
 
       <Panel
+        help="learning-curves"
         title="Learning curves"
         description="Per-epoch values recorded by the trainer. Validation images are held out from fitting; the gap between the two lines is the first place to look for overfitting."
       >
-        <TrainingCurves history={session?.history ?? []} bestEpoch={session?.best_epoch ?? null} exportName={`training_${runId}`} />
+        <TrainingCurves
+          history={session?.history ?? []}
+          bestEpoch={session?.best_epoch ?? null}
+          bestLabel={`best ${selectionName(session)}`}
+          exportName={`training_${runId}`}
+        />
       </Panel>
+      {session && isProtocol2(session) ? <SelectionCurves session={session} /> : null}
 
       <div className="grid gap-5 xl:grid-cols-12">
         <RunDetails session={session} className="xl:col-span-7" />
         <ArchitecturePanel session={session} className="xl:col-span-5" />
       </div>
+      {session && (session.split || session.reproducibility || session.model) ? (
+        <div className="grid gap-5 xl:grid-cols-12">
+          {session.split ? (
+            <div className="xl:col-span-7">
+              <SplitPanel session={session} />
+            </div>
+          ) : null}
+          <DiagnosticsPanel session={session} className={session.split ? "xl:col-span-5" : "xl:col-span-12"} />
+        </div>
+      ) : null}
 
       <EpochLog session={session} message={data.progress?.message} />
     </div>
@@ -184,7 +226,7 @@ function SessionHeader({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {running && !stopping ? (
-          <button type="button" className={btn} onClick={onCancel} disabled={cancelling} title="Stops after the current epoch finishes">
+          <button type="button" className={btn} onClick={onCancel} disabled={cancelling} title="Stops the training machine after the current batch">
             <Square className="h-3.5 w-3.5" /> {cancelling ? "Cancelling…" : "Cancel training"}
           </button>
         ) : null}
@@ -205,7 +247,7 @@ function StageBadge({ stage }: { stage: string }) {
   const failed = stage === "failed";
   const done = stage === "completed";
   const idle = stage === "cancelled";
-  const label = stage === "stopping" ? "Stopping after this epoch" : STAGE_LABEL[stage] ?? stage;
+  const label = stage === "stopping" ? "Stopping" : STAGE_LABEL[stage] ?? stage;
   return (
     <span
       className={cx(
@@ -293,17 +335,23 @@ function ProgressPanel({
   const patience = patienceUsed(session);
   const latest = session?.history?.[session.history.length - 1];
   const prev = session?.history?.[session.history.length - 2];
-  const best = session?.best_metrics;
   const preTraining = stage === "queued" || stage === "preparing" || stage === "initializing";
 
   return (
     <section className={cx(surface, "overflow-hidden")}>
       <div className="grid gap-0 lg:grid-cols-12">
-        <div className="px-6 py-6 lg:col-span-5 lg:border-r lg:border-white/[0.07]">
+        <div className="px-6 py-6 lg:col-span-5 lg:border-r lg:border-white/[0.07]" data-help="train-progress">
           <PanelTitle>{preTraining ? STAGE_LABEL[stage] : "Progress"}</PanelTitle>
           {preTraining ? (
             <div className="mt-5 space-y-4 pl-4">
               <p className="text-[15px] leading-relaxed text-white/80">{data.progress?.message || STAGE_DETAIL[stage]}</p>
+              {session?.queue ? (
+                <p className="text-[12.5px] leading-relaxed text-white/45" data-help="train-queue">
+                  {session.queue.waiting_for === "user"
+                    ? "Runs from one account train one at a time; this one starts automatically."
+                    : `Place ${session.queue.position} among runs waiting for a ${session.queue.waiting_for === "gpu" ? "GPU" : "training"} machine. It starts automatically; how long that takes depends on the runs ahead.`}
+                </p>
+              ) : null}
               <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]" aria-label="Working (no measurable progress yet)">
                 <div className="h-full w-1/3 animate-indeterminate rounded-full bg-white/70" />
               </div>
@@ -322,9 +370,11 @@ function ProgressPanel({
                   <EpochStrip total={total} done={done} best={session?.best_epoch} />
                 </div>
               ) : null}
+              {running && stage === "training" ? <LiveEpoch live={session?.live_epoch} valSamples={session?.val_samples} /> : null}
               <p className="mt-3 text-[12.5px] leading-relaxed text-white/40">
-                Early stopping ends training when validation loss has not improved for {session?.architecture?.early_stopping?.patience ?? 5} epochs, so a run
-                can finish before the maximum.
+                {session?.architecture?.early_stopping?.enabled === false
+                  ? `Early stopping is off: every epoch runs, and the epoch with the best ${selectionName(session)} is kept.`
+                  : `Early stopping ends training when ${selectionName(session)} has not improved for ${session?.architecture?.early_stopping?.patience ?? 5} epochs, so a run can finish before the maximum.`}
               </p>
             </div>
           )}
@@ -348,17 +398,20 @@ function ProgressPanel({
             sub={<Delta now={latest?.val_loss} prev={prev?.val_loss} lowerIsBetter digits={4} />}
           />
           <Figure
+            help="validation-accuracy"
             label="Validation accuracy"
             value={fmtPct(latest?.val_accuracy, 1)}
             sub={<Delta now={latest?.val_accuracy} prev={prev?.val_accuracy} pct />}
           />
           <Figure
-            label="Best validation loss"
-            value={fmtNum(best?.val_loss, 4)}
+            label={`Best ${selectionName(session)}`}
+            value={fmtSelection(session)}
             sub={
               session?.best_epoch
                 ? `Epoch ${session.best_epoch}${patience && running ? ` · ${patience.since} of ${patience.patience} epochs without improvement` : ""}`
-                : "Needs a validation split"
+                : session?.val_samples === 0
+                  ? "Needs a validation split"
+                  : "After the first epoch"
             }
           />
         </div>
@@ -375,9 +428,89 @@ function ProgressPanel({
   );
 }
 
-function Figure({ label, value, sub }: { label: string; value: string; sub?: React.ReactNode }) {
+/** The selection metric's value at the kept epoch (validation loss for older runs). */
+function fmtSelection(session: TrainingSession | null): string {
+  const key = (session?.selection_metric?.name ?? "val_loss") as keyof TrainingSession["history"][number];
+  const row = session?.best_epoch ? session.history.find((h) => h.epoch === session.best_epoch) : undefined;
+  const v = row?.[key] ?? (key === "val_loss" ? session?.best_metrics?.val_loss : undefined);
+  if (!isFiniteNum(v)) return MISSING;
+  if (key === "val_loss") return fmtNum(v, 4);
+  if (key === "val_auc" || key === "val_pr_auc") return fmtNum(v, 3);
+  return fmtPct(v, 1);
+}
+
+function LiveEpoch({ live, valSamples }: { live?: TrainingSession["live_epoch"]; valSamples?: number | null }) {
+  const batch = live?.batch;
+  const batches = live?.batches;
+  if (!isFiniteNum(batch) || !live?.epoch_in_progress) {
+    return <p className="mt-4 text-[12.5px] text-white/40">Waiting for the next batch report…</p>;
+  }
+  const fraction = isFiniteNum(batches) && batches > 0 ? Math.min(1, batch / batches) : null;
   return (
-    <div className="bg-black px-5 py-5">
+    <div className="mt-4 space-y-1.5" aria-live="polite">
+      <div className="flex items-baseline justify-between gap-3 text-[13px]">
+        <span className="text-white/75">
+          {live.validating
+            ? `Epoch ${live.epoch_in_progress} · all batches done, scoring ${isFiniteNum(valSamples) ? `${fmtInt(valSamples)} ` : "the "}validation images`
+            : `Epoch ${live.epoch_in_progress} in progress · batch ${fmtInt(batch)}${isFiniteNum(batches) ? ` of ${fmtInt(batches)}` : ""}`}
+        </span>
+        {!live.validating && isFiniteNum(live.images_per_second) ? (
+          <span className="font-digits tabular-nums text-white/45">{fmtNum(live.images_per_second, 1)} images/s</span>
+        ) : null}
+      </div>
+      {fraction != null ? (
+        <div className="h-1 overflow-hidden rounded-full bg-white/[0.08]" role="progressbar" aria-valuemin={0} aria-valuemax={batches ?? undefined} aria-valuenow={batch}>
+          <div className="h-full rounded-full bg-white/60 transition-[width] duration-700" style={{ width: `${fraction * 100}%` }} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TimingPanel({ session }: { session: TrainingSession }) {
+  const rows = timingRows(session.timings);
+  if (!rows.length) return null;
+  const t = session.timings!;
+  const facts = [
+    isFiniteNum(t.epoch_seconds_median) ? `median epoch ${fmtDuration(t.epoch_seconds_median)}` : null,
+    isFiniteNum(t.train_images_per_second) ? `${fmtNum(t.train_images_per_second, 1)} training images/s` : null,
+    isFiniteNum(t.cpu_utilization) && isFiniteNum(t.cpu_count) ? `${fmtNum(t.cpu_utilization, 1)} of ${t.cpu_count} CPU cores busy on average` : null,
+    isFiniteNum(t.peak_rss_mb) ? `peak memory ${fmtInt(t.peak_rss_mb)} MB` : null,
+    isFiniteNum(t.model_file_mb) ? `model file ${fmtNum(t.model_file_mb, 1)} MB` : null,
+  ].filter(Boolean);
+  return (
+    <Panel
+      help="train-timings"
+      title="Where the time went"
+      description={`Measured wall time per phase, ${fmtDuration(t.measured_seconds)} in total. Phases that were not measured for this run are not listed.`}
+    >
+      <div className="flex h-2.5 overflow-hidden rounded-full bg-white/[0.06]" role="img" aria-label="Share of time per phase">
+        {rows.map((r, i) => (
+          <span key={r.key} title={`${r.label}: ${fmtPhaseSeconds(r.seconds)}`} className={cx("h-full", i > 0 && "border-l border-black")} style={{ width: `${r.share * 100}%`, background: r.largest ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.3)" }} />
+        ))}
+      </div>
+      <table className="mt-4 w-full text-[13px]">
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key} className="border-t border-white/[0.06]">
+              <td className="py-2">
+                <span className={r.largest ? "text-white" : "text-white/80"}>{r.label}</span>
+                <span className="ml-2 hidden text-white/35 sm:inline">{r.detail}</span>
+              </td>
+              <td className="py-2 text-right font-digits tabular-nums text-white/70">{fmtPhaseSeconds(r.seconds)}</td>
+              <td className="w-16 py-2 text-right font-digits tabular-nums text-white/45">{fmtPct(r.share, r.share < 0.01 ? 1 : 0)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {facts.length ? <Caveat>{facts.join(" · ")}.</Caveat> : null}
+    </Panel>
+  );
+}
+
+function Figure({ label, value, sub, help }: { label: string; value: string; sub?: React.ReactNode; help?: string }) {
+  return (
+    <div className="bg-black px-5 py-5" data-help={help}>
       <p className="text-[13px] text-white/50">{label}</p>
       <p className="mt-2 font-digits text-[26px] font-semibold leading-none tabular-nums text-white">{value}</p>
       {sub ? <div className="mt-2 text-[12.5px] leading-snug text-white/40">{sub}</div> : null}
@@ -420,7 +553,11 @@ function CompletedPanel({ runId, session }: { runId: string; session: TrainingSe
           <PanelTitle>Saved model</PanelTitle>
           <p className="mt-2 pl-4 text-[14px] leading-relaxed text-white/60">
             {savedEpoch
-              ? `The saved weights are from epoch ${savedEpoch}${session.best_epoch === savedEpoch ? ", the epoch with the lowest validation loss" : ""}. `
+              ? `The saved weights are from epoch ${savedEpoch}${
+                  session.best_epoch === savedEpoch
+                    ? `, the epoch with the ${session.selection_metric?.mode === "max" ? "highest" : "lowest"} ${selectionName(session)}`
+                    : ""
+                }. `
               : "Weights from the last epoch were saved. "}
             Trained {trained} of up to {configured ?? MISSING} epochs{stoppedEarly ? "; early stopping ended the run." : "."}
           </p>
@@ -428,14 +565,18 @@ function CompletedPanel({ runId, session }: { runId: string; session: TrainingSe
             <Caveat>This run predates recorded best-epoch tracking; the saved epoch is inferred from its history (Keras restores the best validation-loss weights).</Caveat>
           ) : null}
           <div className="mt-5 grid grid-cols-2 gap-6 pl-4 sm:grid-cols-4">
-            <SmallFigure label="Validation accuracy" value={fmtPct(saved?.val_accuracy, 1)} />
+            <div data-help="validation-accuracy">
+              <SmallFigure label="Validation accuracy" value={fmtPct(saved?.val_accuracy, 1)} />
+            </div>
             <SmallFigure label="Validation loss" value={fmtNum(saved?.val_loss, 4)} />
             <SmallFigure label="Training accuracy" value={fmtPct(saved?.accuracy, 1)} />
             <SmallFigure label="Training loss" value={fmtNum(saved?.loss, 4)} />
           </div>
           <Caveat>
-            Validation figures come from images held out during training, drawn from the same dataset. They describe classification on that split, not trading
-            performance. Use the Backtester for out-of-sample market tests.
+            {(session.config?.validation_method ?? (isProtocol2(session) ? "chronological" : "random")) === "chronological"
+              ? "Validation figures come from the most recent period of the dataset, held out from fitting. "
+              : "Validation figures come from a random sample of the same dataset; neighbouring charts overlap, so they read higher than on a later period. "}
+            They describe classification on that split, not trading performance. Use the Backtester for out-of-sample market tests.
           </Caveat>
         </div>
         <div className="flex flex-col gap-2 px-6 py-6 lg:col-span-5">
@@ -498,13 +639,30 @@ function FailurePanel({ session, data }: { session: TrainingSession | null; data
   );
 }
 
+function ResumeOffer({ epoch, resuming, onResume }: { epoch: number; resuming: boolean; onResume: () => void }) {
+  return (
+    <section className={cx(surface, "flex flex-wrap items-center justify-between gap-4 px-6 py-5")} data-help="train-resume">
+      <div className="min-w-0 max-w-[70ch]">
+        <PanelTitle>Continue this run</PanelTitle>
+        <p className="mt-2 pl-4 text-[13.5px] leading-relaxed text-white/60">
+          A checkpoint was saved after epoch {epoch}. Resuming continues this run from epoch {epoch + 1} with the same dataset and settings, including
+          the early-stopping state. A new training run starts again from epoch 1.
+        </p>
+      </div>
+      <button type="button" className={btnPrimary} onClick={onResume} disabled={resuming}>
+        <RefreshCw className={cx("h-4 w-4", resuming && "animate-spin")} /> {resuming ? "Resuming…" : `Resume from epoch ${epoch + 1}`}
+      </button>
+    </section>
+  );
+}
+
 function CancelledPanel({ session, stopping }: { session: TrainingSession | null; stopping: boolean }) {
   return (
     <section className={cx(surface, "px-6 py-5")}>
       <PanelTitle muted>{stopping ? "Stopping" : "Training cancelled"}</PanelTitle>
       <p className="mt-2 pl-4 text-[14px] leading-relaxed text-white/55">
         {stopping
-          ? "Cancellation was requested. The trainer stops when the current epoch ends."
+          ? "Cancellation was requested. The trainer stops after the batch it is working on, usually within a few seconds."
           : `Cancelled after ${session?.epochs_completed ?? 0} completed epoch(s). Cancelled runs do not save a model.`}
       </p>
     </section>
@@ -513,24 +671,60 @@ function CancelledPanel({ session, stopping }: { session: TrainingSession | null
 
 function RunDetails({ session, className }: { session: TrainingSession | null; className?: string }) {
   const c = session?.config;
+  const setup = session?.training_setup;
+  const method = setup?.validation_method ?? c?.validation_method;
+  const validation =
+    method === "chronological"
+      ? `Most recent period${setup?.val_period ? ` (${setup.val_period.join(" to ")})` : ""}${
+          isFiniteNum(setup?.purged_overlapping_train_samples) ? `; ${fmtInt(setup?.purged_overlapping_train_samples)} overlapping training charts left out` : ""
+        }`
+      : method === "random" || c
+        ? "Random sample"
+        : null;
   const counts = (m?: Record<string, number> | null) =>
     m && Object.keys(m).length ? Object.entries(m).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `label ${k}: ${fmtInt(v)}`).join(" · ") : null;
+  const v2 = isProtocol2(session);
+  const opts = session?.options;
+  const opt = opts?.optimizer;
+  const test = session?.evaluation?.test;
   return (
-    <Panel title="Run details" description="Recorded configuration and data split." className={className}>
+    <Panel
+      title="Run details"
+      description={
+        v2
+          ? "Recorded configuration and data split."
+          : "Recorded configuration and data split. This run predates Trainer 2.0: it used the original random split and training settings."
+      }
+      className={className}
+    >
       <KV
         rows={[
           ["Dataset", session?.dataset?.name ?? (session?.dataset?.id ? `${session.dataset.id.slice(0, 8)}…` : null)],
           ["Images in dataset", isFiniteNum(session?.dataset?.image_count) ? fmtInt(session?.dataset?.image_count) : null],
           ["Training images", isFiniteNum(session?.train_samples) ? fmtInt(session?.train_samples) : null],
           ["Validation images", isFiniteNum(session?.val_samples) ? fmtInt(session?.val_samples) : null],
+          [
+            "Test images",
+            isFiniteNum(session?.test_samples) && (session?.test_samples ?? 0) > 0
+              ? `${fmtInt(session?.test_samples)} · ${test?.status === "reserved_not_evaluated" ? "reserved, not scored" : "scored once at the end"}`
+              : null,
+          ],
           ["Training labels", counts(session?.train_label_counts)],
           ["Validation labels", counts(session?.val_label_counts)],
+          ["Test labels", counts(session?.test_label_counts)],
           ["Market", marketLabel(session?.dataset?.market)],
           ["Image size", c?.image_size ? `${c.image_size[0]} × ${c.image_size[1]} px` : null],
           ["Batch size", c?.batch_size ?? null],
           ["Maximum epochs", c?.epochs ?? null],
           ["Validation split", isFiniteNum(c?.val_split) ? `${Math.round((c?.val_split ?? 0) * 100)}%` : null],
+          ["Validation images chosen by", validation],
           ["Random seed", c?.random_seed ?? null],
+          ["Network", session?.architecture?.family ?? null],
+          ["Model selection", v2 ? `best ${SELECTION_NAME[session?.selection_metric?.name ?? "val_loss"] ?? session?.selection_metric?.name}` : null],
+          ["Optimizer", opt ? `${OPTIMIZER_LABEL[opt.name] ?? opt.name} · learning rate ${opt.learning_rate}` : null],
+          ["Learning-rate schedule", opts?.lr_schedule ? SCHEDULE_LABEL[opts.lr_schedule.name] ?? opts.lr_schedule.name : null],
+          ["Hardware", setup?.device ? `${setup.device}${setup.precision && setup.precision !== "float32" ? ` · ${setup.precision}` : ""}` : null],
+          ["Resumed", setup?.resumed_from_epoch ? `from the checkpoint after epoch ${setup.resumed_from_epoch}` : null],
           ["Configuration", c ? (c.use_standard_config ? "Standard" : "Custom") : null],
           ["Started", session?.started_at ? fmtDateTime(session.started_at) : null],
           ["Finished", session?.finished_at ? fmtDateTime(session.finished_at) : null],
@@ -540,12 +734,39 @@ function RunDetails({ session, className }: { session: TrainingSession | null; c
   );
 }
 
+function describeOptimizer(o: NonNullable<TrainingSession["architecture"]>["optimizer"]): string {
+  if (!o) return "not recorded";
+  if (typeof o === "string") return o;
+  const parts = [`${OPTIMIZER_LABEL[o.name] ?? o.name}, learning rate ${o.learning_rate}`];
+  if (o.weight_decay) parts.push(`weight decay ${o.weight_decay}`);
+  if (o.momentum) parts.push(`momentum ${o.momentum}`);
+  if (o.clipnorm) parts.push(`gradient norm clipped at ${o.clipnorm}`);
+  return parts.join(", ");
+}
+
 function ArchitecturePanel({ session, className }: { session: TrainingSession | null; className?: string }) {
   const arch = session?.architecture;
+  const es = arch?.early_stopping;
+  const reg = arch?.regularization;
+  const params = session?.model?.parameters ?? arch?.total_params;
   return (
-    <Panel title="Model" description={arch ? `${arch.family} · ${fmtInt(arch.total_params)} parameters` : "Architecture not available for this run."} className={className}>
+    <Panel
+      title="Model"
+      description={arch ? `${arch.family}${isFiniteNum(params) ? ` · ${fmtInt(params)} parameters` : ""}` : "Architecture not available for this run."}
+      className={className}
+    >
+      {arch && !arch.layers?.length && arch.stages?.length ? (
+        <ol className="space-y-1.5 text-[13px]">
+          {arch.stages.map((s) => (
+            <li key={s} className="border-t border-white/[0.06] pt-1.5 text-white/80">
+              {s}
+            </li>
+          ))}
+        </ol>
+      ) : null}
       {arch ? (
         <>
+          {arch.layers?.length ? (
           <table className="w-full text-[13px]">
             <thead>
               <tr className="text-left text-[12.5px] text-white/40">
@@ -561,15 +782,23 @@ function ArchitecturePanel({ session, className }: { session: TrainingSession | 
                     {l.name}
                     {l.activation ? <span className="ml-2 text-white/35">{l.activation}</span> : null}
                   </td>
-                  <td className="py-2 font-digits tabular-nums text-white/60">{l.shape.join(" × ")}</td>
+                  <td className="py-2 font-digits tabular-nums text-white/60">{l.shape ? l.shape.join(" × ") : "—"}</td>
                   <td className="py-2 text-right font-digits tabular-nums text-white/60">{l.params ? fmtInt(l.params) : "—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          ) : null}
           <Caveat>
-            Loss {arch.loss}; optimizer {arch.optimizer}. Early stopping monitors {arch.early_stopping.monitor} with patience {arch.early_stopping.patience} and restores
-            the best weights.
+            Loss {arch.loss}; optimizer {describeOptimizer(arch.optimizer)}
+            {arch.lr_schedule && arch.lr_schedule.name !== "constant" ? `; learning rate ${SCHEDULE_LABEL[arch.lr_schedule.name]?.toLowerCase()}` : ""}
+            {reg && (reg.dropout != null || reg.l2) ? `; ${[reg.dropout != null ? `dropout ${reg.dropout}` : null, reg.l2 ? `L2 ${reg.l2}` : null].filter(Boolean).join(", ")}` : ""}
+            .{" "}
+            {es
+              ? es.enabled === false
+                ? `No early stopping; the best ${SELECTION_NAME[es.monitor] ?? es.monitor} epoch is kept.`
+                : `Early stopping monitors ${SELECTION_NAME[es.monitor] ?? es.monitor} with patience ${es.patience} and restores the best weights.`
+              : null}
           </Caveat>
         </>
       ) : null}
@@ -580,6 +809,7 @@ function ArchitecturePanel({ session, className }: { session: TrainingSession | 
 function EpochLog({ session, message }: { session: TrainingSession | null; message?: string }) {
   const [open, setOpen] = useState(false);
   const rows = useMemo(() => [...(session?.history ?? [])].reverse(), [session?.history]);
+  const hasV2 = rows.some((r) => isFiniteNum(r.val_auc) || isFiniteNum(r.learning_rate));
   return (
     <section className={surface}>
       <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between px-5 py-4 text-left" aria-expanded={open}>
@@ -601,6 +831,13 @@ function EpochLog({ session, message }: { session: TrainingSession | null; messa
                   <th className="py-1.5 text-right font-normal">Accuracy</th>
                   <th className="py-1.5 text-right font-normal">Val. loss</th>
                   <th className="py-1.5 text-right font-normal">Val. accuracy</th>
+                  {hasV2 ? (
+                    <>
+                      <th className="py-1.5 text-right font-normal">Val. bal. acc.</th>
+                      <th className="py-1.5 text-right font-normal">Val. ROC-AUC</th>
+                      <th className="py-1.5 text-right font-normal">Learning rate</th>
+                    </>
+                  ) : null}
                 </tr>
               </thead>
               <tbody className="text-white/75">
@@ -615,6 +852,13 @@ function EpochLog({ session, message }: { session: TrainingSession | null; messa
                     <td className="py-1.5 text-right">{fmtPct(r.accuracy, 1)}</td>
                     <td className="py-1.5 text-right">{fmtNum(r.val_loss, 4)}</td>
                     <td className="py-1.5 text-right">{fmtPct(r.val_accuracy, 1)}</td>
+                    {hasV2 ? (
+                      <>
+                        <td className="py-1.5 text-right">{fmtPct(r.val_balanced_accuracy, 1)}</td>
+                        <td className="py-1.5 text-right">{fmtNum(r.val_auc, 3)}</td>
+                        <td className="py-1.5 text-right">{isFiniteNum(r.learning_rate) ? r.learning_rate.toExponential(2) : MISSING}</td>
+                      </>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

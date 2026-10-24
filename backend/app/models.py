@@ -168,6 +168,8 @@ class Profile(Base):
     terms_version = Column(String, nullable=True)
     privacy_version = Column(String, nullable=True)
     terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
+    # Guided-tour progress as JSON (see app.services.onboarding); NULL = never started.
+    onboarding_json = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

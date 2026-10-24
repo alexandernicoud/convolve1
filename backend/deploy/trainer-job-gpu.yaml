@@ -1,0 +1,82 @@
+# OPTIONAL GPU training job (Cloud Run Jobs, NVIDIA L4). Not applied by any script and not
+# needed for production: the CPU job (trainer-job.yaml) stays the default path.
+#
+# DATA RESIDENCY: Cloud Run has no GPUs in europe-west6 (Zurich). L4 job regions in Europe are
+# europe-west1 (Belgium) and europe-west4 (Netherlands). Runs sent here are processed outside
+# Switzerland (dataset is read from the Zurich bucket, the model is written back to it).
+# Only enable after that is approved; the Swiss-only option is trainer-batch-gpu-zurich.json.
+#
+# Image: Dockerfile.gpu (same pins as the API image). Then:
+#   gcloud run jobs replace deploy/trainer-job-gpu.yaml --project=$P --region=europe-west4
+#   gcloud run jobs execute convolve-trainer-gpu --region=europe-west4 \
+#     --args=-m,app.jobs.train_worker,--check          # must print "OK accelerator: GPU: NVIDIA L4"
+# API: TRAINER_GPU_EXECUTION=cloud_run_job TRAINER_GPU_REGION=europe-west4
+#      TRAINER_GPU_JOB_NAME=convolve-trainer-gpu TRAINER_MAX_ACTIVE_GPU_JOBS=1
+# The API service account also needs run.jobs.runWithOverrides on this job.
+#
+# Field names follow `gcloud run jobs create --gpu=1 --gpu-type=nvidia-l4
+# --no-gpu-zonal-redundancy`; compare with `gcloud run jobs describe --format=export` once.
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: convolve-trainer-gpu
+  labels:
+    app: convolve
+    component: trainer-gpu
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+        # Without zonal redundancy: ~$0.0001867/GPU-second instead of ~$0.0002909 (Tier 1 list
+        # price, verify). A zone outage fails the attempt; the retry resumes from the checkpoint.
+        run.googleapis.com/gpu-zonal-redundancy-disabled: "true"
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          maxRetries: 2
+          timeoutSeconds: 3600
+          serviceAccountName: REPLACE_TRAINER_SERVICE_ACCOUNT
+          nodeSelector:
+            run.googleapis.com/accelerator: nvidia-l4
+          containers:
+            - image: REPLACE_GPU_IMAGE
+              command: ["python", "-m", "app.jobs.train_worker"]
+              resources:
+                limits:
+                  # L4 minimum on Cloud Run: 4 vCPU, 16 GiB.
+                  cpu: "4"
+                  memory: 16Gi
+                  nvidia.com/gpu: "1"
+              env:
+                - name: APP_PROFILE
+                  value: cloud
+                - name: APP_MODE
+                  value: job
+                - name: MODEL_BUCKET
+                  value: REPLACE_MODEL_BUCKET
+                - name: TRAINER_THREADS
+                  value: "4"
+                - name: OMP_NUM_THREADS
+                  value: "4"
+                - name: TF_NUM_INTRAOP_THREADS
+                  value: "4"
+                - name: TF_NUM_INTEROP_THREADS
+                  value: "4"
+                - name: TRAINER_REQUIRE_GPU
+                  value: "1"
+                - name: TRAINER_JOB_MAX_RETRIES
+                  value: "2"
+                - name: TRAINER_CHECKPOINTS
+                  value: "true"
+                - name: LIVE_DEPLOY_ENABLED
+                  value: "false"
+                - name: SCHEDULED_BOTS_ENABLED
+                  value: "false"
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: REPLACE_DATABASE_URL_SECRET
+                      key: latest

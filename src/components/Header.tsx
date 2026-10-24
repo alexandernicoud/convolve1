@@ -13,7 +13,7 @@ function HeaderCta({ isHomeLanding }: { isHomeLanding: boolean }) {
   const className = cn(
     "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition-all duration-200 sm:px-4 sm:py-2 sm:text-sm",
     isHomeLanding
-      ? "border-white/20 bg-transparent text-white/85 hover:border-white/35 hover:text-white"
+      ? "border-white bg-white font-medium text-black hover:bg-white/90"
       : "border-white/25 bg-white/[0.06] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-sm hover:border-white/40 hover:bg-white/[0.1] focus:outline-none focus:ring-2 focus:ring-white/20",
   );
   if (loading) {
@@ -27,9 +27,14 @@ function HeaderCta({ isHomeLanding }: { isHomeLanding: boolean }) {
     );
   }
   return (
-    <Link to="/login" className={className}>
-      {isHomeLanding ? "Sign in" : "Sign in"}
-    </Link>
+    <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+      <Link to="/login" className="hidden whitespace-nowrap text-xs text-white/60 transition-colors hover:text-white sm:inline sm:text-sm">
+        Sign in
+      </Link>
+      <Link to="/signup" className={className}>
+        Start building
+      </Link>
+    </div>
   );
 }
 

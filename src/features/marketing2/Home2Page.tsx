@@ -3,7 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { MotionConfig, motion, useReducedMotion, useScroll, useTransform, type MotionValue } from "framer-motion";
 import { screen } from "./data";
 import { Container, EASE, Kicker, M2Footer, Pinned, PrimaryCta, ScrollIn, SecondaryCta, SectionHead, usePinEnabled, useStartHref } from "./ui";
-import { DatasetAssembly } from "./visuals/DatasetAssembly";
+import { ComputeStrip } from "./visuals/ComputeStrip";
 import { HeroContours } from "./visuals/HeroContours";
 import { HeroFlow } from "./visuals/HeroFlow";
 import { Mathematics } from "./visuals/Mathematics";
@@ -55,15 +55,12 @@ function Hero() {
         <div className="mt-8 grid gap-12 lg:mt-12 lg:grid-cols-12 lg:gap-10 2xl:gap-14">
           <motion.div className="flex flex-col lg:col-span-4 lg:pb-12 xl:col-span-3" style={{ y: textY }}>
             <motion.p className="max-w-[26rem] text-[18px] leading-[1.6] text-white/60" {...enter(0.4)}>
-              Research them, backtest them fairly and deploy the ones that hold up as paper bots.
+              <span className="text-white/90">Your trading hypothesis deserves more than a line on a chart.</span> Build labelled chart datasets, train
+              convolutional networks on them, interrogate what they learn and test every decision on data they have never seen.
             </motion.p>
-            <motion.div className="mt-6 inline-flex w-fit items-center gap-2 rounded-full border border-white/[0.14] px-3.5 py-1.5 text-[14.5px] text-white/85" {...enter(0.48)}>
-              <span className="h-1.5 w-1.5 rounded-full bg-[#a6ecc8]" aria-hidden />
-              No code required
-            </motion.div>
             <motion.div className="mt-9 flex flex-wrap gap-3" {...enter(0.55)}>
               <PrimaryCta to={start} size="lg">
-                Start building
+                {start === "/dashboard" ? "Open workspace" : "Start building"}
               </PrimaryCta>
               <SecondaryCta href="#workflow" size="lg">
                 See how it works
@@ -135,7 +132,7 @@ function Closing() {
     <section className="relative overflow-hidden border-t border-white/[0.06] py-24 lg:py-32">
       <Container className="relative grid gap-16 lg:grid-cols-12 lg:items-center lg:gap-10">
         <div className="lg:col-span-5">
-          <Kicker>Convolve</Kicker>
+          <Kicker>End the day-trading LARP</Kicker>
           <motion.h2
             className="mt-6 text-[clamp(2rem,2.9vw,3.2rem)] font-normal leading-[1.06] tracking-[-0.035em] text-white"
             initial={reduce ? false : "hidden"}
@@ -155,11 +152,12 @@ function Closing() {
             ))}
           </motion.h2>
           <p className="mt-6 max-w-md text-[17px] leading-[1.65] text-white/55">
-            Rigorous experiments, without the code. Convolve makes them easier to run; it does not promise they will beat the market.
+            Hypotheses, held-out data and honest backtests instead of gut feel, without writing code. Convolve makes the experiments
+            easier to run; it does not promise they will beat the market.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <PrimaryCta to={start}>
-              Open the workspace
+              {start === "/dashboard" ? "Open workspace" : "Start building"}
             </PrimaryCta>
             <SecondaryCta href="#workflow">
               See the workflow
@@ -220,6 +218,76 @@ function ModelSection() {
   );
 }
 
+/** 01 and 05 hold in place while their scroll-driven sequence runs, like the model section. */
+function WorkflowSection() {
+  const pin = usePinEnabled(820);
+  const head = (
+    <SectionHead
+      index="01"
+      label="Workflow"
+      title="From a label rule to a deployed model."
+      intro="Each tool hands its result to the next. Dashed stages are optional; any stage can be revisited."
+    />
+  );
+  if (!pin)
+    return (
+      <section id="workflow" className="scroll-mt-20 pb-24 pt-20 lg:pb-32">
+        <Container>
+          {head}
+          <ScrollIn className="mt-14">
+            <Workflow />
+          </ScrollIn>
+        </Container>
+      </section>
+    );
+  return (
+    <section id="workflow" className="scroll-mt-20">
+      <Pinned length="190vh">
+        {(p) => (
+          <Container>
+            {head}
+            <div className="mt-12">
+              <Workflow progress={p} />
+            </div>
+          </Container>
+        )}
+      </Pinned>
+    </section>
+  );
+}
+
+function SystemSection() {
+  const pin = usePinEnabled(860);
+  const head = (
+    <SectionHead index="05" label="One system" title="One pipeline. Every stage." intro="The dashboard brings runs, results and deployed models onto one surface." />
+  );
+  if (!pin)
+    return (
+      <section id="system" className="scroll-mt-20 border-t border-white/[0.06] py-24 lg:py-32">
+        <Container>
+          {head}
+          <ScrollIn className="mt-14">
+            <ProductStack mode="scroll" />
+          </ScrollIn>
+        </Container>
+      </section>
+    );
+  return (
+    <section id="system" className="scroll-mt-20 border-t border-white/[0.06]">
+      <Pinned length="240vh">
+        {(p) => (
+          <Container>
+            {head}
+            <div className="mx-auto mt-8 w-full" style={{ maxWidth: "calc((100svh - 360px) / 0.6 + 390px)" }}>
+              <ProductStack mode="scroll" progress={p} />
+            </div>
+          </Container>
+        )}
+      </Pinned>
+    </section>
+  );
+}
+
 export default function Home2Page() {
   const { hash } = useLocation();
   useEffect(() => {
@@ -235,16 +303,7 @@ export default function Home2Page() {
       <div className="relative overflow-x-clip bg-[#050506] text-white antialiased">
         <Hero />
 
-        <DatasetAssembly />
-
-        <section id="workflow" className="scroll-mt-20 pb-24 pt-20 lg:pb-32">
-          <Container>
-            <SectionHead index="01" label="Workflow" title="From a label rule to a running bot." intro="Each tool hands its result to the next. Dashed stages are optional; any stage can be revisited." />
-            <ScrollIn className="mt-14">
-              <Workflow />
-            </ScrollIn>
-          </Container>
-        </section>
+        <WorkflowSection />
 
         <section id="workspace" className="scroll-mt-20 border-t border-white/[0.06] pb-20 pt-24 lg:pb-28 lg:pt-32">
           <Container>
@@ -257,13 +316,29 @@ export default function Home2Page() {
 
         <ModelSection />
 
-        <section id="math" className="scroll-mt-20 border-t border-white/[0.06] pt-24 lg:pt-32">
+        <section id="deploy" className="scroll-mt-20 border-t border-white/[0.06] py-24 lg:py-32">
           <Container>
             <SectionHead
               index="04"
-              label="The computation"
+              label="Lineage and deployment"
+              title="From backtest to deployed model."
+              intro="Put a tested model on a schedule: it predicts, acts on a simulated account and reports back. Every deployment traces to the experiment behind it."
+            />
+            <ScrollIn className="mt-12">
+              <Operations />
+            </ScrollIn>
+          </Container>
+        </section>
+
+        <SystemSection />
+
+        <section id="math" className="scroll-mt-20 border-t border-white/[0.06] pt-24 lg:pt-32">
+          <Container>
+            <SectionHead
+              index="06"
+              label="For the curious"
               title="From pixels to a prediction."
-              intro="Five operations, repeated, turn a chart into a probability. Matching colours link each equation to its picture."
+              intro="The maths behind every prediction, for those who want it. Five operations, repeated, turn a chart into a probability; matching colours link each equation to its picture."
             />
             <div className="mt-12 pb-24 lg:pb-32">
               <Mathematics />
@@ -271,23 +346,7 @@ export default function Home2Page() {
           </Container>
         </section>
 
-        <section id="deploy" className="scroll-mt-20 border-t border-white/[0.06] py-24 lg:py-32">
-          <Container>
-            <SectionHead index="05" label="Lineage and deployment" title="From backtest to running bot." intro="Run a tested model as a paper bot. Every bot links back to what produced it." />
-            <ScrollIn className="mt-12">
-              <Operations />
-            </ScrollIn>
-          </Container>
-        </section>
-
-        <section id="system" className="scroll-mt-20 border-t border-white/[0.06] py-24 lg:py-32">
-          <Container>
-            <SectionHead index="06" label="One system" title="One pipeline. Every stage." intro="The dashboard brings runs, results and bots onto one surface." />
-            <ScrollIn className="mt-14">
-              <ProductStack mode="scroll" />
-            </ScrollIn>
-          </Container>
-        </section>
+        <ComputeStrip />
 
         <section id="start" className="scroll-mt-20 pb-24 lg:pb-32">
           <Container>

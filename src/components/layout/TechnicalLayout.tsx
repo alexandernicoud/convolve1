@@ -48,6 +48,7 @@ export function TechnicalLayout({ children, variant = "scroll" }: Props) {
             </div>
           ) : null}
           <div
+            data-scroll-pane
             className={`flex min-h-0 flex-1 flex-col ${
               toolPageScroll ? "overflow-y-auto overflow-x-hidden" : "overflow-hidden"
             }`}

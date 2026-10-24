@@ -3,18 +3,13 @@ import { Link } from "react-router-dom";
 import { MotionConfig, motion, useMotionValueEvent, useReducedMotion, useScroll } from "framer-motion";
 import { ArrowRight, ArrowUpRight } from "lucide-react";
 import { FOUNDER_LINKEDIN_URL } from "@/lib/founderLinks";
-import { Container, EASE, M2Footer, Reveal } from "./ui";
+import { Container, EASE, Kicker, M2Footer, Reveal, TYPE } from "./ui";
 import { AboutLanding } from "./visuals/AboutLanding";
+import { AboutMethod } from "./visuals/AboutMethod";
 import { TopoMap } from "./visuals/TopoMap";
 
 function Label({ num, children }: { num: string; children: ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.24em] text-white/45">
-      <span className="text-white/85">{num}</span>
-      <span className="h-px w-8 bg-white/25" />
-      {children}
-    </div>
-  );
+  return <Kicker index={num}>{children}</Kicker>;
 }
 
 function Rule() {
@@ -44,7 +39,7 @@ function useIsLg() {
 const PRINCIPLES: [string, string][] = [
   ["Decide before you look.", "Thresholds and settings are chosen on validation data, then locked before the test set is scored."],
   ["Compare against the obvious.", "Every backtest is set against buy-and-hold and a passive mix with the same exposure."],
-  ["Say what you don’t know.", "Findings are marked supported, inconclusive or hypothesis, with their limits written next to them."],
+  ["Keep every result traceable.", "Each model links to its dataset, label rule, training run and backtest, so any finding can be reproduced and challenged."],
 ];
 
 type Chapter = { num: string; name: string; title: ReactNode; body: string; extra?: ReactNode };
@@ -52,6 +47,21 @@ type Chapter = { num: string; name: string; title: ReactNode; body: string; extr
 const CHAPTERS: Chapter[] = [
   {
     num: "I",
+    name: "The ambition",
+    title: (
+      <>
+        A research desk&apos;s instruments, <span className="text-white/45">for one person.</span>
+      </>
+    ),
+    body: "Institutions have teams to source data, build datasets, train models and challenge results. Convolve puts that laboratory into one workspace for the independent trader: labelled datasets, neural networks, interpretability, backtesting and deployment, without writing code.",
+    extra: (
+      <p className="mt-10 border-t border-white/[0.1] pt-6 text-[clamp(1.4rem,2.2vw,1.9rem)] font-extralight leading-[1.2] tracking-[-0.02em] text-white">
+        Not blind automation. <span className="text-white/45">Structured decision support.</span>
+      </p>
+    ),
+  },
+  {
+    num: "II",
     name: "The problem",
     title: (
       <>
@@ -61,57 +71,42 @@ const CHAPTERS: Chapter[] = [
     body: "An indicator someone else parameterised. A signal you cannot inspect. A backtest that shows the best curve and none of the attempts behind it. What is left is confidence without evidence, and no way to tell the two apart.",
   },
   {
-    num: "II",
-    name: "The belief",
-    title: (
-      <>
-        The unknown is not the enemy. <span className="text-white/45">Unexamined assumptions are.</span>
-      </>
-    ),
-    body: "A model is a hypothesis. A backtest is a measurement. Neither is a promise. Progress comes from stating what you are testing, testing it fairly, and writing down what you found, including when the answer is nothing.",
-  },
-  {
     num: "III",
-    name: "The approach",
+    name: "The conviction",
     title: (
       <>
-        Survey the ground <span className="text-white/45">before building on it.</span>
+        Trading should be engineered, <span className="text-white/45">researched and tested.</span>
       </>
     ),
-    body: "Convolve turns each question into an instrument: labelled chart datasets, convolutional networks, attribution and masking tests, backtests against buy-and-hold. Three rules run through all of them.",
+    body: "A trading idea is a hypothesis about data, and it can be built like one: a labelled dataset, a trained network, a result measured on data the model never saw. Rigour is part of the method. Three rules run through every experiment.",
     extra: (
-      <>
-        <ol className="mt-8 space-y-5">
-          {PRINCIPLES.map(([k, v], i) => (
-            <li key={k} className="grid grid-cols-[2rem_1fr] border-t border-white/[0.1] pt-4">
-              <span className="font-mono text-[11px] text-white/35">{String(i + 1).padStart(2, "0")}</span>
-              <div>
-                <div className="text-[16px] text-white">{k}</div>
-                <p className="mt-1 text-[14px] leading-relaxed text-white/50">{v}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-        <Link to="/#workflow" className="group mt-8 inline-flex items-center gap-2 text-[14px] text-white/70 transition-colors hover:text-white">
-          See the workflow
-          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
-        </Link>
-      </>
+      <ol className="mt-8 space-y-5">
+        {PRINCIPLES.map(([k, v], i) => (
+          <li key={k} className="grid grid-cols-[2rem_1fr] border-t border-white/[0.1] pt-4">
+            <span className="font-mono text-[11px] text-white/35">{String(i + 1).padStart(2, "0")}</span>
+            <div>
+              <div className="text-[16px] text-white">{k}</div>
+              <p className="mt-1 text-[14px] leading-relaxed text-white/50">{v}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
     ),
   },
   {
     num: "IV",
-    name: "The ambition",
+    name: "The technology",
     title: (
       <>
-        A research desk&apos;s instruments, <span className="text-white/45">for one person.</span>
+        Data, networks and markets <span className="text-white/45">in one laboratory.</span>
       </>
     ),
-    body: "Institutions have teams to build datasets, train models and challenge results. Convolve's ambition is to put that discipline in the hands of an individual, without code, and without pretending the map is finished.",
+    body: "Market data and outcome labeling, convolutional networks trained by numerical optimisation, interpretability methods that show what a model attends to, backtests with costs and benchmarks, and scheduled deployment that runs a model on new data. Each tool hands its result to the next.",
     extra: (
-      <p className="mt-10 border-t border-white/[0.1] pt-6 text-[clamp(1.4rem,2.2vw,1.9rem)] font-extralight leading-[1.2] tracking-[-0.02em] text-white">
-        Not blind automation. <span className="text-white/45">Structured decision support.</span>
-      </p>
+      <Link to="/#workflow" className="group mt-8 inline-flex items-center gap-2 text-[14px] text-white/70 transition-colors hover:text-white">
+        See the workflow
+        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
+      </Link>
     ),
   },
 ];
@@ -143,8 +138,8 @@ function Chapters() {
               <article key={c.num} className="flex flex-col justify-center py-14 lg:min-h-[88vh] lg:py-0">
                 <Reveal>
                   <Label num={c.num}>{c.name}</Label>
-                  <h2 className="mt-7 text-[clamp(2rem,3.6vw,3.3rem)] font-extralight leading-[1.06] tracking-[-0.04em] text-white">{c.title}</h2>
-                  <p className="mt-6 text-[16.5px] leading-[1.65] text-white/60">{c.body}</p>
+                  <h2 className={`mt-7 ${TYPE.h2Editorial}`}>{c.title}</h2>
+                  <p className={`mt-6 ${TYPE.body}`}>{c.body}</p>
                   {c.extra}
                 </Reveal>
               </article>
@@ -160,9 +155,8 @@ function Origin() {
   const steps: [string, string][] = [
     ["A question", "Can a convolutional network, the kind built to read photographs, learn anything from a picture of a price chart?"],
     ["An experiment", "Render candlestick windows as images, label each by what happened next, train a small CNN and look at the result."],
-    ["Doubt", "A good validation score is easy to fool yourself with. So thresholds got locked, test periods kept unseen, and every result set against buy-and-hold."],
     ["Instruments", "Each answer raised the next question: what the network attends to, which label rule to use, how a model behaves once it runs."],
-    ["A workspace", "Generation, training, interpretability, label search, backtesting and paper deployment, connected so that every result can be traced."],
+    ["A workspace", "Generation, training, interpretability, label search, backtesting and monitored deployment, connected so that every result can be traced."],
   ];
   return (
     <section id="founder" className="scroll-mt-20 py-24 md:py-32">
@@ -170,17 +164,21 @@ function Origin() {
         <Rule />
         <div className="mt-12 grid gap-12 md:grid-cols-12">
           <Reveal className="md:col-span-3">
-            <Label num="V">Origin</Label>
+            <Label num="VI">Origin and vision</Label>
           </Reveal>
           <Reveal className="md:col-span-4" delay={0.06}>
-            <h2 className="text-[clamp(2rem,3.6vw,3.3rem)] font-extralight leading-[1.06] tracking-[-0.04em] text-white">It began with a question.</h2>
-            <p className="mt-6 text-[16px] leading-relaxed text-white/60">
+            <h2 className={TYPE.h2Editorial}>It began with a question.</h2>
+            <p className={`mt-6 ${TYPE.body}`}>
               Convolve started as a handful of experiments with candlestick images and convolutional networks, to see whether a visual model could
               find patterns with any predictive value.
             </p>
-            <p className="mt-4 text-[16px] leading-relaxed text-white/60">
-              The honest answer was always “it depends, and here is how to check”. Checking properly needed more tools than the experiment
-              itself, so the tools were built, one question at a time.
+            <p className={`mt-4 ${TYPE.body}`}>
+              Answering that properly took more than one model. It took dataset generation, label search, interpretability and fair backtests,
+              so those were built, and grew into one research infrastructure.
+            </p>
+            <p className={`mt-4 ${TYPE.body}`}>
+              The direction from here is a larger laboratory: bigger datasets, model families beyond CNNs and more AI-assisted research. Those
+              are plans, not features yet.
             </p>
             <p className="mt-8 text-[13.5px] text-white/40">
               Built in Switzerland by{" "}
@@ -223,14 +221,14 @@ function Closing() {
         <Rule />
         <Reveal className="mt-16">
           <p className="text-[clamp(2.6rem,7vw,7rem)] font-extralight leading-[0.98] tracking-[-0.05em] text-white">
-            The map is never finished.
+            Trading, engineered.
             <br />
-            <span className="text-white/40">That is the point.</span>
+            <span className="text-white/40">Researched like science.</span>
           </p>
         </Reveal>
         <Reveal delay={0.1} className="mt-16 flex flex-col gap-4 border-t border-white/[0.1] pt-8 sm:flex-row sm:items-center sm:justify-between">
           <p className="max-w-md text-[15px] leading-relaxed text-white/50">
-            See the workspace this approach produced, from the first dataset to a monitored paper bot.
+            See the workspace this approach produced, from the first dataset to a monitored deployment.
           </p>
           <div className="flex flex-wrap gap-6">
             <Link to="/#workflow" className="group inline-flex items-center gap-2 text-[15px] text-white transition-colors hover:text-white/80">
@@ -257,6 +255,7 @@ export default function About2Page() {
       <div className="relative overflow-x-clip bg-[#050506] text-white antialiased">
         <AboutLanding />
         <Chapters />
+        <AboutMethod label={<Label num="V">Method</Label>} />
         <Origin />
         <Closing />
         <M2Footer />

@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
-import { motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from "framer-motion";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from "framer-motion";
 import { RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CHAIN, asset, backtest, fleet, grid, labmaps, training } from "../data";
@@ -152,15 +152,15 @@ interface Stage {
 }
 
 const STAGES: Stage[] = [
-  { name: "Explore labels", optional: true, doing: "Score take-profit, stop-loss and horizon rules.", artifact: "Label rule", id: CHAIN.labelRule.note, body: <RuleArtifact /> },
-  { name: "Generate", doing: "Render each price window as a labelled image.", artifact: "Image dataset", id: `${grid.count.toLocaleString("en-US")} images · ${CHAIN.dataset}`, body: <DatasetArtifact /> },
-  { name: "Train", doing: "Fit a CNN and restore the best epoch.", artifact: "Trained CNN", id: `${CHAIN.modelName} · epoch ${training.best_epoch}`, body: <ModelArtifact /> },
-  { name: "Analyse", optional: true, doing: "Open the model on its own charts.", artifact: "Interpretation", id: `Grad-CAM · ${Math.round(s0.gradcam_on_candles * 100)}% on candles`, body: <AttentionArtifact /> },
+  { name: "Explore labels", optional: true, doing: "Score take-profit, stop-loss and horizon rules.", artifact: "Label rule", id: "TP × SL × horizon", body: <RuleArtifact /> },
+  { name: "Generate", doing: "Render each price window as a labelled image.", artifact: "Image dataset", id: "150,528 values per image", body: <DatasetArtifact /> },
+  { name: "Train", doing: "Fit a CNN and restore the best epoch.", artifact: "Trained CNN", id: `${(training.params / 1e6).toFixed(1)}M parameters`, body: <ModelArtifact /> },
+  { name: "Analyse", optional: true, doing: "Open the model on its own charts.", artifact: "Interpretation", id: "Grad-CAM · attention per pixel", body: <AttentionArtifact /> },
   {
     name: "Backtest",
     doing: "Unseen data, costs, locked threshold.",
     artifact: "Backtest report",
-    id: `${pct(backtest.metrics.total_return)} net · ${CHAIN.backtest}`,
+    id: "out of sample · after costs",
     body: (
       <div className="h-full p-2.5">
         <EquityThumb />
@@ -169,9 +169,9 @@ const STAGES: Stage[] = [
   },
   {
     name: "Deploy",
-    doing: "Attach the model to a symbol and schedule.",
-    artifact: "Paper trading bot",
-    id: "paper wallet · illustrative fleet",
+    doing: "Run the model on a symbol and schedule.",
+    artifact: "Deployed model",
+    id: "simulated execution",
     body: (
       <div className="h-full p-2.5">
         <FleetThumb />
@@ -184,14 +184,17 @@ const STAGES: Stage[] = [
  * The six stages as one pipeline: a scroll-linked conduit carries the work from stage to stage and
  * lights the artifact each one produces. A return path marks that every stage can be revisited.
  */
-export function Workflow() {
+export function Workflow({ progress }: { progress?: MotionValue<number> } = {}) {
   const reduce = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start 0.8", "end 0.75"] });
-  const fill = useTransform(scrollYProgress, [0, 1], [reduce ? 1 : 0, 1]);
+  const fill = useTransform(progress ?? scrollYProgress, progress ? [0.06, 0.82] : [0, 1], [reduce ? 1 : 0, 1]);
   const head = useTransform(fill, (v) => `${v * 100}%`);
   const [reached, setReached] = useState(reduce ? STAGES.length : 0);
-  useMotionValueEvent(fill, "change", (v) => setReached(Math.min(STAGES.length, Math.floor(v * (STAGES.length - 1) + 1.0001))));
+  const reach = (v: number) => setReached(Math.min(STAGES.length, Math.floor(v * (STAGES.length - 1) + 1.0001)));
+  useMotionValueEvent(fill, "change", reach);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => reach(fill.get()), [fill]);
   const n = STAGES.length;
   const centre = (i: number) => `${((i + 0.5) / n) * 100}%`;
 

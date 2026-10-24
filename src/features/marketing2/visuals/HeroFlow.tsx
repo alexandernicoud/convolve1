@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CHAIN, asset, backtest, hero, labmaps, trace } from "../data";
+import { asset, hero, labmaps, trace } from "../data";
 import { EASE, ProvenanceTag, fmtDate, scale } from "../ui";
 import { useInkPath } from "./ModelLab";
 import { EquityThumb, FleetThumb } from "./Workflow";
@@ -67,7 +67,7 @@ function Candles({ reduce, lit }: { reduce: boolean; lit: boolean }) {
   const a = g.x(t(trace.sample.start));
   const b = g.x(t(trace.sample.date));
   return (
-    <svg viewBox={`0 0 ${W} ${CH}`} preserveAspectRatio="none" className="block h-full w-full" role="img" aria-label="MSFT weekly candles with the six-month window the model reads">
+    <svg viewBox={`0 0 ${W} ${CH}`} preserveAspectRatio="none" className="block h-full w-full" role="img" aria-label="Weekly candles with the six-month window the model reads">
       <defs>
         <clipPath id="m2-hc-reveal">
           <motion.rect x="0" y="0" height={CH} initial={reduce ? { width: W } : { width: 0 }} animate={{ width: W }} transition={{ duration: 1.6, ease: EASE, delay: 0.5 }} />
@@ -160,7 +160,7 @@ function Layer({ label, shape, on, children }: { label: string; shape: string; o
   );
 }
 
-/** Real forward pass of the MSFT model on one test window, from price history to a tradeable probability. */
+/** Real forward pass of the trained model on one test window, from price history to a tradeable probability. */
 export function HeroFlow() {
   const reduce = !!useReducedMotion();
   const { ref, stage, seen, cycle } = useStage(reduce);
@@ -170,12 +170,11 @@ export function HeroFlow() {
   const feats = labmaps.features;
   const pulse = (i: number) => (stage === i && !reduce ? `${cycle}-${i}` : null);
   const scan = SCAN.map((c) => ({ x: (c / 224) * 100, y: (((ink?.[c] ?? 112) - 7) / 224) * 100 }));
-  const ret = backtest.metrics.total_return;
   const next: { label: string; href: string; meta: string; thumb: ReactNode }[] = [
     {
       label: "Analyse",
       href: "#model",
-      meta: `${Math.round(SAMPLE.gradcam_on_candles * 100)}% of attention on the candles`,
+      meta: "Where the network looks, pixel by pixel",
       thumb: (
         <span className="relative block h-full w-full">
           <img src={asset(SAMPLE.input)} alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" />
@@ -186,10 +185,10 @@ export function HeroFlow() {
     {
       label: "Backtest",
       href: "#workspace",
-      meta: `${ret >= 0 ? "+" : "−"}${Math.abs(ret * 100).toFixed(1)}% net on unseen data`,
+      meta: "Unseen data, costs and benchmarks",
       thumb: <EquityThumb />,
     },
-    { label: "Deploy", href: "#deploy", meta: "Paper bot on a schedule", thumb: <FleetThumb /> },
+    { label: "Deploy", href: "#deploy", meta: "Scheduled predictions, monitored", thumb: <FleetThumb /> },
   ];
 
   return (
@@ -203,7 +202,7 @@ export function HeroFlow() {
       >
         <div className="flex h-11 items-center gap-3 border-b border-white/[0.07] px-5">
           <span className="truncate font-mono text-[11px] text-white/40">
-            <span className="text-white/80">convolve.</span> / {hero.symbol} / {CHAIN.modelName}
+            <span className="text-white/80">convolve.</span> / analysis / one test chart
           </span>
           <span className="ml-auto whitespace-nowrap font-mono text-[11px] text-white/55" aria-live="off">
             forward pass · <span className="text-[#a6ecc8]">{STAGES[Math.max(0, stage)]}</span>
@@ -268,7 +267,7 @@ export function HeroFlow() {
               <div className="h-full origin-left rounded-full bg-white/75 transition-transform duration-1000" style={{ width: `${p * 100}%`, transform: `scaleX(${seen >= 6 ? 1 : 0})` }} />
               <span className="absolute -top-1.5 h-4 w-px bg-white" style={{ left: `${thr * 100}%` }} />
             </div>
-            <div className="mt-2 text-[12.5px] text-white/50">Above the locked threshold of {thr}: the backtest takes this trade.</div>
+            <div className="mt-2 text-[12.5px] text-white/50">Above the threshold fixed on validation data: the backtest takes this trade.</div>
           </div>
           <ul className="px-3 py-3">
             {next.map((n, k) => (
@@ -294,7 +293,7 @@ export function HeroFlow() {
         </div>
       </motion.div>
       <div className="mt-3">
-        <ProvenanceTag kind="real" detail={`${hero.symbol} test window, real activations · actual outcome: label ${SAMPLE.label} · bot fleet is illustrative`} />
+        <ProvenanceTag kind="real" detail={`Real test chart and activations · actual outcome: label ${SAMPLE.label}`} />
       </div>
     </div>
   );

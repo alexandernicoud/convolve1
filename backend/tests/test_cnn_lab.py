@@ -106,6 +106,14 @@ def test_preprocessing_matches_trainer_pipeline(lab_files, lm):
     assert np.abs(ours - trainer_x).max() == 0.0
 
 
+def test_graph_predict_is_bit_identical_to_eager_forward(lab_files, lm):
+    x = core.load_batch([str(lab_files["images"] / n) for n in lab_files["names"][:7]], lm.input_size)
+    probs, pen = core.predict(lm, x, batch=3)  # 3, 3, 1: the short last batch retraces
+    ref = [core._forward(lm, x[i : i + 3]) for i in range(0, len(x), 3)]
+    np.testing.assert_array_equal(probs, np.concatenate([core.probabilities(lm, z.numpy()) for _, _, z in ref]))
+    np.testing.assert_array_equal(pen, np.concatenate([p.numpy() for _, p, _ in ref]))
+
+
 def test_forward_matches_keras_predict(lab_files, lm):
     x = core.load_batch([str(lab_files["images"] / n) for n in lab_files["names"][:6]], lm.input_size)
     probs, pen = core.predict(lm, x)

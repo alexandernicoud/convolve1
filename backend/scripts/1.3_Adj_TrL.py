@@ -15,8 +15,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-from matplotlib.lines import Line2D
+from matplotlib.collections import LineCollection, PolyCollection
 
 
 class ProgressWriter:
@@ -101,6 +100,7 @@ def _savefig_transparent(fig, path: str):
 
 def render_line_png(fig, ax, data: pd.DataFrame, img_dim: int, path: str) -> None:
     """Close line only; transparent background; square img_dim x img_dim."""
+    ax._convolve_candles_only = False
     ax.clear()
     ax.set_facecolor("none")
     ax.patch.set_alpha(0.0)
@@ -137,13 +137,22 @@ def render_line_png(fig, ax, data: pd.DataFrame, img_dim: int, path: str) -> Non
 
 
 def render_candlestick_png(fig, ax, data: pd.DataFrame, img_dim: int, path: str) -> None:
-    """OHLC candles + wicks; transparent background; square img_dim x img_dim."""
-    ax.clear()
-    ax.set_facecolor("none")
-    ax.patch.set_alpha(0.0)
-    ax.axis("off")
-    for spine in ax.spines.values():
-        spine.set_visible(False)
+    """OHLC candles + wicks; transparent background; square img_dim x img_dim.
+
+    Wicks and bodies are two collections drawn in the same z-order as one Line2D and one
+    Rectangle per candle; the PNG bytes are identical (scripts/perf/render_identity_probe.py)
+    and rendering is about 15x faster. An axes that last held only these collections is
+    emptied instead of fully cleared, which is also byte-identical."""
+    if getattr(ax, "_convolve_candles_only", False):
+        for collection in list(ax.collections):
+            collection.remove()
+    else:
+        ax.clear()
+        ax.set_facecolor("none")
+        ax.patch.set_alpha(0.0)
+        ax.axis("off")
+        for spine in ax.spines.values():
+            spine.set_visible(False)
 
     o = data["Open"].to_numpy(dtype=np.float64, copy=False)
     h = data["High"].to_numpy(dtype=np.float64, copy=False)
@@ -164,40 +173,35 @@ def render_candlestick_png(fig, ax, data: pd.DataFrame, img_dim: int, path: str)
     half_w = 0.35
     min_body = max((ymax - ymin) * 0.0015, 1e-9)
 
+    wicks = []
+    bodies = []
+    colors = []
     for i in range(n):
         oi, hi, li, ci = o[i], h[i], l[i], c[i]
-        # Wick (vertical line)
-        ax.add_line(
-            Line2D(
-                [i, i],
-                [li, hi],
-                color=_WICK_COLOR,
-                linewidth=1.0,
-                zorder=1,
-                antialiased=False,
-            )
-        )
+        wicks.append([(i, li), (i, hi)])
         top = max(oi, ci)
         bot = min(oi, ci)
-        body_h = abs(ci - oi)
-        if body_h < min_body:
+        if abs(ci - oi) < min_body:
             # Doji: thin horizontal segment
             mid = 0.5 * (oi + ci)
             bot = mid - min_body * 0.5
             top = mid + min_body * 0.5
-            body_h = top - bot
-        color = _BULL_BODY if ci >= oi else _BEAR_BODY
-        rect = Rectangle(
-            (i - half_w, bot),
-            2 * half_w,
-            top - bot,
-            facecolor=color,
-            edgecolor=color,
-            linewidth=0.5,
-            zorder=2,
-            antialiased=False,
-        )
-        ax.add_patch(rect)
+        x0, width, height = i - half_w, 2 * half_w, top - bot
+        bodies.append([(x0, bot), (x0 + width, bot), (x0 + width, bot + height), (x0, bot + height)])
+        colors.append(_BULL_BODY if ci >= oi else _BEAR_BODY)
+
+    # Line2D and Rectangle defaults, stated so the collections stroke identically.
+    ax.add_collection(
+        LineCollection(wicks, colors=_WICK_COLOR, linewidths=1.0, zorder=1, antialiaseds=False,
+                       capstyle="projecting", joinstyle="round"),
+        autolim=False,
+    )
+    ax.add_collection(
+        PolyCollection(bodies, facecolors=colors, edgecolors=colors, linewidths=0.5, zorder=2,
+                       antialiaseds=False, capstyle="butt", joinstyle="miter"),
+        autolim=False,
+    )
+    ax._convolve_candles_only = True
 
     ax.set_aspect("auto")
     _savefig_transparent(fig, path)
@@ -286,6 +290,42 @@ def first_w_trading_bars_after(ticker, last_bar_ts, w, interval):
     return future
 
 
+class SampleTimes:
+    """Per-chart event times in <out_dir>/_provenance/samples.jsonl (same record fields as the
+    test generator). The trainer uses them to keep training charts whose outcome window reaches
+    into the validation period out of training. Best effort: charts never depend on it."""
+
+    def __init__(self, out_dir: str, params: dict):
+        self.root = os.path.join(out_dir, "_provenance")
+        self.params = params
+        self.ok = True
+        try:
+            os.makedirs(self.root, exist_ok=True)
+            self._fh = open(os.path.join(self.root, "samples.jsonl"), "w")
+        except OSError as exc:
+            print(f"Sample times not recorded: {exc}")
+            self.ok = False
+
+    def add(self, record: dict) -> None:
+        if not self.ok:
+            return
+        try:
+            self._fh.write(json.dumps(record, default=str) + "\n")
+        except (OSError, TypeError, ValueError) as exc:
+            print(f"Sample times not recorded: {exc}")
+            self.ok = False
+
+    def close(self) -> None:
+        if not self.ok:
+            return
+        try:
+            self._fh.close()
+            with open(os.path.join(self.root, "provenance.json"), "w") as f:
+                json.dump({"schema_version": 1, "kind": "training", "created_at": time.time(), **self.params}, f, indent=2)
+        except OSError as exc:
+            print(f"Sample times not recorded: {exc}")
+
+
 def align_to_index_tz(ts, index):
     if hasattr(index, 'tz') and index.tz is not None:
         ts_parsed = pd.Timestamp(ts)
@@ -340,6 +380,16 @@ def generate_and_save_labeled_charts(symbols, x, out_dir, use_candles, t, u, o, 
     else:
         raise ValueError("Unsupported timeframe. Use '1d', '1wk', or '1mo'.")
 
+    times = SampleTimes(out_dir, {
+        "label_method": "tp_first_else_zero_from_next_open",
+        "timeframe": t,
+        "horizon_bars": int(w),
+        "tp_frac": float(f),
+        "sl_frac": float(s),
+        "lookback": {"unit": u, "count": int(o)},
+        "symbols": symbols,
+        "data_source": {"provider": "yfinance", "method": "Ticker.history", "interval": t},
+    })
     print(f"Processing {len(symbols)} symbols: {symbols}")
     for symbol_idx, symbol in enumerate(symbols):
         print(f"Starting symbol {symbol_idx + 1}/{len(symbols)}: {symbol}")
@@ -453,6 +503,22 @@ def generate_and_save_labeled_charts(symbols, x, out_dir, use_candles, t, u, o, 
                     print(f"Error creating chart for {symbol} at {last_bar_date}: {str(e)}")
                     continue
                 label_counts[final_label] += 1
+                times.add({
+                    "image_id": os.path.basename(filename),
+                    "symbol": symbol,
+                    "timeframe": t,
+                    "observation_start": data.index[0].isoformat(),
+                    "observation_end": last_bar_ts.isoformat(),
+                    "decision_ts": last_bar_ts.isoformat(),
+                    "earliest_entry_ts": future.index[0].isoformat(),
+                    # The label depends on every bar up to here (label 0 = no TP within the horizon).
+                    "horizon_end_ts": future.index[-1].isoformat(),
+                    "horizon_bars_available": int(len(future)),
+                    "horizon_bars": int(w),
+                    "label": int(final_label),
+                    "exit_reason": which,
+                    "exit_ts": hit_date.isoformat() if hit_date is not None else None,
+                })
 
                 # Update progress after each saved chart. Completion for this symbol is
                 # min(label_counts)/x (the loop's own stop condition), so the bar tracks
@@ -486,6 +552,7 @@ def generate_and_save_labeled_charts(symbols, x, out_dir, use_candles, t, u, o, 
         total = len([f for f in os.listdir(out_dir) if f.endswith('.png') and symbol in f])
         print(f"Done with symbol {symbol}. Total charts: {total} (labels: {label_counts})")
 
+    times.close()
     print("=== Training Chart Generator Completed ===")
     overall_total = len([f for f in os.listdir(out_dir) if f.endswith('.png')])
     print(f"Overall total charts generated: {overall_total}")

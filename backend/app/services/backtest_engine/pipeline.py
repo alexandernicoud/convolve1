@@ -128,11 +128,12 @@ def run(config: Dict[str, Any], progress: Optional[Callable[[float, str], None]]
     if missing_syms:
         raise BacktestInputError(f"Stored market data missing for: {', '.join(missing_syms)}")
 
-    # Stored outcomes must reproduce from stored bars.
+    # Stored outcomes must reproduce from stored bars. Kept for every simulation below.
     mismatches = 0
+    outcomes: Dict[str, to.Outcome] = {}
     for n in usable:
         s = samples[n]
-        o = to.resolve_outcome(bars[s["symbol"]], pd.Timestamp(s["decision_ts"]), spec)
+        o = outcomes[n] = to.resolve_outcome(bars[s["symbol"]], pd.Timestamp(s["decision_ts"]), spec)
         if to.label_for_method(o, to.LABEL_METHOD_V2) != s.get("label"):
             mismatches += 1
     if mismatches:
@@ -203,7 +204,7 @@ def run(config: Dict[str, Any], progress: Optional[Callable[[float, str], None]]
     signals = [Signal(n, samples[n]["symbol"], pd.Timestamp(samples[n]["decision_ts"]), float(prob[i]), samples[n].get("label"))
                for i, n in enumerate(usable)]
     start = min(s.decision_ts for s in signals)
-    res = simulate(signals, bars, spec, sim_cfg, threshold=thr, start_date=start, purged=purged)
+    res = simulate(signals, bars, spec, sim_cfg, threshold=thr, start_date=start, purged=purged, outcomes=outcomes)
     acct = res.diagnostics["accounting"]
     if not (acct["identity_equity_eq_cash_plus_positions"] and acct["daily_reconciliation_ok"] and acct["pnl_reconciliation_ok"]):
         raise RuntimeError(f"Accounting check failed: {acct}")
@@ -226,10 +227,10 @@ def run(config: Dict[str, Any], progress: Optional[Callable[[float, str], None]]
 
     # 7. Robustness + sweep (re-simulations on the same signals) ---------------------------------
     _progress(progress, 0.78, "Robustness analysis")
-    rob = _robustness(res, signals, bars, spec, sim_cfg, thr, start, purged, timeframe, sim_summary)
+    rob = _robustness(res, signals, bars, spec, sim_cfg, thr, start, purged, timeframe, sim_summary, outcomes)
     _progress(progress, 0.88, "Threshold sensitivity (in-sample)")
     sweep = th.sensitivity_sweep(
-        lambda t: sim_summary(simulate(signals, bars, spec, sim_cfg, threshold=t, start_date=start, purged=purged)),
+        lambda t: sim_summary(simulate(signals, bars, spec, sim_cfg, threshold=t, start_date=start, purged=purged, outcomes=outcomes)),
         [s.label if s.sample_id not in purged else None for s in signals], [s.prob for s in signals], thr,
     )
 
@@ -295,7 +296,7 @@ def run(config: Dict[str, Any], progress: Optional[Callable[[float, str], None]]
     return results
 
 
-def _robustness(res, signals, bars, spec, cfg: SimConfig, thr, start, purged, timeframe, summarize) -> Dict[str, Any]:
+def _robustness(res, signals, bars, spec, cfg: SimConfig, thr, start, purged, timeframe, summarize, outcomes=None) -> Dict[str, Any]:
     closed = [t for t in res.trades if t["status"] == "closed"]
     out: Dict[str, Any] = {"min_group_size": 10}
 
@@ -324,7 +325,7 @@ def _robustness(res, signals, bars, spec, cfg: SimConfig, thr, start, purged, ti
 
     def rerun(**kw) -> Dict[str, Any]:
         c = SimConfig(**{**cfg.__dict__, **kw})
-        return summarize(simulate(signals, bars, spec, c, threshold=thr, start_date=start, purged=purged))
+        return summarize(simulate(signals, bars, spec, c, threshold=thr, start_date=start, purged=purged, outcomes=outcomes))
 
     out["slippage_sensitivity"] = [{"multiplier": m, "slippage_pct": cfg.slippage_pct * m, **rerun(slippage_pct=cfg.slippage_pct * m)} for m in (0, 1, 2, 4)]
     out["commission_sensitivity"] = [{"multiplier": m, "commission_pct": cfg.commission_pct * m, **rerun(commission_pct=cfg.commission_pct * m)} for m in (0, 1, 2, 4)]

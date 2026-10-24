@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from pathlib import Path
@@ -18,11 +19,13 @@ def backend_root() -> Path:
 
 
 def runs_root() -> Path:
-    return _BACKEND_ROOT / "runs"
+    override = os.getenv("CONVOLVE_RUNS_ROOT")
+    return Path(override) if override else _BACKEND_ROOT / "runs"
 
 
 def datasets_root() -> Path:
-    return _BACKEND_ROOT / "datasets"
+    override = os.getenv("CONVOLVE_DATASETS_ROOT")
+    return Path(override) if override else _BACKEND_ROOT / "datasets"
 
 
 def validate_id(raw: str, *, kind: str = "id") -> str:

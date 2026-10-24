@@ -184,6 +184,81 @@ def test_runner_records_null_validation_and_true_best_epoch(tmp_path, val_split)
     assert summary["summary_version"] == 2
 
 
+def _tiny_config(data: Path, **over):
+    return {
+        "use_standard_config": False, "image_height": 32, "image_width": 32, "batch_size": 4,
+        "epochs": 3, "val_split": 0.25, "random_seed": 3, "folder_name": str(data), "model_name": "tiny.keras", **over,
+    }
+
+
+def test_runner_writes_stage_timings_and_batch_progress(tmp_path):
+    from runners.trainer_runner import run_trainer
+
+    data = tmp_path / "images"
+    _write_tiny_dataset(data, n=24)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    events = []
+    run_trainer(_tiny_config(data), run_dir, lambda phase, pct, d: events.append((phase, pct, d)))
+
+    timings = json.loads((run_dir / "timings.json").read_text())
+    history = json.loads((run_dir / "history.json").read_text())
+    for key in ("tf_import_seconds", "scan_seconds", "pipeline_build_seconds", "model_build_seconds",
+                "first_batch_seconds", "fit_seconds", "model_save_seconds"):
+        assert timings["stages"][key] >= 0, key
+    assert [e["epoch"] for e in timings["epochs"]] == [r["epoch"] for r in history]
+    assert all(abs(e["seconds"] - e["train_seconds"] - e["val_seconds"]) < 1e-2 for e in timings["epochs"])
+    done = next(d for p, _, d in events if p == "done")
+    assert done["timings"]["stages"]["fit_seconds"] == timings["stages"]["fit_seconds"]
+
+    batches = [d for p, _, d in events if p == "training" and "batch" in d]
+    # The first batch is always reported so the UI moves before the first epoch ends.
+    assert batches and batches[0]["batch"] == 1 and batches[0]["epoch_in_progress"] == 1
+    assert all("epoch" not in d for d in batches), "batch reports must not add epoch history rows"
+    percents = [pct for p, pct, _ in events if p == "training"]
+    assert percents == sorted(percents)
+    validating = [d for p, _, d in events if p == "training" and d.get("validating")]
+    assert [d["epoch_in_progress"] for d in validating] == [r["epoch"] for r in history]
+    assert all(d["batch"] == d["batches"] for d in validating)
+
+    block = trainer_session.timings_block(timings, {"queue_to_claim_seconds": 12.0, "dataset_restore_seconds": 0.4, "publish_seconds": 2.0})
+    keys = [p["key"] for p in block["phases"]]
+    assert keys[:2] == ["waiting_for_machine", "dataset_download"] and keys[-1] == "upload"
+    assert {"training", "validation", "first_batch", "model_save"} <= set(keys)
+    fit_parts = sum(p["seconds"] for p in block["phases"] if p["key"] in ("first_batch", "training", "validation"))
+    assert abs(fit_parts - timings["stages"]["fit_seconds"]) < 0.05
+
+
+def test_runner_cancel_stops_within_the_epoch(tmp_path):
+    from runners.trainer_runner import CancelledError, run_trainer
+
+    data = tmp_path / "images"
+    _write_tiny_dataset(data, n=24)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    cancel = threading.Event()
+    events = []
+
+    def progress(phase, pct, d):
+        events.append((phase, d))
+        if phase == "training" and d.get("batch") == 1:
+            cancel.set()
+
+    with pytest.raises(CancelledError):
+        run_trainer(_tiny_config(data, batch_size=2, epochs=5), run_dir, progress, cancel_event=cancel)
+    # 18 training images at batch 2 is 9 steps; cancellation must not wait for the epoch to end.
+    assert not any("epoch" in d for _, d in events)
+    assert trainer_session.read_jsonl(str(run_dir / "metrics.jsonl")) == []
+    assert (run_dir / "timings.json").is_file()
+
+
+def test_timings_block_is_absent_without_measurements():
+    assert trainer_session.timings_block(None, None) is None
+    assert trainer_session.timings_block({"stages": {}}, {}) is None
+    only_worker = trainer_session.timings_block(None, {"queue_to_claim_seconds": 9.5})
+    assert only_worker["phases"] == [{"key": "waiting_for_machine", "seconds": 9.5}]
+
+
 # --- API: session view and lifecycle ---------------------------------------------------
 
 
@@ -228,6 +303,21 @@ def test_session_restores_running_history_from_metrics_jsonl(client, user_a, run
     assert [r["epoch"] for r in body["session"]["history"]] == [1, 2, 3, 4]
     assert body["session"]["train_samples"] == 40
     assert body["session"]["mean_epoch_seconds"] == 10.0
+
+
+def test_running_session_shows_the_options_from_its_config(tmp_path):
+    cfg = {"trainer_protocol": 2, "image_height": 64, "image_width": 64, "selection_metric": "val_auc",
+           "lr_schedule": {"name": "cosine", "alpha": 0}, "optimizer": None, "purge_chart_windows": None}
+    (tmp_path / "model_metadata.json").write_text(json.dumps({"training_config": cfg}))
+    s = trainer_session.build_session("r", str(tmp_path), status="running", progress={"phase": "training"})
+    assert s["options"]["lr_schedule"]["name"] == "cosine"
+    assert s["options"]["optimizer"]["name"] == "adam" and s["options"]["purge_chart_windows"] is True
+    assert s["selection_metric"] == {"name": "val_auc", "mode": "max"}
+
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    (legacy / "model_metadata.json").write_text(json.dumps({"training_config": {"image_height": 64, "image_width": 64}}))
+    assert trainer_session.build_session("r", str(legacy), status="running", progress={})["options"] is None
 
 
 def test_session_live_in_process_run_has_full_history(client, user_a, run_cleanup):

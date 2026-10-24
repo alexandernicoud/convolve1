@@ -21,8 +21,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-from matplotlib.lines import Line2D
+from matplotlib.collections import LineCollection, PolyCollection
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.services import trade_outcomes as outcomes  # noqa: E402
@@ -104,6 +103,7 @@ def _savefig_transparent(fig, path: str):
 
 
 def render_line_png(fig, ax, data: pd.DataFrame, img_dim: int, path: str, ma_col: str | None = None) -> None:
+    ax._convolve_candles_only = False
     ax.clear()
     ax.set_facecolor("none")
     ax.patch.set_alpha(0.0)
@@ -158,12 +158,20 @@ def render_line_png(fig, ax, data: pd.DataFrame, img_dim: int, path: str, ma_col
 def render_candlestick_png(
     fig, ax, data: pd.DataFrame, img_dim: int, path: str, ma_col: str | None = None
 ) -> None:
-    ax.clear()
-    ax.set_facecolor("none")
-    ax.patch.set_alpha(0.0)
-    ax.axis("off")
-    for spine in ax.spines.values():
-        spine.set_visible(False)
+    """Wicks and bodies are two collections drawn in the same z-order as one Line2D and one
+    Rectangle per candle; the PNG bytes are identical (scripts/perf/render_identity_probe.py)
+    and rendering is about 15x faster. An axes that last held only this chart's artists is
+    emptied instead of fully cleared, which is also byte-identical."""
+    if getattr(ax, "_convolve_candles_only", False):
+        for artist in [*ax.collections, *ax.lines]:
+            artist.remove()
+    else:
+        ax.clear()
+        ax.set_facecolor("none")
+        ax.patch.set_alpha(0.0)
+        ax.axis("off")
+        for spine in ax.spines.values():
+            spine.set_visible(False)
 
     o = data["Open"].to_numpy(dtype=np.float64, copy=False)
     h = data["High"].to_numpy(dtype=np.float64, copy=False)
@@ -190,37 +198,34 @@ def render_candlestick_png(
     half_w = 0.35
     min_body = max((ymax - ymin) * 0.0015, 1e-9)
 
+    wicks = []
+    bodies = []
+    colors = []
     for i in range(n):
         oi, hi, li, ci = o[i], h[i], l[i], c[i]
-        ax.add_line(
-            Line2D(
-                [i, i],
-                [li, hi],
-                color=_WICK_COLOR,
-                linewidth=1.0,
-                zorder=1,
-                antialiased=False,
-            )
-        )
+        wicks.append([(i, li), (i, hi)])
         top = max(oi, ci)
         bot = min(oi, ci)
-        body_h = abs(ci - oi)
-        if body_h < min_body:
+        if abs(ci - oi) < min_body:
             mid = 0.5 * (oi + ci)
             bot = mid - min_body * 0.5
             top = mid + min_body * 0.5
-        color = _BULL_BODY if ci >= oi else _BEAR_BODY
-        rect = Rectangle(
-            (i - half_w, bot),
-            2 * half_w,
-            top - bot,
-            facecolor=color,
-            edgecolor=color,
-            linewidth=0.5,
-            zorder=2,
-            antialiased=False,
-        )
-        ax.add_patch(rect)
+        x0, width, height = i - half_w, 2 * half_w, top - bot
+        bodies.append([(x0, bot), (x0 + width, bot), (x0 + width, bot + height), (x0, bot + height)])
+        colors.append(_BULL_BODY if ci >= oi else _BEAR_BODY)
+
+    # Line2D and Rectangle defaults, stated so the collections stroke identically.
+    ax.add_collection(
+        LineCollection(wicks, colors=_WICK_COLOR, linewidths=1.0, zorder=1, antialiaseds=False,
+                       capstyle="projecting", joinstyle="round"),
+        autolim=False,
+    )
+    ax.add_collection(
+        PolyCollection(bodies, facecolors=colors, edgecolors=colors, linewidths=0.5, zorder=2,
+                       antialiaseds=False, capstyle="butt", joinstyle="miter"),
+        autolim=False,
+    )
+    ax._convolve_candles_only = True
 
     if ma_col and ma_col in data.columns:
         x = np.arange(n, dtype=np.float64)

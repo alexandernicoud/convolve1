@@ -6,7 +6,10 @@ import { EASE, Pinned, ProvenanceTag, linePath, scale, usePinEnabled } from "../
 import { GradientLandscape } from "./GradientLandscape";
 import { FitLine, Frac, I, Sum, Term } from "./math";
 import { ConvScan } from "./ModelLab";
+import { int, runFigures, sci } from "../figures";
 
+const BATCH = 16;
+const RUN = runFigures(training, [224, 224, 3], BATCH);
 const convWeights = training.arch.filter((l) => l.kind === "Conv2D").reduce((a, l) => a + l.params, 0);
 const SAMPLE = labmaps.samples[labmaps.trace_index];
 const logit = (p: number) => Math.log(p / (1 - p));
@@ -41,7 +44,7 @@ function PoolVisual() {
   const widths = [100, 72, 50];
   const pooled = labmaps.features.map((f) => Math.floor(f.h / 2));
   return (
-    <Card title="Three conv blocks" meta="real feature maps · MSFT test window">
+    <Card title="Three conv blocks" meta="real feature maps · one test chart">
       <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-end gap-3">
         {labmaps.features.map((f, k) => (
           <FragmentRow key={f.name} last={k === labmaps.features.length - 1}>
@@ -106,7 +109,7 @@ function SigmoidVisual() {
   const above = g.dots.filter((d) => d.on).length;
   const sz = logit(SAMPLE.p);
   return (
-    <Card title="Every test day, on the sigmoid" meta={`${hero.predictions.length} MSFT test days`}>
+    <Card title="Every test day, on the sigmoid" meta={`${hero.predictions.length} unseen test days`}>
       <svg viewBox={`0 0 ${SW} ${SH}`} className="block h-auto w-full" role="img" aria-label={`Sigmoid curve with ${hero.predictions.length} real test-day probabilities and the locked threshold ${thr}`}>
         <defs>
           <linearGradient id="m2-sig" x1="0" x2="1">
@@ -298,7 +301,7 @@ const EQUATIONS: Eq[] = [
         <sub>n</sub>)]
       </>
     ),
-    real: ["binary cross-entropy", "batches of 16", "early stopping on validation loss"],
+    real: ["binary cross-entropy", `batches of ${BATCH}`, "early stopping on validation loss"],
     visual: <LossVisual />,
   },
 ];
@@ -360,8 +363,9 @@ function Update({ progress }: { progress?: MotionValue<number> }) {
           </div>
           <h3 className="mt-5 text-[clamp(1.8rem,2.5vw,2.7rem)] font-normal leading-[1.1] tracking-[-0.03em] text-white">How the network learns.</h3>
           <p className="mt-4 max-w-xl text-[18px] leading-[1.6] text-white/60">
-            Training nudges all {training.params.toLocaleString("en-US")} weights, step by step, downhill on the loss. This is the network&rsquo;s own
-            optimisation, not the Labeling Optimizer&rsquo;s search over label rules.
+            After every batch of {BATCH} charts, backpropagation computes one gradient and all {int(RUN.params)} weights move a little
+            downhill on the loss: {int(RUN.optimizerSteps)} steps in this run, about {sci(RUN.weightUpdates)} individual weight updates. This is the
+            network&rsquo;s own optimisation, not the Labeling Optimizer&rsquo;s search over label rules.
           </p>
         </motion.div>
         <motion.div className="lg:col-span-5" {...anim(0.1)}>
@@ -400,7 +404,7 @@ export function Mathematics() {
       </article>
 
       <div className="mt-8">
-        <ProvenanceTag kind="real" detail="Equations, shapes, feature maps, probabilities and losses from the MSFT4000 run; the loss surface is illustrative" />
+        <ProvenanceTag kind="real" detail="Real model data · loss surface illustrative" />
       </div>
     </div>
   );

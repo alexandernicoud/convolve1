@@ -2,9 +2,9 @@ import { useEffect, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { M2Footer } from "@/features/marketing2/ui";
-import { LEGAL_LINKS, LEGAL_UPDATED, OPERATOR } from "./meta";
+import { LEGAL_LINKS, LEGAL_UPDATED, OPERATOR, isPending } from "./meta";
 
-const hasPlaceholders = Object.values(OPERATOR).some((v) => v.includes("["));
+const hasPlaceholders = Object.values(OPERATOR).some(isPending);
 
 export function LegalLayout({
   title,
@@ -126,4 +126,9 @@ export function Table({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
 
 export function Placeholder({ children }: { children: ReactNode }) {
   return <span className="rounded bg-white/[0.06] px-1 font-mono text-[0.9em] text-white/80">{children}</span>;
+}
+
+/** A legal fact: shown as text once supplied, as a marked placeholder until then. */
+export function Fact({ value }: { value: string }) {
+  return isPending(value) ? <Placeholder>{value}</Placeholder> : <>{value}</>;
 }

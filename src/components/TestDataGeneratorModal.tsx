@@ -11,8 +11,8 @@ import {
   type TestDataGeneratorRequest,
 } from "@/lib/api";
 import { useRunsStore } from "@/state/runsStore";
-import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
-import { RunCostHint } from "@/components/RunCostHint";
+import { confirmRun, chargeRunCredits } from "@/state/creditsStore";
+import { RunCost, RunCostHint } from "@/components/RunCostHint";
 import FieldTip from "@/components/generator/FieldTip";
 import StepSection from "@/components/generator/StepSection";
 import SymbolBasket from "@/components/generator/SymbolBasket";
@@ -380,16 +380,22 @@ export default function TestDataGeneratorModal({
     return null;
   };
 
+  const pricingParams = useMemo(
+    () => ({
+      symbols: selectedSymbols.join(","),
+      period_length_units: useRawOffsets ? rawPeriodLength : computedPeriodLength,
+      img_dim: config.imageDimension,
+    }),
+    [selectedSymbols, useRawOffsets, rawPeriodLength, computedPeriodLength, config.imageDimension],
+  );
+
   const handleGenerate = async () => {
     const validationError = validate();
     if (validationError) {
       setError(validationError);
       return;
     }
-    if (!requestRunCredits("testdata")) {
-      onClose();
-      return;
-    }
+    if (!(await confirmRun("testdata", pricingParams))) return;
     setError(null);
     setStarting(true);
     try {
@@ -962,9 +968,15 @@ export default function TestDataGeneratorModal({
                 className="flex items-center justify-center gap-2 rounded-xl bg-white px-8 py-3.5 text-base font-semibold text-[#0a0a0a] transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Play className="h-5 w-5" />
-                {starting ? "Starting…" : "Generate test dataset"}
+                {starting ? (
+                  "Starting…"
+                ) : (
+                  <>
+                    Generate test dataset <RunCost tool="testdata" params={pricingParams} />
+                  </>
+                )}
               </button>
-              <RunCostHint tool="testdata" />
+              <RunCostHint tool="testdata" params={pricingParams} className="text-center" />
             </div>
           </div>
         </div>

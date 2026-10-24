@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
 import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -19,6 +21,12 @@ os.environ["RUN_BOTS_ON_API_STARTUP"] = "false"
 
 _fd, _db_path = tempfile.mkstemp(suffix=".db")
 os.close(_fd)
+# Runs and datasets go to a throwaway directory, never the developer's backend/runs and
+# backend/datasets: listings scan those roots, so leftovers slow every later run.
+_data_root = tempfile.mkdtemp(prefix="convolve-test-data-")
+atexit.register(shutil.rmtree, _data_root, True)
+os.environ["CONVOLVE_RUNS_ROOT"] = os.path.join(_data_root, "runs")
+os.environ["CONVOLVE_DATASETS_ROOT"] = os.path.join(_data_root, "datasets")
 # CONVOLVE_TEST_DATABASE_URL runs the suite against a disposable, already migrated Postgres
 # database (e.g. for row-lock and unique-constraint behaviour). Never a shared server.
 os.environ["DATABASE_URL"] = os.environ.get("CONVOLVE_TEST_DATABASE_URL") or f"sqlite:///{_db_path}"

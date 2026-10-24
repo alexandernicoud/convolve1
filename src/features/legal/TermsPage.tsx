@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { LegalLayout, List, Placeholder, Section } from "./LegalLayout";
+import { Fact, LegalLayout, List, Placeholder, Section } from "./LegalLayout";
 import { OPERATOR, TERMS_VERSION } from "./meta";
 
 const SECTIONS = [
@@ -34,9 +34,9 @@ export default function TermsPage() {
     >
       <Section id="provider" title="1. Provider and scope">
         <p>
-          Convolve is provided by <Placeholder>{OPERATOR.name}</Placeholder>, <Placeholder>{OPERATOR.address}</Placeholder>{" "}
-          (&quot;Convolve&quot;, &quot;we&quot;). These terms apply to the website and the workspace. By creating an
-          account and accepting these terms you enter into an agreement with us. If you use Convolve on behalf of an
+          Convolve is operated under the name {OPERATOR.name} (&quot;we&quot;, &quot;us&quot;). Your contract is with{" "}
+          <Fact value={OPERATOR.contractingParty} />, <Fact value={OPERATOR.address} />. These terms apply to the website
+          and the workspace. By creating an account and accepting these terms you enter into an agreement with us. If you use Convolve on behalf of an
           organisation, you confirm that you may bind it, and these terms apply to it as well.
         </p>
       </Section>
@@ -133,8 +133,10 @@ export default function TermsPage() {
 
       <Section id="fees" title="10. Fees">
         <p>
-          Convolve is currently provided free of charge. Any usage counters or credits shown in the workspace have no
-          monetary value and cannot be bought, sold or redeemed. If we introduce paid plans, prices and terms will be
+          Convolve is currently provided free of charge. Before each run the workspace shows its estimated computation in
+          credits, calculated by the pricing policy described in the <Link to="/help#credits">help center</Link>. Credits
+          measure computation only: they have no monetary value and cannot be bought, sold or redeemed. While charging is
+          off, credits are not deducted. If we introduce paid plans, prices and terms will be
           shown before you subscribe, and nothing will be charged without your explicit agreement.
         </p>
       </Section>
@@ -179,7 +181,7 @@ export default function TermsPage() {
       <Section id="final" title="15. Final provisions">
         <p>
           If a provision of these terms is invalid, the remaining provisions remain in effect. Contact:{" "}
-          <Placeholder>{OPERATOR.email}</Placeholder>.
+          <Fact value={OPERATOR.email} />.
         </p>
       </Section>
     </LegalLayout>
