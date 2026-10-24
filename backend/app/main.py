@@ -78,6 +78,8 @@ from app.db import init_db
 from app.routers.models_upload import router as models_upload_router
 from app.routers.uploads import router as uploads_router
 from app.routers.cnn_lab import router as cnn_lab_router
+from app.routers.account import router as account_router
+from app.routers.credits import router as credits_router
 from app.services.model_paths import require_existing_model_file
 from app.services import asset_labels
 from app.services import review_meta
@@ -100,6 +102,8 @@ app.include_router(dashboard_router)
 app.include_router(models_upload_router)
 app.include_router(uploads_router)
 app.include_router(cnn_lab_router)
+app.include_router(account_router)
+app.include_router(credits_router)
 
 logger = logging.getLogger("app.main")
 
@@ -982,8 +986,52 @@ def register_run(
     analysis_id: Optional[str] = None,
     user_id: Optional[str] = None,
     status: str = "running",
+    charge: bool = True,
 ) -> None:
-    """Register a new run in the global registry and persist a lightweight manifest on disk."""
+    """Register a new run in the global registry and persist a lightweight manifest on disk.
+
+    The ownership row (and, when credits are enforced, the run's charge) is written first,
+    so a refused run leaves no registry entry or manifest behind.
+    """
+    from app.services.credits import InsufficientCredits
+
+    extra = {}
+    if trainer_run_id:
+        extra["trainer_run_id"] = trainer_run_id
+    if analysis_id:
+        extra["analysis_id"] = analysis_id
+    download_zip_url = _suggest_download_zip_url(tool, run_id, trainer_run_id, analysis_id)
+    try:
+        record_pipeline_run(
+            run_id,
+            user_id,
+            tool,
+            status=status,
+            route=route,
+            parent_run_id=parent_run_id,
+            extra=extra or None,
+            progress=0.0,
+            stage="starting",
+            message="Initializing...",
+            artifact_ref=download_zip_url,
+            worker_id=current_worker_id() if user_id else None,
+            charge=charge,
+        )
+    except InsufficientCredits as exc:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "insufficient_credits",
+                "message": (
+                    f"This run needs {exc.cost} credits and your balance is {exc.balance}. "
+                    "See plans and usage for options."
+                ),
+                "cost": exc.cost,
+                "balance": exc.balance,
+                "plans_url": "/pricing",
+                "usage_url": "/account?tab=usage",
+            },
+        ) from exc
     now = time.time()
     all_runs[run_id] = GlobalRun(
         id=run_id,
@@ -998,29 +1046,10 @@ def register_run(
         parent_run_id=parent_run_id,
         trainer_run_id=trainer_run_id,
         analysis_id=analysis_id,
-        download_zip_url=_suggest_download_zip_url(tool, run_id, trainer_run_id, analysis_id),
+        download_zip_url=download_zip_url,
         user_id=user_id,
     )
     _persist_run_manifest_disk(all_runs[run_id])
-    extra = {}
-    if trainer_run_id:
-        extra["trainer_run_id"] = trainer_run_id
-    if analysis_id:
-        extra["analysis_id"] = analysis_id
-    record_pipeline_run(
-        run_id,
-        user_id,
-        tool,
-        status=status,
-        route=route,
-        parent_run_id=parent_run_id,
-        extra=extra or None,
-        progress=0.0,
-        stage="starting",
-        message="Initializing...",
-        artifact_ref=all_runs[run_id].download_zip_url,
-        worker_id=current_worker_id() if user_id else None,
-    )
 
 
 def update_run_progress(run_id: str, progress: float, stage: str, message: str = "", status: Optional[str] = None) -> None:
@@ -2991,12 +3020,6 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
         ) from import_error
     run_id = generate_run_id()
 
-    # Register run globally
-    register_run(run_id, "trainer", f"/tools/trainer/runs/{run_id}", user_id=uid)
-
-    run_dir = Path(get_run_dir(run_id))
-    run_dir.mkdir(parents=True, exist_ok=True)
-
     # Resolve training folder from dataset_id or folder_name
     if request.dataset_id:
         located = _locate_dataset_dir(request.dataset_id, uid)
@@ -3011,6 +3034,12 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
         training_folder = request.folder_name
     else:
         raise HTTPException(status_code=400, detail="Either dataset_id or folder_name must be provided")
+
+    # Register only once the request is valid: registration may charge credits.
+    register_run(run_id, "trainer", f"/tools/trainer/runs/{run_id}", user_id=uid)
+
+    run_dir = Path(get_run_dir(run_id))
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     # Create config with resolved folder
     trainer_config = request.dict()
@@ -3603,6 +3632,7 @@ async def start_standalone_cnn_analysis(
         "analysis",
         f"/products/trainer/analysis/{run_id}",
         user_id=uid,
+        charge=False,
     )
     run_dir = get_run_dir(run_id)
     os.makedirs(run_dir, exist_ok=True)
@@ -3828,14 +3858,6 @@ async def start_backtester_run(
     assert_cross_owned(uid, dataset_id=request.dataset_id, model_id=request.model_id)
     run_id = generate_run_id()
 
-    # Register run globally
-    register_run(
-        run_id,
-        "backtester",
-        f"/tools/backtester/runs/{run_id}",
-        user_id=uid,
-    )
-
     # Resolve model path (canonical resolver + existence check)
     try:
         if request.model_id:
@@ -3865,6 +3887,14 @@ async def start_backtester_run(
         dataset_path = request.chart_folder
     else:
         raise HTTPException(status_code=400, detail="Either dataset_id or chart_folder must be provided")
+
+    # Register only once the request is valid: registration may charge credits.
+    register_run(
+        run_id,
+        "backtester",
+        f"/tools/backtester/runs/{run_id}",
+        user_id=uid,
+    )
 
     # Create run directory
     run_dir = Path(get_run_dir(run_id))

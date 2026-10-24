@@ -20,12 +20,18 @@ import VisionHome3 from "./pages/VisionHome3";
 import Home2Page from "./features/marketing2/Home2Page";
 import About2Page from "./features/marketing2/About2Page";
 import Products2Page from "./features/marketing2/Products2Page";
+import PrivacyPage from "./features/legal/PrivacyPage";
+import TermsPage from "./features/legal/TermsPage";
+import RiskDisclosurePage from "./features/legal/RiskDisclosurePage";
+import CookiesPage from "./features/legal/CookiesPage";
+import LegalNoticePage from "./features/legal/LegalNoticePage";
+import { isLegalPath } from "./features/legal/paths";
 import Contact from "./pages/Contact";
 import Docs from "./pages/Docs";
 import NotFound from "./pages/NotFound";
 import RunLog from "./pages/RunLog";
 import Account from "./pages/Account";
-import Credits from "./pages/Credits";
+import PricingPage from "./features/pricing/PricingPage";
 import CreditGuardModal from "@/components/CreditGuardModal";
 import Login from "./pages/auth/Login";
 import AuthCallback from "./pages/auth/AuthCallback";
@@ -38,7 +44,6 @@ import LabelingOptimizerTechnical from "./pages/products/LabelingOptimizerTechni
 import LabelingOptimizerRun from "./pages/products/LabelingOptimizerRun";
 import LabelingOptimizerResults from "./pages/products/LabelingOptimizerResults";
 import TrainerAdvancedVisuals from "./pages/products/TrainerAdvancedVisuals";
-import ProductsHub from "./pages/products/ProductsHub";
 
 // Tool pages
 import Generator from "./pages/Generator";
@@ -106,7 +111,8 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
 function AppShell() {
   const { pathname } = useLocation();
   const { headerContentPushPx } = useHeaderReveal();
-  const isMarketing2 = pathname === "/" || pathname === "/about" || pathname === "/products2";
+  const isMarketing2 =
+    pathname === "/" || pathname === "/about" || pathname === "/pricing" || pathname === "/products" || isLegalPath(pathname);
   const showFooter = !isCompactHeaderPathname(pathname) && !isMarketing2;
   const isHomeLanding =
     pathname === "/" ||
@@ -189,8 +195,16 @@ function AppShell() {
           <Route path="/founder" element={<Navigate to="/about" replace />} />
           <Route path="/about" element={<PageWrapper><About2Page /></PageWrapper>} />
           <Route path="/about2" element={<KeepHashRedirect to="/about" />} />
-          <Route path="/products2" element={<PageWrapper><Products2Page /></PageWrapper>} />
+          <Route path="/pricing" element={<PageWrapper><PricingPage /></PageWrapper>} />
+          <Route path="/products2" element={<KeepHashRedirect to="/products" />} />
           <Route path="/contact" element={<PageWrapper><Contact /></PageWrapper>} />
+          <Route path="/privacy" element={<PageWrapper><PrivacyPage /></PageWrapper>} />
+          <Route path="/datenschutz" element={<Navigate to="/privacy" replace />} />
+          <Route path="/terms" element={<PageWrapper><TermsPage /></PageWrapper>} />
+          <Route path="/risk-disclosure" element={<PageWrapper><RiskDisclosurePage /></PageWrapper>} />
+          <Route path="/cookies" element={<PageWrapper><CookiesPage /></PageWrapper>} />
+          <Route path="/legal" element={<PageWrapper><LegalNoticePage /></PageWrapper>} />
+          <Route path="/impressum" element={<Navigate to="/legal" replace />} />
           <Route path="/docs" element={<PageWrapper><Docs /></PageWrapper>} />
           <Route path="/login" element={<PageWrapper><Login /></PageWrapper>} />
           <Route path="/auth/callback" element={<PageWrapper><AuthCallback /></PageWrapper>} />
@@ -199,7 +213,7 @@ function AppShell() {
           <Route path="/reset-password" element={<PageWrapper><ResetPassword /></PageWrapper>} />
 
           {/* Product hub (marketing) + legacy /product/* URLs → technical tools */}
-          <Route path="/products" element={<PageWrapper><ProductsHub /></PageWrapper>} />
+          <Route path="/products" element={<PageWrapper><Products2Page /></PageWrapper>} />
           <Route path="/products/train-bot" element={<Navigate to="/tools/trainer" replace />} />
           <Route path="/products/backtest" element={<Navigate to="/tools/backtester" replace />} />
           <Route path="/products/generate-data" element={<Navigate to="/tools/generator" replace />} />
@@ -438,7 +452,7 @@ function AppShell() {
             }
           />
 
-          {/* Account + Credits / refill (dashboard shell so the sidebar balance stays live) */}
+          {/* Account workspace (dashboard shell so the sidebar balance stays live) */}
           <Route
             path="/account"
             element={
@@ -449,16 +463,7 @@ function AppShell() {
               </PageWrapper>
             }
           />
-          <Route
-            path="/credits"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <Credits />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
+          <Route path="/credits" element={<Navigate to="/account?tab=usage" replace />} />
 
           {/* Fallback */}
           <Route path="*" element={<PageWrapper><NotFound /></PageWrapper>} />

@@ -267,6 +267,7 @@ export function statusLabel(b: FleetBot): string {
   if (b.valuation_stale) return "Stale mark";
   if (b.status === "running") return "Running";
   if (b.status === "waiting") return "Waiting";
+  if (b.status === "due") return "Due";
   if (b.status === "expired") return "Expired";
   return "Live";
 }

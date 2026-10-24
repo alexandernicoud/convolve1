@@ -48,6 +48,7 @@ export default function LiveBotDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!botId) return;
@@ -77,8 +78,12 @@ export default function LiveBotDetail() {
   const runAction = async (key: string, fn: () => Promise<unknown>) => {
     setActionLoading(key);
     setError(null);
+    setNotice(null);
     try {
       const result = await fn();
+      const outcome = result && typeof result === "object" && "outcome" in result ? (result as { outcome?: string | null }).outcome : null;
+      if (outcome === "skipped_already_ran") setNotice("The latest completed bar was already evaluated; no new run was created.");
+      else if (outcome === "skipped_in_progress") setNotice("A run for the latest completed bar is already in progress.");
       if (key === "close" && result && typeof result === "object" && result !== null && "performance" in result) {
         setData(result as BotTradingDetailFull);
       } else {
@@ -144,6 +149,8 @@ export default function LiveBotDetail() {
       {error && (
         <div className="mb-3 border border-[#f87171]/25 bg-[#f87171]/10 px-4 py-2 text-sm text-[#fecaca]">{error}</div>
       )}
+
+      {notice && <div className="mb-3 border border-white/15 bg-white/[0.04] px-4 py-2 text-sm text-white/80">{notice}</div>}
 
       {loading && !data && <p className="text-white/80">Loading…</p>}
 

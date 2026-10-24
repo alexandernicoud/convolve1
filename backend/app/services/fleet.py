@@ -40,6 +40,7 @@ ACTIVITY_BUCKET_S = 900
 DAILY_MAX_DAYS = 45
 EVENT_LIMIT = 40
 ERROR_LOOKBACK = timedelta(days=7)
+SCHEDULED_GAP_S = 4 * 86400
 PAPER_WALLET_CURRENCY = "USD"
 
 DEFINITIONS = {
@@ -47,15 +48,15 @@ DEFINITIONS = {
     "contributed_capital": "Sum of starting capital of deployed bots. Deployments are capital flows, not profit.",
     "net_pnl": "Equity minus contributed capital (= realized + unrealized).",
     "realized_pnl": "Net P&L of closed trades after commission; slippage is inside the fill prices.",
-    "unrealized_pnl": "Open positions marked at the last bar close, after exit slippage and round-trip commission (liquidation basis).",
+    "unrealized_pnl": "Open positions marked at the last completed bar close, after exit slippage and commission on entry and exit (liquidation basis).",
     "twr": "Time-weighted return: chain-linked across valuations with deployment flows removed.",
     "max_drawdown": "Largest peak-to-trough decline of the time-weighted index (running peak).",
     "pnl_24h": "Change in net P&L over the last 24 hours (deployments excluded).",
     "gross_exposure": "Open position notional at entry divided by fleet equity.",
     "win_rate": "Closed trades with net P&L > 0 divided by all closed trades (TP, SL, expiry and manual exits).",
     "error": "A bot is in error when its most recent analysis failed.",
-    "valuation_stale": "Open positions whose last valuation is older than the freshness limit, or that belong to a paused bot (paused bots are not marked to market).",
-    "ops_stale": "An active bot whose last analysis is older than the freshness limit.",
+    "valuation_stale": "Open positions of a bot that missed a scheduled run, or that belong to a paused bot (paused bots are not marked to market).",
+    "ops_stale": "An active bot whose scheduled run is more than an hour overdue.",
     "daily_pnl": "Change in fleet net P&L per UTC day. Days without any valuation have no value.",
 }
 
@@ -143,6 +144,8 @@ class BotIn:
     errors_recent: List[RunIn] = field(default_factory=list)
     last_error: Optional[str] = None
     next_run_at: Optional[str] = None
+    # A scheduled slot passed over an hour ago without being handled (scheduler not running).
+    overdue: bool = False
     source_backtest_run_id: Optional[str] = None
     currency: Optional[str] = None
     currency_source: str = "unknown"
@@ -324,7 +327,8 @@ def build_fleet(
     poll_interval_s: int,
     excluded_lifecycle_counts: Dict[str, int],
 ) -> Dict[str, object]:
-    stale_after_s = max(3 * int(poll_interval_s), 300)
+    # Daily bots legitimately go a weekend plus a holiday without a new bar.
+    stale_after_s = max(3 * int(poll_interval_s), 300, SCHEDULED_GAP_S)
     stale_after = timedelta(seconds=stale_after_s)
 
     # Currency coverage: aggregate only the currency holding the most capital; never convert.
@@ -374,11 +378,8 @@ def build_fleet(
         open_notional = sum(t.notional for t in open_trades)
         last_mark = tl.last_mark_at(now)
         mark_age = (now - last_mark).total_seconds() if last_mark else None
-        valuation_stale = bool(open_trades) and (
-            b.lifecycle != "active" or mark_age is None or mark_age > stale_after_s
-        )
-        run_age = (now - b.last_run_at).total_seconds() if b.last_run_at else None
-        ops_stale = b.lifecycle == "active" and (run_age is None or run_age > stale_after_s) and now - b.created_at > stale_after
+        valuation_stale = bool(open_trades) and (b.lifecycle != "active" or mark_age is None or b.overdue)
+        ops_stale = b.lifecycle == "active" and b.overdue
         imprecise = imprecise or any(not t.opened_precise or (t.closed_at and not t.closed_precise) for t in b.trades)
         wr = trade_win_rate(b.trades)
         bot_rows.append(

@@ -18,6 +18,7 @@ into shell history or into logs; secrets go into Secret Manager via stdin.
 | File | Purpose |
 |---|---|
 | `trainer-job.yaml` | Cloud Run Job spec for the CNN trainer (`gcloud run jobs replace`). |
+| `bots-job.yaml` | Cloud Run Job spec for scheduled paper bots (`convolve-run-due-bots`). |
 | `cloudbuild-release.yaml` | Builds the backend image and verifies imports, ML pins, no `.env`, Alembic head. |
 | `upload-cors.json` | Bucket CORS so browsers can PUT large uploads straight to GCS. |
 | `upload-lifecycle.json` | Deletes abandoned staged uploads under `uploads/` after 1 day. |
@@ -36,9 +37,10 @@ by 3.15, so the API, trainer job and bots job must never run different digests.
 | Supabase Auth | Site URL and redirect URLs for `/auth/callback` and `/reset-password` on the production frontend origin |
 | Secret Manager | `secretmanager.googleapis.com` (enabled); one `DATABASE_URL` secret (pooler URL), plus `SUPABASE_JWT_SECRET` if HS256 verification is used |
 | Model bucket | `$BUCKET`; durable artifacts under `users/{uid}/...` and `keras/{uid}/...`, staged uploads under `uploads/{uid}/{upload_id}/` |
-| API service | Env: `APP_PROFILE=cloud`, `MODEL_BUCKET`, `DATABASE_URL` (secret), `AUTH_REQUIRED`, `SUPABASE_URL`, `SUPABASE_JWT_SECRET` (secret, optional with JWKS), `CORS_ORIGINS`, `TRAINER_EXECUTION=cloud_run_job`, `TRAINER_JOB_NAME`, `TRAINER_JOB_PROJECT`, `TRAINER_JOB_REGION`, `LIVE_DEPLOY_ENABLED`, `SCHEDULED_BOTS_ENABLED` |
+| API service | Env: `APP_PROFILE=cloud`, `BOT_INPROCESS_SCHEDULER=false` (the default under `cloud`), `BOT_JOB_NAME=convolve-run-due-bots`, `MODEL_BUCKET`, `DATABASE_URL` (secret), `AUTH_REQUIRED`, `SUPABASE_URL`, `SUPABASE_JWT_SECRET` (secret, optional with JWKS), `CORS_ORIGINS`, `TRAINER_EXECUTION=cloud_run_job`, `TRAINER_JOB_NAME`, `TRAINER_JOB_PROJECT`, `TRAINER_JOB_REGION`, `LIVE_DEPLOY_ENABLED`, `SCHEDULED_BOTS_ENABLED`, `CREDITS_MODE` (leave unset = `off`) |
 | Trainer job | `trainer-job.yaml`; started by the API with `CONVOLVE_RUN_ID` as the only override |
-| Bots job | Same image and `DATABASE_URL`/`MODEL_BUCKET` as the API; `AUTH_REQUIRED` must match the API |
+| Bots job | `bots-job.yaml`; same image and `DATABASE_URL`/`MODEL_BUCKET` as the API; `AUTH_REQUIRED` must match the API |
+| Cloud Scheduler | `convolve-daily-run`, every 15 min, calls the Cloud Run Admin API `jobs:run` with an OAuth token |
 | Frontend (Vercel) | Build env `VITE_API_BASE_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
 
 ### Service accounts and IAM (least privilege)
@@ -52,10 +54,12 @@ except where stated; bind roles on the individual resource.
 | | `roles/storage.objectAdmin` | `$BUCKET` (bucket-level) |
 | | `roles/run.jobsExecutorWithOverrides` | job `convolve-trainer` |
 | | `roles/run.viewer` | job `convolve-trainer` (execution status and cancel lookup) |
+| | `roles/run.invoker` | job `convolve-run-due-bots` (first run right after deploy) |
 | Trainer (`convolve-trainer`) | `roles/secretmanager.secretAccessor` | DB URL secret |
 | | `roles/storage.objectAdmin` | `$BUCKET` (bucket-level) |
 | Bots job (`convolve-bots`) | `roles/secretmanager.secretAccessor` | DB URL secret |
-| | `roles/storage.objectViewer` | `$BUCKET` (bucket-level) |
+| | `roles/storage.objectAdmin` | `$BUCKET` (bucket-level; reads models, writes run charts and heatmaps) |
+| Scheduler caller (`convolve-scheduler`) | `roles/run.invoker` | job `convolve-run-due-bots` (includes `run.jobs.run`) |
 
 Staging ran the API and trainer under one account. With separate accounts, if the
 API's execution request is rejected with an `iam.serviceAccounts.actAs` error, grant
@@ -109,9 +113,10 @@ migration is idempotent with the already applied standalone lockdown.
 7. **API.** Deploy the same digest to `convolve-backend-pipeline` with `AUTH_REQUIRED=false`
    first, `TRAINER_EXECUTION=cloud_run_job`, and the API service account. Smoke test with
    the existing frontend.
-8. **Bots job.** Point `convolve-run-due-bots` at the same digest, the bots service account,
-   `MODEL_BUCKET` and the secret-backed `DATABASE_URL`. Keep `SCHEDULED_BOTS_ENABLED` and
-   `LIVE_DEPLOY_ENABLED` as they are today until bots are deliberately re-enabled.
+8. **Bots job.** Fill in `bots-job.yaml` and `gcloud run jobs replace` it (same digest, the
+   bots service account, `MODEL_BUCKET`, the secret-backed `DATABASE_URL`). Keep
+   `SCHEDULED_BOTS_ENABLED` and `LIVE_DEPLOY_ENABLED` false until bots are deliberately
+   re-enabled; see "Scheduled bots" below for the trigger and the enabling sequence.
 9. **Authentication cutover.**
    - Configure Supabase Auth site URL and redirect URLs; deploy the frontend with the
      `VITE_SUPABASE_*` variables.
@@ -122,6 +127,103 @@ migration is idempotent with the already applied standalone lockdown.
    - Set `AUTH_REQUIRED=true` on the API **and** the bots job in the same change.
 10. **Retire leftovers.** Delete the unused `convolve-staging-runner` service account and
     the `convolve-staging` Artifact Registry images once no longer needed.
+
+### Accounts, terms and credits (migration `b9d4e2f7c813`)
+
+`b9d4e2f7c813` follows `... -> f3d9b2c71a40 -> a7c3e5f19b62`; the current head is
+`c5f8a3d1e290` (see "Scheduled bots").
+It is additive: three nullable `profiles` columns (`terms_version`, `privacy_version`,
+`terms_accepted_at`), `credit_ledger.tool`/`note`, a `balance >= 0` check on
+`credit_accounts`, and two new private tables, `user_plans` and `deleted_accounts`, with
+RLS on and anon/authenticated grants revoked. Re-run `03_verify.sql` afterwards and confirm
+both new tables appear as locked down.
+
+- **Credits stay off.** `CREDITS_MODE` defaults to `off`: nothing is granted or charged and
+  the UI shows "Beta". Do not set `CREDITS_MODE=enforce` in production until the monthly
+  allocation, prices and the treatment of existing users are decided. Enforcing grants
+  every user the free plan's one-time 50 credits on first use and charges `RUN_COSTS` in
+  `app/plans.py` per run; failed and interrupted runs are refunded in full, cancelled runs
+  only if they never started, and a startup sweep refunds runs left behind by a crash.
+  There is no HTTP endpoint for adjustments; operators use
+  `app.services.credits.adjust(user_id, delta, note, key)`.
+- **Account deletion and `auth.users`.** Deletion removes the Supabase user with
+  `delete from auth.users` over `DATABASE_URL`. On Supabase the pooler role may not have
+  that privilege. Verify on staging; if the step reports `auth_user` failed, the account
+  is restored (`restore_sign_in`) and the user is told. The least-privilege fix is a
+  `SECURITY DEFINER` function owned by `postgres` that deletes one id, granted only to the
+  API role. The `deleted_accounts` tombstone blocks re-provisioning from a still-valid token
+  across restarts.
+- **Terms.** Signed-in users without the current `TERMS_VERSION` are asked to accept once.
+  Bump `TERMS_VERSION`/`PRIVACY_VERSION` in both `app/services/account.py` and
+  `src/features/legal/meta.ts` (a test checks they match).
+
+### Scheduled bots (migration `c5f8a3d1e290`)
+
+The current head is `c5f8a3d1e290`. It is additive: bot `timeframe`, chart span and slot
+columns; `bot_runs.execution_key` with a unique `(bot_id, execution_key)` constraint;
+`bot_trades.decision_bar_at` and a unique `prediction_run_id`. On a database that already
+holds duplicate runs or trades for one signal the unique constraints fail; check first:
+
+```sql
+select prediction_run_id, count(*) from bot_trades
+where prediction_run_id is not null group by 1 having count(*) > 1;
+```
+
+How execution works:
+
+- **Trigger.** Cloud Scheduler starts `convolve-run-due-bots` every 15 minutes. The job,
+  not the scheduler, decides what is due: each active bot has one slot per day at its
+  `run_time` in its IANA `timezone` (DST-aware). A bot runs once per slot; a missed slot
+  is caught up once, on the latest slot only. The API never polls in cloud
+  (`BOT_INPROCESS_SCHEDULER=false`), so scaling the API cannot start duplicate batches.
+- **First run.** A newly deployed bot is due immediately (it has never finished a slot).
+  The API asks Cloud Run for one `convolve-run-due-bots` execution (`BOT_JOB_NAME`); if that
+  request fails, the next Scheduler tick runs it. Nothing runs inside the HTTP request.
+- **Timeframes.** Scheduled bots support daily (`1d`), weekly (`1wk`) and monthly (`1mo`)
+  bars only; the API rejects anything else and the Deploy page offers only these. Intraday
+  bars are not supported.
+- **Bars.** A run evaluates the latest *completed* bar of the bot's timeframe. Daily bars complete 20 minutes after the venue close; weekly and monthly
+  bars once the next period starts. If there is no new completed bar (weekend, holiday),
+  the slot is recorded as `no_new_data` and nothing is written.
+- **Deduplication.** The run is claimed by inserting `(bot_id, "<timeframe>:<bar date>")`.
+  A second claim for the same bar (Scheduler retry, overlapping execution, manual run,
+  second worker) hits the unique constraint and is skipped. Failed runs are retried by
+  later ticks at most every 15 minutes, 3 attempts per bar; a run stuck in `running` for
+  15 minutes (crashed worker) is taken over. Trades are unique per signal run.
+- **Paper fills.** A BUY fills at the next bar's open plus slippage once that bar has
+  completed; stop loss is checked before take profit within a bar, gaps through the stop
+  fill at the open, and the horizon counts bars. `GET /api/bots/{id}` returns the exact
+  conventions as `execution_assumptions`.
+
+**Why the scheduler returns 403.** `convolve-daily-run` calls the Cloud Run Admin API with
+the default compute service account, which has no permission to run the job. Fix (needs
+approval; read-only check first):
+
+```bash
+gcloud scheduler jobs describe convolve-daily-run --project=$P --location=$R \
+  --format="yaml(schedule,timeZone,httpTarget.uri,httpTarget.oauthToken.serviceAccountEmail)"
+
+gcloud iam service-accounts create convolve-scheduler --project=$P
+gcloud run jobs add-iam-policy-binding convolve-run-due-bots --project=$P --region=$R \
+  --member=serviceAccount:convolve-scheduler@$P.iam.gserviceaccount.com --role=roles/run.invoker
+gcloud scheduler jobs update http convolve-daily-run --project=$P --location=$R \
+  --schedule="*/15 * * * *" --time-zone=Etc/UTC --http-method=POST \
+  --uri="https://run.googleapis.com/v2/projects/$P/locations/$R/jobs/convolve-run-due-bots:run" \
+  --oauth-service-account-email=convolve-scheduler@$P.iam.gserviceaccount.com \
+  --oauth-token-scope=https://www.googleapis.com/auth/cloud-platform
+```
+
+The target is a Google API, so it needs an **OAuth** token; an OIDC token is rejected.
+Whoever runs the update needs `roles/iam.serviceAccountUser` on `convolve-scheduler`.
+
+**Enabling sequence** (each step is a production change):
+
+1. Migrate to `c5f8a3d1e290`, deploy the API and `bots-job.yaml` on one digest with both
+   flags still false. Run the job once by hand; the log must show `run_due_bots_once: no-op`.
+2. Fix the scheduler as above and confirm the next ticks succeed (exit code 0, `no-op`).
+3. Set `LIVE_DEPLOY_ENABLED=true` and `SCHEDULED_BOTS_ENABLED=true` on the API **and** the
+   job in the same change. Watch one slot: the job logs a JSON summary
+   (`due`, `success`, `error`, `no_new_data`, `skipped_idempotent`, ...).
 
 ### Bot runner compatibility
 

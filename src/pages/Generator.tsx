@@ -972,7 +972,7 @@ export default function Generator() {
           <Play className="h-5 w-5" />
           {starting ? "Starting…" : "Generate training dataset"}
         </button>
-        <RunCostHint />
+        <RunCostHint tool="training-chart-generator" />
       </div>
     </div>
   );

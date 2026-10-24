@@ -128,6 +128,7 @@ def add_bot(db: Session, user_id: str, s: Spec, now: datetime) -> Bot:
             run.equity = s.capital + realized + unrealized
             run.pnl = 0.0
         db.add(run)
+        db.flush()  # snapshots reference the run; Postgres checks the foreign key per statement
         if not failed:
             db.add(
                 BotEquitySnapshot(

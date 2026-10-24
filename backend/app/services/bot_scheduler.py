@@ -2,7 +2,8 @@
 In-process paper-bot scheduler.
 
 Polls `run_due_bots_once` on an interval so local `uvicorn` keeps bots running
-without a separate Cloud Run Job. Overlapping ticks are skipped.
+without a separate Cloud Run Job. Overlapping ticks are skipped in-process; duplicate
+executions across processes are prevented in the database (bot_execution).
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import threading
 from typing import Optional
 
 from app.config import (
+    BOT_INPROCESS_SCHEDULER,
     BOT_POLL_INTERVAL_SECONDS,
     LIVE_DEPLOY_ENABLED,
     SCHEDULED_BOTS_ENABLED,
@@ -54,6 +56,9 @@ def _loop() -> None:
 def start_bot_scheduler() -> bool:
     """Start the daemon poller if live + scheduled flags are on. Idempotent."""
     global _started, _thread
+    if not BOT_INPROCESS_SCHEDULER:
+        logger.info("In-process bot scheduler disabled (BOT_INPROCESS_SCHEDULER=false); use the run_due_bots job")
+        return False
     if not LIVE_DEPLOY_ENABLED or not SCHEDULED_BOTS_ENABLED:
         logger.info(
             "Bot scheduler not started (LIVE_DEPLOY_ENABLED=%s, SCHEDULED_BOTS_ENABLED=%s)",

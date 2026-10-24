@@ -29,7 +29,7 @@ OWNER = "convolve_app"
 BROWSER = ("anon", "authenticated")
 PRIVATE = (
     "profiles", "credit_accounts", "credit_ledger", "pipeline_runs", "user_datasets",
-    "user_models", "asset_labels", "bots", "bot_runs", "bot_trades", "bot_equity_snapshots", "alembic_version",
+    "user_models", "asset_labels", "user_plans", "deleted_accounts", "bots", "bot_runs", "bot_trades", "bot_equity_snapshots", "alembic_version",
 )
 
 pytestmark = pytest.mark.skipif(not ADMIN_URL, reason="CONVOLVE_PG_ADMIN_URL not set")

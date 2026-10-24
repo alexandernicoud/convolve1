@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional
 
 from app.models import Bot, BotRun
 from app.services.bot_execution import is_runtime_expired
+from app.services.bot_schedule import is_due, next_slot, utc
 
 
 def derive_bot_status(
@@ -18,61 +19,36 @@ def derive_bot_status(
     """
     Display status for UI (colors). Combines persisted lifecycle_state with runtime hints.
 
-    Returns one of: archived, closed, expired, paused, running, error, waiting, active.
+    Returns one of: archived, closed, expired, paused, running, error, due, waiting.
     """
     ls = getattr(bot, "lifecycle_state", None) or "active"
-    if ls == "archived":
-        return "archived"
-    if ls == "closed":
-        return "closed"
-    if ls == "paused":
-        return "paused"
+    if ls in ("archived", "closed", "paused"):
+        return ls
     if ls == "expired" or is_runtime_expired(bot, now_utc):
         return "expired"
 
     lr = latest_run
     if lr and lr.status == "running":
-        started = lr.run_started_at or lr.run_at
-        if started:
-            if started.tzinfo is None:
-                started = started.replace(tzinfo=timezone.utc)
-            if now_utc - started < timedelta(minutes=30):
-                return "running"
-
+        started = utc(lr.run_started_at or lr.run_at)
+        if started and now_utc - started < timedelta(minutes=30):
+            return "running"
     if lr and lr.status == "error":
         return "error"
-
-    try:
-        from app.jobs.run_due_bots import is_bot_due_now
-
-        if not is_bot_due_now(bot, now_utc):
-            return "waiting"
-    except Exception:
-        pass
-
-    return "active"
+    if is_due(bot, now_utc):
+        return "due"
+    return "waiting"
 
 
 def next_scheduled_run_iso(
     bot: Bot,
     now_utc: datetime,
-    latest_run: Optional[BotRun],
+    latest_run: Optional[BotRun] = None,
 ) -> Optional[str]:
-    """Next analysis instant (UTC ISO). Continuous test: last finish + poll interval."""
+    """Next scheduled check (UTC ISO); None when the bot is not scheduled."""
+    del latest_run
     ls = getattr(bot, "lifecycle_state", None) or "active"
-    if ls in ("closed", "archived", "paused"):
+    if ls != "active" or is_runtime_expired(bot, now_utc):
         return None
-
-    from app.config import BOT_POLL_INTERVAL_SECONDS
-
-    ref = None
-    if latest_run:
-        ref = latest_run.run_finished_at or latest_run.run_started_at or latest_run.run_at
-        if ref is not None and getattr(ref, "tzinfo", None) is None:
-            ref = ref.replace(tzinfo=timezone.utc)
-    if ref is None:
-        return (now_utc + timedelta(seconds=int(BOT_POLL_INTERVAL_SECONDS))).isoformat()
-    nxt = ref + timedelta(seconds=int(BOT_POLL_INTERVAL_SECONDS))
-    if nxt <= now_utc:
-        nxt = now_utc + timedelta(seconds=5)
-    return nxt.isoformat()
+    if is_due(bot, now_utc):
+        return utc(now_utc).isoformat()
+    return next_slot(bot, now_utc).isoformat()

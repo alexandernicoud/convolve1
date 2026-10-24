@@ -431,7 +431,7 @@ def _on_finish(uid: Optional[str], session_id: str, d: str, kind: str):
         except Exception:
             m.logger.exception("Could not write findings for %s", session_id)
         if not meta.get("registered"):
-            m.register_run(session_id, "analysis", f"/tools/analysis?session={session_id}", user_id=uid, status="running")
+            m.register_run(session_id, "analysis", f"/tools/analysis?session={session_id}", user_id=uid, status="running", charge=False)
             meta["registered"] = True
             jobs.write_session(d, meta)
         m.update_run_progress(session_id, 1.0, "done", f"Lab: {kind} completed", "succeeded")

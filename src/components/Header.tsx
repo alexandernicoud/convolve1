@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import logoMark from "@/assets/convolve-mark.png";
 import { isCompactHeaderPathname, useHeaderReveal } from "@/context/HeaderRevealContext";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
+import { isLegalPath } from "@/features/legal/paths";
 import { PRODUCT_PIPELINE_ITEMS } from "@/components/products/productPipelineLinks";
 
 function HeaderCta({ isHomeLanding }: { isHomeLanding: boolean }) {
@@ -32,23 +33,27 @@ function HeaderCta({ isHomeLanding }: { isHomeLanding: boolean }) {
   );
 }
 
-/** Link to the redesigned products page while the original stays on /products. */
-function PreviewLinks({ pathname }: { pathname: string }) {
-  if (isCompactHeaderPathname(pathname)) return null;
-  return (
-    <div className="hidden shrink-0 items-center rounded-full border border-white/[0.1] p-0.5 font-mono text-[10px] uppercase tracking-[0.1em] sm:flex sm:text-[11px] sm:tracking-[0.14em]">
-      <span className="hidden pl-2 pr-1 text-white/30 lg:inline">Preview</span>
-      <Link
-        to="/products2"
-        className={cn(
-          "whitespace-nowrap rounded-full px-2 py-1 transition-colors",
-          pathname === "/products2" ? "bg-white/[0.1] text-white" : "text-white/50 hover:text-white"
-        )}
-      >
-        Products 2
-      </Link>
-    </div>
-  );
+/** Collapses the wordmark once the page scrolls; hysteresis keeps it from flickering at the edge. */
+function useWordmarkCollapsed() {
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const y = window.scrollY;
+      setCollapsed((c) => (c ? y > 12 : y > 64));
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+  return collapsed;
 }
 
 function MainNav({
@@ -74,14 +79,29 @@ function MainNav({
     location.pathname === "/vision" ||
     location.pathname === "/home3" ||
     location.pathname === "/about" ||
-    location.pathname === "/products2";
+    location.pathname === "/pricing" ||
+    location.pathname === "/products" ||
+    isLegalPath(location.pathname);
+  const collapsed = useWordmarkCollapsed();
 
   return (
     <nav className="flex h-20 w-full items-center justify-between gap-3 md:grid md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-4">
       <div className="flex min-w-0 items-center md:justify-self-start">
-        <Link to="/" className="group flex shrink-0 items-center gap-1.5">
+        <Link
+          to="/"
+          aria-label="Convolve home"
+          className="group -ml-1 flex min-h-11 shrink-0 items-center rounded-full p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+        >
           <img src={logoMark} alt="" className="h-11 w-11 object-contain" />
-          <span className="font-sans text-xl font-bold tracking-tight text-white">convolve.</span>
+          <span
+            aria-hidden
+            className={cn(
+              "overflow-hidden whitespace-nowrap font-sans text-xl font-bold tracking-tight text-white transition-[max-width,opacity,margin] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+              collapsed ? "ml-0 max-w-0 opacity-0" : "ml-1.5 max-w-[7.5rem] opacity-100"
+            )}
+          >
+            convolve.
+          </span>
         </Link>
       </div>
 
@@ -196,6 +216,21 @@ function MainNav({
             About
           </Link>
           <Link
+            to="/pricing"
+            className={cn(
+              "whitespace-nowrap text-sm transition-colors",
+              isHomeLanding ?
+                isActive("/pricing") ?
+                  "text-white"
+                : "text-white/55 hover:text-white/90"
+              : isActive("/pricing") ?
+                "font-medium text-foreground"
+              : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Pricing
+          </Link>
+          <Link
             to="/contact"
             className={cn(
               "whitespace-nowrap text-sm transition-colors",
@@ -208,7 +243,6 @@ function MainNav({
       </div>
 
       <div className="flex items-center justify-end gap-2 sm:gap-3 md:justify-self-end">
-        <PreviewLinks pathname={location.pathname} />
         <HeaderCta isHomeLanding={isHomeLanding} />
       </div>
     </nav>

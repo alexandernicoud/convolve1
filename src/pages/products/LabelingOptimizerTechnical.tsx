@@ -432,7 +432,7 @@ export default function LabelingOptimizerTechnical() {
                   </>
                 )}
               </button>
-              <RunCostHint />
+              <RunCostHint tool="labeling-optimizer" />
               <p className="text-center text-[10px] leading-snug text-[rgba(255,255,255,0.42)]">
                 The engine currently runs on symbol + date window; grid fields are saved with the run for the results
                 view and future wiring.

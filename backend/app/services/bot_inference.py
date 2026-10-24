@@ -1,8 +1,9 @@
 """
 Reusable single-bot inference (chart + preprocess + predict).
 
-Uses the same primitives as training-side tooling: bot_runner chart generation,
-tf.keras.utils load_img / img_to_array, /255.0, and model.predict.
+Charts are rendered like the training generator (bot_runner); preprocessing and the
+output interpretation are the shared Trainer/Backtester contract in ``cnn_inference``.
+The caller passes completed bars already cut to the model's chart span.
 
 Grad-CAM is optional: a failure there does not fail the run if prediction succeeded.
 """
@@ -18,7 +19,6 @@ import pandas as pd
 from pathlib import Path
 
 from app.bot_runner import (
-    fetch_market_data,
     generate_chart_image,
     generate_gradcam_heatmap,
     run_model_inference,
@@ -106,7 +106,7 @@ def run_bot_inference(
             debug={"symbol": symbol, "bot_id": bot_id},
         )
 
-    data = market_data if market_data is not None else fetch_market_data(symbol)
+    data = market_data
     if data is None or data.empty:
         return BotInferenceResult(
             ok=False,
@@ -155,8 +155,11 @@ def run_bot_inference(
 
     # --- Required: load model + predict ---
     try:
+        from app.services.cnn_inference import model_io
+
         model = tf.keras.models.load_model(resolved_model_path)
-        confidence = float(run_model_inference(model, chart_path, img_size))
+        debug["model_io"] = model_io(model).as_dict()
+        confidence = float(run_model_inference(model, chart_path))
     except Exception as exc:
         logger.exception("Model load or prediction failed for bot %s", bot_id)
         return _fail(
@@ -171,18 +174,7 @@ def run_bot_inference(
     label_legacy = "LONG" if confidence >= confidence_threshold else "NEUTRAL"
     signal = _label_to_signal(label_legacy)
 
-    pnl_pct: Optional[float] = 0.0
-    if label_legacy == "LONG" and len(data) > 1:
-        last_close = float(data["Close"].iloc[-1])
-        prev_close = float(data["Close"].iloc[-2])
-        daily_return = (last_close - prev_close) / prev_close * 100.0
-        if tp_pct is not None:
-            daily_return = min(daily_return, tp_pct)
-        if sl_pct is not None:
-            daily_return = max(daily_return, -abs(sl_pct))
-        pnl_pct = daily_return
-    else:
-        pnl_pct = 0.0
+    pnl_pct: Optional[float] = None
 
     chart_dt = last_timestamp
     if isinstance(chart_dt, datetime) and chart_dt.tzinfo is None:

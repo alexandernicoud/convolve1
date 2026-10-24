@@ -206,7 +206,7 @@ export function HeroFlow() {
             <span className="text-white/80">convolve.</span> / {hero.symbol} / {CHAIN.modelName}
           </span>
           <span className="ml-auto whitespace-nowrap font-mono text-[11px] text-white/55" aria-live="off">
-            forward pass · <span className="text-white">{STAGES[Math.max(0, stage)]}</span>
+            forward pass · <span className="text-[#a6ecc8]">{STAGES[Math.max(0, stage)]}</span>
           </span>
         </div>
 
@@ -294,7 +294,7 @@ export function HeroFlow() {
         </div>
       </motion.div>
       <div className="mt-3">
-        <ProvenanceTag kind="real" detail={`${hero.symbol} test window, real activations · actual outcome: label ${SAMPLE.label} · bot fleet is demo data`} />
+        <ProvenanceTag kind="real" detail={`${hero.symbol} test window, real activations · actual outcome: label ${SAMPLE.label} · bot fleet is illustrative`} />
       </div>
     </div>
   );

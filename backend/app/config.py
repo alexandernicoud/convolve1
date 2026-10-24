@@ -132,6 +132,13 @@ TRAINER_THREADS = max(1, _env_int("TRAINER_THREADS", 8))
 # Cloud Run execution so a crashed or timed-out job does not stay "running" forever.
 TRAINER_JOB_STALE_SECONDS = max(60, _env_int("TRAINER_JOB_STALE_SECONDS", 300))
 
+# The scheduled bots job (`python -m app.jobs.run_due_bots`). When set, the API starts one
+# execution right after a bot is deployed so its first evaluation does not wait for the next
+# Cloud Scheduler tick. Unset (local): the in-process scheduler picks the bot up.
+BOT_JOB_NAME = os.getenv("BOT_JOB_NAME", "").strip()
+BOT_JOB_PROJECT = (os.getenv("BOT_JOB_PROJECT") or TRAINER_JOB_PROJECT).strip()
+BOT_JOB_REGION = (os.getenv("BOT_JOB_REGION") or TRAINER_JOB_REGION).strip()
+
 # --- API startup: one-shot due-bot batch (the in-process poller is separate) ---
 RUN_BOTS_ON_API_STARTUP = _env_bool("RUN_BOTS_ON_API_STARTUP", False)
 
@@ -141,6 +148,17 @@ RUN_BOTS_ON_API_STARTUP = _env_bool("RUN_BOTS_ON_API_STARTUP", False)
 _local_live_default = APP_PROFILE != "cloud"
 LIVE_DEPLOY_ENABLED = _env_bool("LIVE_DEPLOY_ENABLED", _local_live_default)
 SCHEDULED_BOTS_ENABLED = _env_bool("SCHEDULED_BOTS_ENABLED", _local_live_default)
+
+# --- Credits ---
+# "off": runs are free; nothing is written to the credit ledger (current production).
+# "enforce": runs are charged from the server-side ledger and refused (HTTP 402) without
+# enough credits. Turn on only once pricing and allocations are final.
+_raw_credits_mode = os.getenv("CREDITS_MODE", "off").strip().lower()
+CREDITS_MODE = _raw_credits_mode if _raw_credits_mode in ("off", "enforce") else "off"
+
+# Poll for due bots inside the API process. Local development only: in cloud, Cloud Scheduler
+# triggers the `run_due_bots` Cloud Run job and API instances must not poll.
+BOT_INPROCESS_SCHEDULER = _env_bool("BOT_INPROCESS_SCHEDULER", APP_PROFILE != "cloud")
 
 # How often the in-process (or worker) scheduler looks for due bots.
 BOT_POLL_INTERVAL_SECONDS = max(15, _env_int("BOT_POLL_INTERVAL_SECONDS", 60))

@@ -161,7 +161,7 @@ export default function Optimizer() {
         >
           {status === 'running' ? 'Optimizing...' : 'Run optimization'}
         </button>
-        <RunCostHint />
+        <RunCostHint tool="optimizer" />
       </div>
     </div>
   );

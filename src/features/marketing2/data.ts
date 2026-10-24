@@ -138,7 +138,7 @@ function load<T>(name: string): T {
 
 export const asset = (file: string): string => images[`./assets/${file}`] ?? "";
 
-/** Screenshots of real local result pages, captured from the running app (see Showcase). */
+/** Screenshots of real result pages (see Showcase). */
 const screens = import.meta.glob("./assets/screen_*.webp", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
 export const screen = (name: string): string => screens[`./assets/screen_${name}.webp`] ?? "";
 
@@ -158,7 +158,7 @@ export const CHAIN = {
   generatorRun: "20261022_113907_e12694",
   dataset: "bdef3136",
   trainingRun: "20261022_114349_8b4c43",
-  modelName: "MSFT4000.keras",
+  modelName: "MSFT4000",
   modelFingerprint: "0afb97e7",
   labSession: "lab_20261022_120557_630ba9",
   testSet: "bc4cb464",
@@ -167,6 +167,6 @@ export const CHAIN = {
 
 export const PROVENANCE: Record<Provenance, string> = {
   real: "Real data",
-  reconstructed: "Reconstructed from a real run",
+  reconstructed: "Based on a real run",
   illustrative: "Illustrative data",
 };

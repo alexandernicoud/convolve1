@@ -499,7 +499,7 @@ export function ModelLab({ progress }: { progress?: MotionValue<number> }) {
       ) : null}
       <Explorer phase={phase} />
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <ProvenanceTag kind="real" detail="MSFT model · 6 test windows · Analysis Lab code" />
+        <ProvenanceTag kind="real" detail="MSFT model · 6 test windows · computed with the Analysis Lab" />
         <span className="font-mono text-[10.5px] text-white/30">Maps share the chart's 224 × 224 pixel grid</span>
       </div>
     </div>

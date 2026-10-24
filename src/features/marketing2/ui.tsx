@@ -5,6 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import logoMark from "@/assets/convolve-mark.png";
+import { LEGAL_LINKS } from "@/features/legal/meta";
 import { PROVENANCE, type Provenance } from "./data";
 
 export const EASE = [0.16, 1, 0.3, 1] as const;
@@ -262,7 +263,8 @@ export function M2Footer() {
   const links: [string, string][] = [
     ["Home", "/"],
     ["About", "/about"],
-    ["Products", "/products2"],
+    ["Pricing", "/pricing"],
+    ["Products", "/products"],
     ["Contact", "/contact"],
     ["Sign in", "/login"],
   ];
@@ -287,8 +289,15 @@ export function M2Footer() {
           ))}
         </nav>
       </Container>
-      <Container className="pb-10 font-mono text-[11px] uppercase tracking-[0.18em] text-white/25">
-        © {new Date().getFullYear()} Convolve
+      <Container className="flex flex-col gap-4 pb-10 sm:flex-row sm:items-center sm:justify-between">
+        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/25">© {new Date().getFullYear()} Convolve</span>
+        <nav className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-white/40" aria-label="Legal">
+          {LEGAL_LINKS.map((l) => (
+            <Link key={l.href} to={l.href} className="transition-colors hover:text-white">
+              {l.label}
+            </Link>
+          ))}
+        </nav>
       </Container>
     </footer>
   );

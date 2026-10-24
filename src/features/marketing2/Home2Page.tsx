@@ -4,6 +4,7 @@ import { MotionConfig, motion, useReducedMotion, useScroll, useTransform, type M
 import { screen } from "./data";
 import { Container, EASE, Kicker, M2Footer, Pinned, PrimaryCta, ScrollIn, SecondaryCta, SectionHead, usePinEnabled, useStartHref } from "./ui";
 import { DatasetAssembly } from "./visuals/DatasetAssembly";
+import { HeroContours } from "./visuals/HeroContours";
 import { HeroFlow } from "./visuals/HeroFlow";
 import { Mathematics } from "./visuals/Mathematics";
 import { ModelLab } from "./visuals/ModelLab";
@@ -24,9 +25,10 @@ function Hero() {
   const consoleY = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : 50]);
   const enter = (delay: number) =>
     reduce ? {} : { initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.9, ease: EASE, delay } };
-  const lines = ["Build your own", "CNN trading models."];
+  const lines = ["Build your own", "CNN trading models"];
   return (
-    <section ref={ref} className="relative">
+    <section ref={ref} className="relative isolate">
+      <HeroContours />
       <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-[260px] border-t border-white/[0.07] bg-gradient-to-b from-[#0c0d0f] to-[#050506] lg:block" />
       <Container className="relative pb-16 pt-10 lg:pb-14 lg:pt-12">
         <motion.div style={{ opacity: fade, y: textY }}>
@@ -43,6 +45,7 @@ function Hero() {
                   transition={{ duration: 1.1, ease: EASE, delay: 0.1 + i * 0.12 }}
                 >
                   {l}
+                  {i === 1 && <span className="text-[#a6ecc8]">.</span>}
                 </motion.span>
               </span>
             ))}
@@ -55,7 +58,7 @@ function Hero() {
               Research them, backtest them fairly and deploy the ones that hold up as paper bots.
             </motion.p>
             <motion.div className="mt-6 inline-flex w-fit items-center gap-2 rounded-full border border-white/[0.14] px-3.5 py-1.5 text-[14.5px] text-white/85" {...enter(0.48)}>
-              <span className="h-1.5 w-1.5 rounded-full bg-white" aria-hidden />
+              <span className="h-1.5 w-1.5 rounded-full bg-[#a6ecc8]" aria-hidden />
               No code required
             </motion.div>
             <motion.div className="mt-9 flex flex-wrap gap-3" {...enter(0.55)}>
@@ -245,7 +248,7 @@ export default function Home2Page() {
 
         <section id="workspace" className="scroll-mt-20 border-t border-white/[0.06] pb-20 pt-24 lg:pb-28 lg:pt-32">
           <Container>
-            <SectionHead index="02" label="The workspace" title="Inside the research workspace." intro="Six connected tools, each shown on a real local research run." />
+            <SectionHead index="02" label="The workspace" title="Inside the research workspace." intro="Six connected tools, each shown on a real research run." />
             <div className="mt-12 lg:mt-6">
               <Showcase />
             </div>

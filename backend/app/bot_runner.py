@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -22,15 +23,17 @@ _BULL_BODY = "#0d8f4a"
 _BEAR_BODY = "#c41e1e"
 
 
-def fetch_market_data(symbol: str) -> pd.DataFrame:
-    end = datetime.utcnow()
-    start = end - relativedelta(months=6)
-    data = yf.Ticker(symbol).history(
+def fetch_market_data(symbol: str, interval: str = "1d", start: Optional[date] = None) -> pd.DataFrame:
+    """Adjusted OHLCV bars up to today. The last bar may still be forming; callers that
+    decide or settle trades must drop it (bot_schedule.completed_bars)."""
+    end = datetime.now(timezone.utc).date() + timedelta(days=1)  # yfinance's end is exclusive
+    start = start or (end - relativedelta(months=6))
+    return yf.Ticker(symbol).history(
         start=start.strftime("%Y-%m-%d"),
         end=end.strftime("%Y-%m-%d"),
-        interval="1d",
+        interval=interval,
+        auto_adjust=True,
     )
-    return data
 
 
 def _make_figure_pair(img_dim: int):
@@ -138,33 +141,25 @@ def generate_chart_image(data: pd.DataFrame, output_path: str, image_size: int) 
     _savefig_transparent(fig, output_path)
 
 
-def _normalize_prediction(prediction: np.ndarray) -> float:
-    if prediction.ndim == 2 and prediction.shape[0] == 1:
-        return float(prediction[0][0])
-    if prediction.ndim == 1:
-        return float(prediction[0])
-    return float(np.ravel(prediction)[0])
-
-
-def run_model_inference(model, image_path: str, img_size: int) -> float:
+def run_model_inference(model, image_path: str, img_size: Optional[int] = None) -> float:
+    """P(label 1) for one chart through the shared Trainer/Backtester contract (cnn_inference):
+    the model's own input size, and column 1 of a 2-unit softmax head. ``img_size`` is unused
+    and kept for callers that still pass it."""
     import tensorflow as tf
 
-    # Match trainer: decode PNG as RGB (drop alpha), resize, /255.
-    raw = tf.io.read_file(image_path)
-    image = tf.image.decode_png(raw, channels=3)
-    image = tf.image.resize(image, [img_size, img_size], method=tf.image.ResizeMethod.AREA)
-    img_arr = tf.expand_dims(tf.cast(image, tf.float32) / 255.0, axis=0)
-    prediction = model.predict(img_arr, verbose=0)
-    return _normalize_prediction(np.asarray(prediction))
+    from app.services.cnn_inference import model_io, positive_probability, preprocess_tensor
+
+    io = model_io(model)
+    batch = tf.expand_dims(preprocess_tensor(image_path, io.input_size), axis=0)
+    raw = model(batch, training=False)
+    return float(positive_probability(np.asarray(raw), io.head)[0])
 
 
 def _prediction_loss(predictions):
-    import tensorflow as tf
-
+    # Explain P(label 1): the sigmoid unit, or column 1 of a 2-unit softmax.
     if predictions.shape[-1] == 1:
         return predictions[:, 0]
-    cls = int(tf.argmax(predictions[0]))
-    return predictions[:, cls]
+    return predictions[:, 1]
 
 
 def _normalize_cam(heat: np.ndarray, img_size: int) -> np.ndarray:
@@ -190,10 +185,10 @@ def generate_gradcam_heatmap(
     """Always write a chart overlay. Prefer Grad-CAM; fall back to input-gradient saliency."""
     import tensorflow as tf
 
-    raw = tf.io.read_file(image_path)
-    image = tf.image.decode_png(raw, channels=3)
-    image = tf.image.resize(image, [img_size, img_size], method=tf.image.ResizeMethod.AREA)
-    img_arr = tf.expand_dims(tf.cast(image, tf.float32) / 255.0, axis=0)
+    from app.services.cnn_inference import model_io, preprocess_tensor
+
+    img_size = model_io(model).input_size[0]
+    img_arr = tf.expand_dims(preprocess_tensor(image_path, model_io(model).input_size), axis=0)
 
     # Keras 3 Sequential has no .output until it has been called.
     _ = model(img_arr, training=False)

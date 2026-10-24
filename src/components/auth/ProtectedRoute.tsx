@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { parseOAuthCallbackError, urlHasAuthCallbackParams } from "@/lib/authRedirect";
+import { TermsGate } from "./TermsConsent";
 
 export function isProtectedAppPath(pathname: string): boolean {
   if (pathname.startsWith("/tools/")) return true;
@@ -53,5 +54,5 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
   }
 
-  return <>{children}</>;
+  return <TermsGate>{children}</TermsGate>;
 }

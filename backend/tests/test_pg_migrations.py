@@ -24,7 +24,7 @@ from sqlalchemy.engine import make_url
 BACKEND = Path(__file__).resolve().parents[1]
 ADMIN_URL = os.getenv("CONVOLVE_PG_ADMIN_URL", "").strip()
 BASELINE = "289c17a09fbb"
-HEAD = "a7c3e5f19b62"
+HEAD = "c5f8a3d1e290"
 UUID_COLUMNS = {
     ("profiles", "id"),
     ("credit_accounts", "user_id"),
@@ -34,6 +34,8 @@ UUID_COLUMNS = {
     ("user_datasets", "user_id"),
     ("user_models", "user_id"),
     ("asset_labels", "user_id"),
+    ("user_plans", "user_id"),
+    ("deleted_accounts", "user_id"),
 }
 
 needs_pg = pytest.mark.skipif(not ADMIN_URL, reason="CONVOLVE_PG_ADMIN_URL not set")

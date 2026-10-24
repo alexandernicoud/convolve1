@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 export const BOT_STATUS_BADGE_CLASS: Record<string, string> = {
   active: "border border-white/25 bg-white/[0.08] text-white",
   waiting: "border border-white/20 bg-white/[0.05] text-white/90",
+  due: "border border-white/25 bg-white/[0.08] text-white",
   running: "border border-white/25 bg-white/[0.08] text-white",
   error: "border border-white/30 bg-white/[0.06] text-white",
   paused: "border border-white/18 bg-white/[0.04] text-white/85",

@@ -190,7 +190,7 @@ const TOOLS: Tool[] = [
     title: "Trace any result to its inputs",
     summary: "Datasets, models, analyses and backtests, linked to what produced them.",
     provenance: "real",
-    source: "Local workspace · 56 nodes, 60 links",
+    source: "Example workspace · 56 nodes, 60 links",
     views: [{ key: "lin", label: "Lineage", heading: "Trace every result to its inputs.", path: SHOT.lineage.path, shot: SHOT.lineage }],
   },
 ];
@@ -411,7 +411,6 @@ function PinnedShowcase() {
             </AppFrame>
             <div className="mt-3 flex items-center justify-between gap-3">
               <ProvenanceTag kind={tool.provenance} detail={tool.source} />
-              <span className="hidden text-[12.5px] text-white/35 sm:inline">{view.shot ? "Screenshot of the running app" : "Live, from the run's saved outputs"}</span>
             </div>
           </div>
         </div>

@@ -5,7 +5,6 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Thread
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -13,10 +12,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from app.bot_runner import fetch_market_data
 from app.config import (
     BOT_DATA_DIR,
-    BOT_SCHEDULE_TIME,
     BOT_SCHEDULE_TZ,
     LIVE_DEPLOY_ENABLED,
 )
@@ -33,11 +30,16 @@ from app.schemas.bot import (
 )
 from app.services.bot_status import derive_bot_status, next_scheduled_run_iso
 from app.services.bot_trading_payload import build_trading_detail_full
-from app.services.trade_lifecycle import (
-    close_all_open_trades_manual,
-    record_equity_snapshot,
+from app.services import bot_jobs, paper_engine
+from app.services.bot_schedule import CHART_SPAN_UNITS, TIMEFRAMES, valid_timezone
+from app.services.trade_lifecycle import record_equity_snapshot
+from app.services.bot_execution import (
+    BotNotExecutable,
+    MarketDataUnavailable,
+    execute_bot_run,
+    is_runtime_expired,
+    load_completed_bars,
 )
-from app.services.bot_execution import BotNotExecutable, execute_bot_run, is_runtime_expired
 from app.ownership import bot_scope_clause, bot_scope_owner_id, bot_write_owner_id
 
 
@@ -82,6 +84,51 @@ def _normalize_run_time_hhmm(raw: str) -> str:
     return f"{h:02d}:{m:02d}"
 
 
+def _validate_bot_config(
+    *,
+    tp_pct: float,
+    sl_pct: float,
+    confidence_threshold: float,
+    starting_capital: float,
+    horizon_bars: int,
+    position_size_pct: float,
+    commission_pct: float,
+    slippage_pct: float,
+    runtime_days: Optional[int],
+    timezone_name: str,
+    timeframe: str,
+    chart_span_unit: Optional[str],
+    chart_span_count: Optional[int],
+) -> None:
+    problems = []
+    if not (tp_pct > 0):
+        problems.append("take profit must be positive")
+    if not (0 < sl_pct < 100):
+        problems.append("stop loss must be between 0 and 100%")
+    if not (0 < confidence_threshold < 1):
+        problems.append("confidence threshold must be between 0 and 1")
+    if not (starting_capital > 0):
+        problems.append("starting capital must be positive")
+    if not (1 <= horizon_bars <= 260):
+        problems.append("horizon must be 1-260 bars")
+    if not (0 < position_size_pct <= 100):
+        problems.append("position size must be in (0, 100]%")
+    if commission_pct < 0 or slippage_pct < 0 or commission_pct > 5 or slippage_pct > 5:
+        problems.append("commission and slippage must be between 0 and 5%")
+    if runtime_days is not None and runtime_days < 1:
+        problems.append("runtime must be at least one day")
+    if not valid_timezone(timezone_name or ""):
+        problems.append("unknown timezone")
+    if timeframe not in TIMEFRAMES:
+        problems.append(f"timeframe must be one of {', '.join(TIMEFRAMES)}")
+    if (chart_span_unit is None) != (chart_span_count is None):
+        problems.append("chart span needs both a unit and a count")
+    elif chart_span_unit is not None and (chart_span_unit not in CHART_SPAN_UNITS or not (0 < int(chart_span_count) <= 520)):
+        problems.append("invalid chart span")
+    if problems:
+        raise HTTPException(status_code=400, detail="; ".join(problems).capitalize())
+
+
 def _user_scope_filter(owner_id: str):
     return bot_scope_clause(owner_id)
 
@@ -113,6 +160,23 @@ def _safe_path(path: str) -> str:
     return str(resolved)
 
 
+def _artifact_file(stored: str, bot_id: str, run_id: str, name: str) -> Optional[str]:
+    """Local path for a run artifact; bucket copies (scheduled job runs) are fetched once."""
+    if stored.startswith("gcs://"):
+        from app.services.durable_outputs import get_artifact_store
+
+        dest = Path(BOT_DATA_DIR) / "runs" / bot_id / "_remote" / run_id / name
+        if not dest.is_file():
+            try:
+                get_artifact_store().materialize(stored, dest)
+            except Exception:
+                logger.warning("Could not fetch %s for bot run %s", name, run_id, exc_info=True)
+                return None
+        return str(dest)
+    file_path = _safe_path(stored)
+    return file_path if os.path.exists(file_path) else None
+
+
 def _enrich_bot_out(db: Session, bot: Bot) -> BotOut:
     latest_run = (
         db.query(BotRun)
@@ -131,6 +195,7 @@ def _enrich_bot_out(db: Session, bot: Bot) -> BotOut:
             "derived_status": status,
             "lifecycle_state": getattr(bot, "lifecycle_state", "active"),
             "next_scheduled_run_iso": next_iso,
+            "execution_assumptions": paper_engine.assumptions(bot),
         }
     )
 
@@ -158,17 +223,30 @@ async def create_bot(
     slippage_pct: float = Form(0.05),
     run_time: str = Form(..., description="Daily run time HH:MM or HH.MM in the bot timezone"),
     timezone: str = Form(default=BOT_SCHEDULE_TZ),
+    timeframe: str = Form("1d"),
+    chart_span_unit: Optional[str] = Form(None),
+    chart_span_count: Optional[int] = Form(None),
     source_model_id: Optional[str] = Form(None),
     source_training_run_id: Optional[str] = Form(None),
     source_backtest_run_id: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     owner_id: str = Depends(bot_write_owner_id),
 ):
-    if tp_pct <= 0 or sl_pct <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="tp_pct and sl_pct must be positive",
-        )
+    _validate_bot_config(
+        tp_pct=tp_pct,
+        sl_pct=sl_pct,
+        confidence_threshold=confidence_threshold,
+        starting_capital=starting_capital,
+        horizon_bars=horizon_days,
+        position_size_pct=position_size_pct,
+        commission_pct=commission_pct,
+        slippage_pct=slippage_pct,
+        runtime_days=runtime_days,
+        timezone_name=timezone,
+        timeframe=timeframe,
+        chart_span_unit=chart_span_unit,
+        chart_span_count=chart_span_count,
+    )
     schedule_time = _normalize_run_time_hhmm(run_time)
     from_library = bool(source_model_id or source_training_run_id)
     supplied = sum((model_file is not None, bool(model_upload_id), from_library))
@@ -209,6 +287,9 @@ async def create_bot(
         runtime_days=runtime_days,
         run_time=schedule_time,
         timezone=timezone or BOT_SCHEDULE_TZ,
+        timeframe=timeframe,
+        chart_span_unit=chart_span_unit if chart_span_count else None,
+        chart_span_count=chart_span_count if chart_span_unit else None,
         starting_capital=starting_capital,
         horizon_days=horizon_days,
         position_size_pct=position_size_pct,
@@ -224,22 +305,9 @@ async def create_bot(
     db.add(bot)
     db.commit()
     db.refresh(bot)
-    if LIVE_DEPLOY_ENABLED:
-        def _first_run(bot_id: str) -> None:
-            from app.db import SessionLocal
-
-            session = SessionLocal()
-            try:
-                fresh = session.query(Bot).filter(Bot.id == bot_id).first()
-                if fresh is None:
-                    return
-                execute_bot_run(session, fresh)
-            except Exception:
-                logger.exception("Initial paper run failed for bot %s", bot_id)
-            finally:
-                session.close()
-
-        Thread(target=_first_run, args=(bot.id,), name=f"bot-first-run-{bot.id[:8]}", daemon=True).start()
+    # The new bot is due (bot_schedule.is_due): its first run goes through the same job and
+    # per-bar claim as scheduled runs. Starting the job now only removes the wait for the next tick.
+    bot_jobs.request_batch()
 
     return _enrich_bot_out(db, bot)
 
@@ -335,11 +403,14 @@ def resume_bot(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depen
 def close_bot_lifecycle(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depends(bot_scope_owner_id)):
     _require_live_deploy()
     bot = _get_bot(db, bot_id, owner_id)
-    market_data = fetch_market_data(bot.symbol)
-    if market_data is None or market_data.empty:
-        raise HTTPException(status_code=400, detail="No market data to close positions")
+    if bot.lifecycle_state in ("closed", "archived"):
+        raise HTTPException(status_code=400, detail="Bot is already stopped")
+    try:
+        market_data = load_completed_bars(db, bot, datetime.now(timezone.utc))
+    except MarketDataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"{exc}. Open positions were not closed; try again later.") from exc
 
-    close_all_open_trades_manual(db, bot, market_data, exit_run_id=None)
+    paper_engine.close_all(db, bot, market_data)
     db.flush()
     bot.lifecycle_state = "closed"
     bot.is_active = False
@@ -403,10 +474,13 @@ def _manual_run_response(bot_id: str, db: Session, owner_id: str) -> BotRunOut:
     bot = _get_bot(db, bot_id, owner_id)
     _assert_bot_runnable(bot)
     try:
-        run, _outcome = execute_bot_run(db, bot)
+        run, outcome = execute_bot_run(db, bot, trigger="manual")
     except BotNotExecutable as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return BotRunOut.model_validate(run)
+    except MarketDataUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    out = BotRunOut.model_validate(run)
+    return out.model_copy(update={"outcome": outcome.value})
 
 
 @router.post("/{bot_id}/run", response_model=BotRunOut)
@@ -448,8 +522,8 @@ def get_run_chart(bot_id: str, run_id: str, db: Session = Depends(get_db), owner
     )
     if not run or not run.chart_path:
         raise HTTPException(status_code=404, detail="Chart not found")
-    file_path = _safe_path(run.chart_path)
-    if not os.path.exists(file_path):
+    file_path = _artifact_file(run.chart_path, bot_id, run_id, "chart.png")
+    if not file_path:
         raise HTTPException(status_code=404, detail="Chart not found")
     return FileResponse(
         file_path,
@@ -467,8 +541,8 @@ def get_run_heatmap(bot_id: str, run_id: str, db: Session = Depends(get_db), own
     )
     if not run or not run.heatmap_path:
         raise HTTPException(status_code=404, detail="Heatmap not found")
-    file_path = _safe_path(run.heatmap_path)
-    if not os.path.exists(file_path):
+    file_path = _artifact_file(run.heatmap_path, bot_id, run_id, "heatmap.png")
+    if not file_path:
         raise HTTPException(status_code=404, detail="Heatmap not found")
     return FileResponse(
         file_path,

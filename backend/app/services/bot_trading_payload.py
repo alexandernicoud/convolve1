@@ -9,7 +9,6 @@ from typing import Optional
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from app.bot_runner import fetch_market_data
 from app.models import Bot, BotEquitySnapshot, BotRun, BotTrade
 from app.schemas.bot import (
     BotConfigSectionOut,
@@ -23,12 +22,12 @@ from app.schemas.bot import (
     BotTradeOut,
     BotTradingDetailFullOut,
 )
+from app.services import paper_engine
+from app.services.bot_execution import load_completed_bars
 from app.services.bot_status import derive_bot_status, next_scheduled_run_iso
 from app.services.fleet_db import trade_win_rate_db
 from app.services.trade_lifecycle import (
     TRADE_OPEN,
-    _apply_slippage_exit_long,
-    _commission_round_trip,
     _last_bar_ohlc,
     all_closed_trade_statuses,
     compute_equity_and_unrealized,
@@ -42,13 +41,7 @@ logger = logging.getLogger(__name__)
 def _per_trade_unrealized(bot: Bot, trade: BotTrade, market_data: pd.DataFrame) -> float:
     if market_data is None or market_data.empty:
         return 0.0
-    _, _o, _h, _l, close = _last_bar_ohlc(market_data)
-    slip = float(bot.slippage_pct)
-    exit_mark = _apply_slippage_exit_long(close, slip)
-    comm = float(bot.commission_pct)
-    gross = trade.position_notional * (exit_mark - trade.entry_price) / trade.entry_price
-    fees = _commission_round_trip(trade.position_notional, comm)
-    return gross - fees
+    return paper_engine.unrealized(bot, trade, float(market_data["Close"].iloc[-1]))
 
 
 def build_trading_detail_full(
@@ -59,7 +52,7 @@ def build_trading_detail_full(
 ) -> BotTradingDetailFullOut:
     if market_data is None:
         try:
-            market_data = fetch_market_data(bot.symbol)
+            market_data = load_completed_bars(db, bot, datetime.now(timezone.utc))
         except Exception as exc:
             logger.warning(
                 "fetch_market_data failed for symbol=%s bot=%s: %s",

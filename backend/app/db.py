@@ -179,11 +179,39 @@ def _sqlite_migrate(engine: Engine) -> None:
         ("pipeline_runs", "artifact_ref", "TEXT"),
         ("pipeline_runs", "worker_id", "TEXT"),
         ("pipeline_runs", "finished_at", "TIMESTAMP"),
+        ("profiles", "terms_version", "TEXT"),
+        ("profiles", "privacy_version", "TEXT"),
+        ("profiles", "terms_accepted_at", "TIMESTAMP"),
+        ("credit_ledger", "tool", "TEXT"),
+        ("credit_ledger", "note", "TEXT"),
+        ("bots", "timeframe", "TEXT"),
+        ("bots", "chart_span_unit", "TEXT"),
+        ("bots", "chart_span_count", "INTEGER"),
+        ("bots", "last_slot_at", "TIMESTAMP"),
+        ("bots", "last_attempt_at", "TIMESTAMP"),
+        ("bot_runs", "execution_key", "TEXT"),
+        ("bot_runs", "trigger", "TEXT"),
+        ("bot_runs", "attempts", "INTEGER"),
+        ("bot_runs", "decision_bar_at", "TIMESTAMP"),
+        ("bot_runs", "entry_state", "TEXT"),
+        ("bot_trades", "decision_bar_at", "TIMESTAMP"),
+        ("bot_trades", "outcome_flags", "TEXT"),
+        ("bot_trades", "bars_held", "INTEGER"),
     ]
 
     with engine.begin() as conn:
         for table, col, typ in columns:
             _sqlite_add_column(conn, table, col, typ)
+
+        # Older files predate these constraints; a unique index enforces the same rule.
+        for name, table, cols in (
+            ("uq_bot_runs_bot_execution_key", "bot_runs", "bot_id, execution_key"),
+            ("uq_bot_trades_prediction_run", "bot_trades", "prediction_run_id"),
+        ):
+            try:
+                conn.execute(text(f'CREATE UNIQUE INDEX IF NOT EXISTS "{name}" ON "{table}" ({cols})'))
+            except Exception as e:
+                logger.error("SQLite unique index %s not created (duplicate rows?): %s", name, e)
 
         try:
             conn.execute(

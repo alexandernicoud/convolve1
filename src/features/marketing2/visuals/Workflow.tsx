@@ -171,7 +171,7 @@ const STAGES: Stage[] = [
     name: "Deploy",
     doing: "Attach the model to a symbol and schedule.",
     artifact: "Paper trading bot",
-    id: "paper wallet · demo fleet",
+    id: "paper wallet · illustrative fleet",
     body: (
       <div className="h-full p-2.5">
         <FleetThumb />

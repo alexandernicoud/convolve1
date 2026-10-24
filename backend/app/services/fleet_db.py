@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import func
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models import Bot, BotEquitySnapshot, BotRun, BotTrade
 from app.ownership import bot_scope_clause
 from app.services.backtest_api import strip_paths
+from app.services.bot_schedule import is_due
 from app.services.bot_status import derive_bot_status, next_scheduled_run_iso
 from app.services.fleet import (
     ACTIVITY_WINDOW,
@@ -22,6 +23,8 @@ from app.services.fleet import (
     TradeIn,
     infer_currency,
 )
+
+OVERDUE_AFTER = timedelta(hours=1)
 
 
 def as_utc(dt: Optional[datetime]) -> Optional[datetime]:
@@ -147,6 +150,7 @@ def load_fleet_inputs(db: Session, owner_id: str, now: datetime) -> Tuple[List[B
                 errors_recent=errors[b.id],
                 last_error=(strip_paths(latest.error_message) if latest is not None and latest.status == "error" else None),
                 next_run_at=next_scheduled_run_iso(b, now, latest),
+                overdue=(b.lifecycle_state or "active") == "active" and is_due(b, now - OVERDUE_AFTER),
                 source_backtest_run_id=b.source_backtest_run_id,
                 currency=ccy,
                 currency_source=src,

@@ -22,6 +22,9 @@ def _own(run_id, user):
     from app.db import SessionLocal
     from app.models import PipelineRun
 
+    from app.auth import ensure_profile
+
+    ensure_profile(uuid.UUID(str(user)))
     db = SessionLocal()
     try:
         db.add(PipelineRun(id=run_id, user_id=user, tool="backtester", status="succeeded"))

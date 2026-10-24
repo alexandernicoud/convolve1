@@ -1,6 +1,7 @@
 import uuid
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -38,8 +39,16 @@ class Bot(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     # active | paused | closed | archived | expired — source of truth for scheduling UX
     lifecycle_state = Column(String, nullable=False, default="active", index=True)
+    # Bar timeframe ("1d" | "1wk" | "1mo"; NULL = "1d") and the chart window the model was trained on.
+    timeframe = Column(String, nullable=True)
+    chart_span_unit = Column(String, nullable=True)  # "days" | "weeks" | "months" | "years"
+    chart_span_count = Column(Integer, nullable=True)
+    # Most recent scheduled instant this bot has handled, and the last time the job tried it.
+    last_slot_at = Column(DateTime(timezone=True), nullable=True)
+    last_attempt_at = Column(DateTime(timezone=True), nullable=True)
     # Trading / sizing (defaults align with typical backtester deploy)
     starting_capital = Column(Float, nullable=False, default=10000.0)
+    # Horizon in bars of `timeframe` (column name predates bar semantics).
     horizon_days = Column(Integer, nullable=False, default=5)
     position_size_pct = Column(Float, nullable=False, default=10.0)
     commission_pct = Column(Float, nullable=False, default=0.1)
@@ -69,9 +78,17 @@ class Bot(Base):
 
 class BotRun(Base):
     __tablename__ = "bot_runs"
+    __table_args__ = (UniqueConstraint("bot_id", "execution_key", name="uq_bot_runs_bot_execution_key"),)
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     bot_id = Column(String, ForeignKey("bots.id", ondelete="CASCADE"), nullable=False, index=True)
+    # "<timeframe>:<decision bar date>"; one execution per bot and completed bar. NULL on legacy rows.
+    execution_key = Column(String, nullable=True)
+    trigger = Column(String, nullable=True)  # schedule | manual | deploy
+    attempts = Column(Integer, nullable=True)
+    decision_bar_at = Column(DateTime(timezone=True), nullable=True)
+    # BUY handling: pending (enters at the next bar's open) | filled | skipped_position_open | cancelled
+    entry_state = Column(String, nullable=True)
     run_at = Column(DateTime(timezone=True), nullable=False)
     run_started_at = Column(DateTime(timezone=True), nullable=True)
     run_finished_at = Column(DateTime(timezone=True), nullable=True)
@@ -95,10 +112,13 @@ class BotTrade(Base):
     """A position opened from a BUY prediction; closed by TP/SL/horizon or expiry."""
 
     __tablename__ = "bot_trades"
+    __table_args__ = (UniqueConstraint("prediction_run_id", name="uq_bot_trades_prediction_run"),)
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     bot_id = Column(String, ForeignKey("bots.id", ondelete="CASCADE"), nullable=False, index=True)
     prediction_run_id = Column(String, ForeignKey("bot_runs.id", ondelete="SET NULL"), nullable=True, index=True)
+    decision_bar_at = Column(DateTime(timezone=True), nullable=True)
+    outcome_flags = Column(Text, nullable=True)
     entry_date = Column(Date, nullable=False)
     entry_price = Column(Float, nullable=False)
     position_notional = Column(Float, nullable=False)
@@ -111,6 +131,7 @@ class BotTrade(Base):
     exit_price = Column(Float, nullable=True)
     exit_reason = Column(String, nullable=True)
     exit_run_id = Column(String, ForeignKey("bot_runs.id", ondelete="SET NULL"), nullable=True)
+    bars_held = Column(Integer, nullable=True)
     pnl_amount = Column(Float, nullable=True)
     pnl_pct = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -143,6 +164,10 @@ class Profile(Base):
     id = Column(Uuid(as_uuid=True), primary_key=True)
     email = Column(String, nullable=True)
     display_name = Column(String, nullable=True)
+    # Versions of the Terms / Privacy Policy the user accepted, and when (server clock).
+    terms_version = Column(String, nullable=True)
+    privacy_version = Column(String, nullable=True)
+    terms_accepted_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -160,6 +185,7 @@ class Profile(Base):
 
 class CreditAccount(Base):
     __tablename__ = "credit_accounts"
+    __table_args__ = (CheckConstraint("balance >= 0", name="ck_credit_accounts_balance_nonnegative"),)
 
     user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
     balance = Column(Integer, nullable=False, default=0)
@@ -169,6 +195,8 @@ class CreditAccount(Base):
 
 
 class CreditLedgerEntry(Base):
+    """Append-only. ``reason`` is grant | allocation | charge | refund | adjustment."""
+
     __tablename__ = "credit_ledger"
     __table_args__ = (UniqueConstraint("idempotency_key", name="uq_credit_ledger_idempotency_key"),)
 
@@ -179,9 +207,40 @@ class CreditLedgerEntry(Base):
     reason = Column(String, nullable=False)
     idempotency_key = Column(Text, nullable=False)
     run_id = Column(String, nullable=True, index=True)
+    tool = Column(String, nullable=True)
+    note = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     profile = relationship("Profile", back_populates="ledger_entries")
+
+
+class UserPlan(Base):
+    """Which plan a user is on. Holds no payment data; billing is not implemented."""
+
+    __tablename__ = "user_plans"
+
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    plan_id = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="active")
+    source = Column(String, nullable=False, default="default")
+    current_period_start = Column(DateTime(timezone=True), nullable=True)
+    current_period_end = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class DeletedAccount(Base):
+    """Tombstone: a user ID whose account was deleted. Outlives the profile row on purpose."""
+
+    __tablename__ = "deleted_accounts"
+
+    user_id = Column(Uuid(as_uuid=True), primary_key=True)
+    deleted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class PipelineRun(Base):

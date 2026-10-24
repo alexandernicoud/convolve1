@@ -14,7 +14,8 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useCreditsStore, RUN_COST, CREDIT_BAR_CAP } from "@/state/creditsStore";
+import { useEffect } from "react";
+import { useCreditsStore } from "@/state/creditsStore";
 
 const formatCreditsCompact = (n: number): string => {
   if (n >= 1000) {
@@ -36,10 +37,20 @@ const nav = [
 ] as const;
 
 export function DashboardSidebar() {
-  const { pathname } = useLocation();
-  const credits = useCreditsStore((s) => s.credits);
-  const creditsLabel = formatCreditsCompact(credits);
-  const creditsBarPct = Math.max(4, Math.min(100, (credits / CREDIT_BAR_CAP) * 100));
+  const { pathname, search } = useLocation();
+  const balance = useCreditsStore((s) => s.balance);
+  const mode = useCreditsStore((s) => s.mode);
+  const loaded = useCreditsStore((s) => s.loaded);
+  const costs = useCreditsStore((s) => s.costs);
+  const refresh = useCreditsStore((s) => s.refresh);
+  useEffect(() => {
+    void refresh();
+  }, [refresh, pathname]);
+  const enforced = mode === "enforce";
+  const cheapest = Math.min(...Object.values(costs).filter((c) => c > 0), Infinity);
+  const low = enforced && balance != null && balance < cheapest;
+  const creditsLabel = !loaded ? "…" : enforced && balance != null ? formatCreditsCompact(balance) : "Beta";
+  const usageActive = pathname === "/account" && /tab=usage/.test(search);
 
   const linkActive = (to: string) => {
     if (to === "/dashboard") return pathname === "/dashboard";
@@ -56,7 +67,7 @@ export function DashboardSidebar() {
     return pathname === to || pathname.startsWith(`${to}/`);
   };
 
-  const accountActive = pathname === "/account";
+  const accountActive = pathname === "/account" && !usageActive;
 
   return (
     <div className="box-border flex h-full min-h-0 shrink-0 flex-col pt-0">
@@ -103,29 +114,28 @@ export function DashboardSidebar() {
       <div className="flex flex-col items-center gap-1 border-t border-white/[0.07] px-1.5 py-3">
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
-            <Link to="/credits" className="w-full px-1 py-1 transition-colors hover:opacity-90">
+            <Link
+              to="/account?tab=usage"
+              className={`w-full rounded-xl px-1 py-1.5 transition-colors hover:bg-white/[0.06] ${
+                usageActive ? "bg-white/[0.08] ring-1 ring-white/20" : ""
+              }`}
+            >
               <p
                 className={`text-center font-digits text-[11px] font-bold tabular-nums ${
-                  credits < RUN_COST ? "text-red-300" : "text-white"
+                  low ? "text-red-300" : "text-white"
                 }`}
               >
                 {creditsLabel}
               </p>
-              <p className="mb-1 text-center text-[7px] font-semibold uppercase leading-tight tracking-wide text-white/45">
+              <p className="text-center text-[7px] font-semibold uppercase leading-tight tracking-wide text-white/45">
                 Credits
               </p>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.08]">
-                <div
-                  className={`h-full rounded-full shadow-[0_0_12px_rgba(255,255,255,0.25)] ${
-                    credits < RUN_COST ? "bg-red-400/80" : "bg-white/80"
-                  }`}
-                  style={{ width: `${creditsBarPct}%` }}
-                />
-              </div>
             </Link>
           </TooltipTrigger>
-          <TooltipContent side="right" className="border-white/10 bg-black text-white">
-            {credits.toLocaleString()} credits · {RUN_COST} per run — click to refill
+          <TooltipContent side="right" className="max-w-[220px] border-white/10 bg-black text-white">
+            {enforced
+              ? `${(balance ?? 0).toLocaleString()} credits available. Open usage and credits.`
+              : "Runs are not charged yet. Open usage and credits."}
           </TooltipContent>
         </Tooltip>
         <Tooltip delayDuration={200}>

@@ -134,8 +134,15 @@ def record_pipeline_run(
     message: Optional[str] = None,
     artifact_ref: Optional[str] = None,
     worker_id: Optional[str] = None,
+    charge: bool = False,
 ) -> None:
-    """Insert ownership row. No-op when user_id is missing or not a UUID (legacy env)."""
+    """Insert ownership row. No-op when user_id is missing or not a UUID (legacy env).
+
+    With ``charge`` the run's credit cost is debited in the same transaction as the
+    insert; ``InsufficientCredits`` leaves nothing behind.
+    """
+    from app.services import credits
+
     if not user_id:
         return
     try:
@@ -144,11 +151,15 @@ def record_pipeline_run(
         logger.warning("Skipping pipeline_runs insert for non-UUID user_id=%r run=%s", user_id, run_id)
         return
     status = canonical_run_status(status) or "running"
+    if charge and credits.enforced():
+        credits.ensure_allocations(uid)
     db = SessionLocal()
     try:
         existing = db.get(PipelineRun, run_id)
         extra_json = json.dumps(extra) if extra else None
         if existing is None:
+            if charge:
+                credits.charge_for_run(db, uid, run_id, tool)
             db.add(
                 PipelineRun(
                     id=run_id,
@@ -180,6 +191,9 @@ def record_pipeline_run(
                 existing.extra_json = extra_json
             db.add(existing)
         db.commit()
+    except credits.InsufficientCredits:
+        db.rollback()
+        raise
     except Exception:
         db.rollback()
         logger.exception("Failed to record pipeline_run %s", run_id)
@@ -204,11 +218,13 @@ def update_pipeline_run_state(
     Missing rows are ignored so legacy disk-only runs keep working.
     """
     status = canonical_run_status(status)
+    previous: Optional[str] = None
     db = SessionLocal()
     try:
         row = db.get(PipelineRun, run_id)
         if row is None:
             return False
+        previous = row.status
         if row.status in TERMINAL_RUN_STATUSES and status is not None and status != row.status:
             logger.info(
                 "Ignoring pipeline_run %s transition %s -> %s",
@@ -235,13 +251,17 @@ def update_pipeline_run_state(
                 row.finished_at = datetime.now(timezone.utc)
         db.add(row)
         db.commit()
-        return True
     except Exception:
         db.rollback()
         logger.exception("Failed to update pipeline_run %s", run_id)
         return False
     finally:
         db.close()
+    if status in TERMINAL_RUN_STATUSES and previous not in TERMINAL_RUN_STATUSES:
+        from app.services.credits import refund_for_transition
+
+        refund_for_transition(run_id, previous, status)
+    return True
 
 
 def _load_extra(raw: Optional[str]) -> Dict[str, Any]:
@@ -351,13 +371,19 @@ def reconcile_orphaned_pipeline_runs() -> int:
             changed += 1
         if changed:
             db.commit()
-        return changed
     except Exception:
         db.rollback()
         logger.exception("Failed to reconcile orphaned pipeline runs")
         return 0
     finally:
         db.close()
+    from app.services.credits import sweep_refunds
+
+    try:
+        sweep_refunds()
+    except Exception:
+        logger.exception("Credit refund sweep failed")
+    return changed
 
 
 def owned_run_ids(user_id: str) -> Set[str]:

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AuthDivider, AuthField, AuthGoogleButton, AuthShell, AuthSubmit } from "@/components/auth/AuthShell";
 import { useAuth } from "@/context/AuthContext";
+import { TermsConsent, rememberPendingAcceptance } from "@/components/auth/TermsConsent";
+import { acceptanceRecord } from "@/features/legal/meta";
 
 export default function Signup() {
   const { signUp, signInWithGoogle, resendConfirmation, configured } = useAuth();
@@ -11,13 +13,18 @@ export default function Signup() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [checkEmail, setCheckEmail] = useState(false);
+  const [accepted, setAccepted] = useState(false);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!accepted) {
+      setError("Please accept the Terms of Service to create an account.");
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
-      const result = await signUp(email.trim(), password);
+      const result = await signUp(email.trim(), password, acceptanceRecord());
       if (result.needsEmailConfirmation) setCheckEmail(true);
       else navigate("/dashboard", { replace: true });
     } catch (err) {
@@ -28,9 +35,14 @@ export default function Signup() {
   };
 
   const onGoogle = async () => {
+    if (!accepted) {
+      setError("Please accept the Terms of Service to create an account.");
+      return;
+    }
     setError(null);
     setBusy(true);
     try {
+      rememberPendingAcceptance();
       await signInWithGoogle("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Google sign in failed");
@@ -70,7 +82,8 @@ export default function Signup() {
 
   return (
     <AuthShell title="Create account" subtitle="You’ll use this identity across every tool.">
-      <AuthGoogleButton busy={busy} onClick={() => void onGoogle()} />
+      <TermsConsent checked={accepted} onChange={setAccepted} />
+      <AuthGoogleButton busy={busy || !accepted} onClick={() => void onGoogle()} />
       {error ? <p className="mt-3 text-center text-sm text-red-300">{error}</p> : null}
       <AuthDivider />
       <form onSubmit={(e) => void onSubmit(e)}>
@@ -82,7 +95,7 @@ export default function Signup() {
           onChange={setPassword}
           autoComplete="new-password"
         />
-        <AuthSubmit busy={busy}>{busy ? "Creating…" : "Sign up"}</AuthSubmit>
+        <AuthSubmit busy={busy || !accepted}>{busy ? "Creating…" : "Create account"}</AuthSubmit>
       </form>
       <p className="mt-4 text-center text-sm text-white/45">
         Already have an account?{" "}

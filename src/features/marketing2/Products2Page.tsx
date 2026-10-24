@@ -170,7 +170,7 @@ function Hero() {
               <DashboardSurface region={ROLES[active].region} />
             </Window>
             <p className="mt-4 font-mono text-[10.5px] leading-relaxed text-white/35">
-              Dashboard mockup. Research runs carry the real IDs of the MSFT chain; bots and fleet P&L are demo data.
+              Illustrative dashboard. Research runs come from the real MSFT run; bots and fleet P&L are simulated.
             </p>
           </div>
         </motion.div>

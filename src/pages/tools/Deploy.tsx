@@ -22,6 +22,15 @@ const IANA_TIMEZONES = [
   "UTC",
 ];
 
+const TIMEFRAMES = [
+  { value: "1d", label: "Daily", bar: "daily bar" },
+  { value: "1wk", label: "Weekly", bar: "weekly bar" },
+  { value: "1mo", label: "Monthly", bar: "monthly bar" },
+] as const;
+type Timeframe = (typeof TIMEFRAMES)[number]["value"];
+const isTimeframe = (v: unknown): v is Timeframe => TIMEFRAMES.some((t) => t.value === v);
+const SPAN_UNITS = ["days", "weeks", "months", "years"];
+
 const libraryKey = (m: InternalModel) => (m.kind === "trained" && m.training_run_id ? `run:${m.training_run_id}` : `model:${m.model_id}`);
 
 function libraryLabel(m: InternalModel): string {
@@ -47,6 +56,7 @@ export default function Deploy() {
   const [symbol, setSymbol] = useState("AAPL");
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   const [imgSize, setImgSize] = useState(224);
+  const [timeframe, setTimeframe] = useState<Timeframe>("1d");
   const [tpPct, setTpPct] = useState("2");
   const [slPct, setSlPct] = useState("2");
   const [runTime, setRunTime] = useState("22:00");
@@ -62,6 +72,7 @@ export default function Deploy() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successBot, setSuccessBot] = useState<Bot | null>(null);
+  const [reviewing, setReviewing] = useState(false);
   const [deployAvailable, setDeployAvailable] = useState<number | null>(null);
 
   useEffect(() => {
@@ -124,48 +135,59 @@ export default function Deploy() {
     if (backtestId && !modelBacktests.some((r) => r.id === backtestId)) setBacktestId("");
   }, [modelBacktests, backtestId]);
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setError(null);
-    setSuccessBot(null);
+  // The bot should see the same chart the model was trained on: bar size, window, horizon and exits.
+  useEffect(() => {
+    if (!selectedModel) return;
+    if (isTimeframe(selectedModel.timeframe)) setTimeframe(selectedModel.timeframe);
+    if (selectedModel.horizon_bars && selectedModel.horizon_bars > 0) setHorizonDays(String(selectedModel.horizon_bars));
+    if (selectedModel.take_profit_fraction && selectedModel.take_profit_fraction > 0)
+      setTpPct(String(+(selectedModel.take_profit_fraction * 100).toFixed(2)));
+    if (selectedModel.stop_loss_fraction && selectedModel.stop_loss_fraction > 0)
+      setSlPct(String(+(selectedModel.stop_loss_fraction * 100).toFixed(2)));
+    if (selectedModel.image_dimension && [128, 224, 256, 512].includes(selectedModel.image_dimension))
+      setImgSize(selectedModel.image_dimension);
+  }, [selectedModel]);
 
-    if (modelSource === "upload" && !modelFile) {
-      setError("Please upload a .keras model file.");
-      return;
-    }
-    if (modelSource === "library" && !selectedModel) {
-      setError("Please select a model from the library.");
-      return;
-    }
+  const chartSpan = useMemo(() => {
+    if (modelSource !== "library" || !selectedModel) return null;
+    const unit = selectedModel.timespan_unit?.toLowerCase();
+    const count = Number(selectedModel.timespan_count);
+    return unit && SPAN_UNITS.includes(unit) && Number.isInteger(count) && count > 0 ? { unit, count } : null;
+  }, [modelSource, selectedModel]);
+
+  useEffect(() => {
+    setReviewing(false);
+  }, [
+    modelSource, selectedKey, modelFile, backtestId, name, symbol, timeframe, confidenceThreshold, imgSize, tpPct, slPct,
+    runTime, timezone, startingCapital, horizonDays, positionSizePct, commissionPct, slippagePct, runtimeDays, runUntilPaused,
+  ]);
+
+  const buildForm = (): FormData | string => {
+    if (modelSource === "upload" && !modelFile) return "Please upload a .keras model file.";
+    if (modelSource === "library" && !selectedModel) return "Please select a model from the library.";
 
     const tp = parseFloat(tpPct.replace(",", "."));
     const sl = parseFloat(slPct.replace(",", "."));
-    if (!Number.isFinite(tp) || tp <= 0) {
-      setError("Take profit % must be a positive number.");
-      return;
-    }
-    if (!Number.isFinite(sl) || sl <= 0) {
-      setError("Stop loss % must be a positive number.");
-      return;
-    }
-
-    if (!runTime || !runTime.trim()) {
-      setError("Please set a daily run time.");
-      return;
-    }
+    if (!Number.isFinite(tp) || tp <= 0) return "Take profit % must be a positive number.";
+    if (!Number.isFinite(sl) || sl <= 0 || sl >= 100) return "Stop loss % must be between 0 and 100.";
+    const horizon = Number(horizonDays);
+    if (!Number.isInteger(horizon) || horizon < 1) return "Horizon must be a whole number of bars (at least 1).";
+    if (!runTime || !runTime.trim()) return "Please set a daily run time.";
 
     const capReq = parseFloat(String(startingCapital).replace(",", "."));
     if (deployAvailable != null && Number.isFinite(capReq) && capReq > deployAvailable + 1e-6) {
-      setError(
-        `Starting capital cannot exceed available capital ($${deployAvailable.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). Open My Portfolio to raise your paper wallet.`,
-      );
-      return;
+      return `Starting capital cannot exceed available capital ($${deployAvailable.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}). Open My Portfolio to raise your paper wallet.`;
     }
 
     const formData = new FormData();
     formData.append("symbol", symbol);
     formData.append("confidence_threshold", String(confidenceThreshold));
     formData.append("img_size", String(imgSize));
+    formData.append("timeframe", timeframe);
+    if (chartSpan) {
+      formData.append("chart_span_unit", chartSpan.unit);
+      formData.append("chart_span_count", String(chartSpan.count));
+    }
     formData.append("tp_pct", String(tp));
     formData.append("sl_pct", String(sl));
     formData.append("run_time", runTime.trim());
@@ -182,7 +204,29 @@ export default function Deploy() {
     formData.append("position_size_pct", positionSizePct || "10");
     formData.append("commission_pct", commissionPct || "0.1");
     formData.append("slippage_pct", slippagePct || "0.05");
+    return formData;
+  };
 
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    setSuccessBot(null);
+    const built = buildForm();
+    if (typeof built === "string") {
+      setError(built);
+      return;
+    }
+    setReviewing(true);
+  };
+
+  const confirmDeploy = async () => {
+    setError(null);
+    const formData = buildForm();
+    if (typeof formData === "string") {
+      setError(formData);
+      setReviewing(false);
+      return;
+    }
     if (!requestRunCredits("bot")) return;
 
     setIsSubmitting(true);
@@ -205,6 +249,7 @@ export default function Deploy() {
       const created = await botsApi.createBot(formData);
       chargeRunCredits("bot");
       setSuccessBot(created);
+      setReviewing(false);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Deploy failed. Please try again.");
     } finally {
@@ -234,7 +279,7 @@ export default function Deploy() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm text-[#F5F5F5]/70 mb-2">Symbol</label>
                   <input
@@ -242,6 +287,21 @@ export default function Deploy() {
                     onChange={(e) => setSymbol(e.target.value.toUpperCase())}
                     className="w-full px-4 py-3 bg-secondary border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm text-[#F5F5F5]/70 mb-2">Bar size</label>
+                  <select
+                    value={timeframe}
+                    onChange={(e) => setTimeframe(e.target.value as Timeframe)}
+                    aria-label="Bar size"
+                    className="w-full px-4 py-3 bg-secondary border border-border rounded-md text-foreground text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    {TIMEFRAMES.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm text-[#F5F5F5]/70 mb-2">Image size</label>
@@ -279,8 +339,9 @@ export default function Deploy() {
                   Risk and daily schedule
                 </p>
                 <p className="text-xs text-[#F5F5F5]/60">
-                  Take profit and stop loss set how far price must move to exit trades. The daily run time is when the bot
-                  evaluates signals (in the timezone you pick).
+                  Take profit and stop loss set how far price must move to exit trades. At the daily run time (in the
+                  timezone you pick) the bot reads the latest completed bar only; a BUY fills at the next bar&apos;s open.
+                  Runs on days without a new bar (weekends, holidays) record nothing.
                 </p>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -472,7 +533,7 @@ export default function Deploy() {
                   ) : null}
                 </div>
                 <div>
-                  <label className="block text-sm text-[#F5F5F5]/70 mb-2">Horizon (days)</label>
+                  <label className="block text-sm text-[#F5F5F5]/70 mb-2">Horizon (bars)</label>
                   <input
                     type="number"
                     min="1"
@@ -559,12 +620,18 @@ export default function Deploy() {
               <div className="space-y-1.5">
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || reviewing}
                   className="w-full px-6 py-3 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 disabled:opacity-60"
                 >
-                  {isSubmitting ? "Deploying..." : "Deploy Bot"}
+                  {reviewing ? "Review below" : "Review deployment"}
                 </button>
-                <RunCostHint />
+                <RunCostHint tool="bot" />
+                <p className="pt-1 text-xs leading-relaxed text-[#F5F5F5]/45">
+                  Paper trading only: no real money is placed. Simulated results do not predict real returns.{" "}
+                  <Link to="/risk-disclosure" className="underline underline-offset-2 hover:text-[#F5F5F5]/80">
+                    Risk disclosure
+                  </Link>
+                </p>
               </div>
             </form>
           </div>
@@ -575,10 +642,10 @@ export default function Deploy() {
               <div className="space-y-3">
                 <div className="flex items-center gap-3 text-sm text-[#F5F5F5]/70">
                   <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
-                  Saving the bot and starting the first paper run…
+                  Saving the bot…
                 </div>
                 <p className="text-xs text-[#F5F5F5]/50">
-                  The first signal is generated on this machine. Open Overview after deploy to see it.
+                  The first signal is computed by the scheduled runner within a few minutes of saving.
                 </p>
               </div>
             ) : error ? (
@@ -587,15 +654,36 @@ export default function Deploy() {
                   <p className="text-sm text-[#f87171]">{error}</p>
                 </div>
                 <p className="text-xs text-[#F5F5F5]/50">
-                  Ensure the API is reachable and `CORS_ORIGINS` includes this frontend.
+                  Please try again in a moment. If the problem persists, contact us.
                 </p>
               </div>
+            ) : reviewing ? (
+              <DeployReview
+                rows={[
+                  ["Model", modelSource === "library" ? (selectedModel ? libraryLabel(selectedModel) : "—") : modelFile?.name ?? "—"],
+                  ["Asset", symbol],
+                  ["Bars", `${TIMEFRAMES.find((t) => t.value === timeframe)?.label} · chart window ${chartSpan ? `${chartSpan.count} ${chartSpan.unit}` : "6 months (default)"}`],
+                  ["Signal", `BUY when P(up) ≥ ${confidenceThreshold.toFixed(2)}`],
+                  ["Schedule", `Every day at ${runTime} ${timezone.replace(/_/g, " ")}, on the latest completed ${TIMEFRAMES.find((t) => t.value === timeframe)?.bar}`],
+                  ["Entry", `Next bar's open + ${slippagePct || 0}% slippage`],
+                  ["Exits", `TP +${tpPct}% · SL −${slPct}% (stop checked first) · or close of bar ${horizonDays}`],
+                  ["Size", `${positionSizePct}% of cash per trade · one position at a time · long only`],
+                  ["Costs", `${commissionPct}% commission per side`],
+                  ["Capital", `$${Number(startingCapital || 0).toLocaleString()} paper`],
+                  ["Runtime", runUntilPaused || !runtimeDays ? "Until paused or stopped" : `${runtimeDays} days`],
+                ]}
+                onConfirm={confirmDeploy}
+                onEdit={() => setReviewing(false)}
+              />
             ) : successBot ? (
               <div className="space-y-4">
                 <div className="p-4 border border-emerald-400/20 bg-emerald-400/10 rounded-lg">
                   <p className="text-sm text-emerald-200">
-                    {successBot.name || successBot.symbol} is deployed. The first paper signal is running
-                    locally — open Overview in a few seconds.
+                    {successBot.name || successBot.symbol} is deployed. Its first evaluation of the latest completed
+                    bar runs within a few minutes, then it follows its schedule, independent of this browser.
+                    {successBot.next_scheduled_run_iso
+                      ? ` Next run: ${new Date(successBot.next_scheduled_run_iso).toLocaleString()}.`
+                      : ""}
                   </p>
                 </div>
                 <p className="text-xs text-[#F5F5F5]/55">
@@ -617,12 +705,44 @@ export default function Deploy() {
               </div>
             ) : (
               <div className="text-sm text-[#F5F5F5]/60">
-                Upload a trained .keras model. This machine will run it on a schedule (paper trading only — no
+                Upload a trained .keras model. Convolve runs it on a schedule (paper trading only — no
                 brokerage). After deploy, manage signals on Overview.
               </div>
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DeployReview({ rows, onConfirm, onEdit }: { rows: [string, string][]; onConfirm: () => void; onEdit: () => void }) {
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-[#F5F5F5]/55">Check the configuration. Paper trading only; no orders reach a broker.</p>
+      <dl className="divide-y divide-white/8 rounded-lg border border-white/10 text-[12px]">
+        {rows.map(([k, v]) => (
+          <div key={k} className="grid grid-cols-[88px_1fr] gap-3 px-3 py-2">
+            <dt className="text-[#F5F5F5]/45">{k}</dt>
+            <dd className="text-[#F5F5F5]/85">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="flex-1 px-6 py-3 bg-white text-[#0a0a0a] font-medium rounded-lg"
+        >
+          Confirm and deploy
+        </button>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="px-5 py-3 border border-white/15 rounded-lg text-sm text-[#F5F5F5]/80 hover:border-white/30"
+        >
+          Edit
+        </button>
       </div>
     </div>
   );

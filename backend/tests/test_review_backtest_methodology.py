@@ -31,13 +31,16 @@ def test_runner_records_terminal_state_in_pipeline_runs():
     import uuid
 
     from app.db import SessionLocal
-    from app.models import PipelineRun
+    from app.models import PipelineRun, Profile
     from runners.new_backtester_runner import _persist_terminal_state
 
     rid = f"bt-{uuid.uuid4()}"
     db = SessionLocal()
     try:
-        db.add(PipelineRun(id=rid, user_id=uuid.uuid4(), tool="backtester", status="running"))
+        uid = uuid.uuid4()
+        db.add(Profile(id=uid))
+        db.flush()
+        db.add(PipelineRun(id=rid, user_id=uid, tool="backtester", status="running"))
         db.commit()
     finally:
         db.close()

@@ -18,7 +18,7 @@ from app.config import (
     SUPABASE_URL,
 )
 from app.db import SessionLocal
-from app.models import CreditAccount, Profile
+from app.models import CreditAccount, DeletedAccount, Profile
 
 logger = logging.getLogger("app.auth")
 
@@ -31,6 +31,7 @@ PUBLIC_PATHS = frozenset(
         "/redoc",
         "/openapi.json",
         "/favicon.ico",
+        "/api/plans",
     }
 )
 PUBLIC_PREFIXES = ("/docs",)
@@ -117,11 +118,18 @@ def parse_user_uuid(raw: str) -> uuid.UUID:
 
 
 def ensure_profile(user_id: uuid.UUID, email: Optional[str] = None, display_name: Optional[str] = None) -> None:
-    """Idempotent profile + empty credit account so later charging can attach to a row."""
+    """Idempotent profile + empty credit account so later charging can attach to a row.
+
+    A deleted account is never recreated: its access tokens remain cryptographically
+    valid until expiry, so a missing profile is checked against the durable tombstone.
+    """
+    deleted = False
     db = SessionLocal()
     try:
         existing = db.get(Profile, user_id)
-        if existing is None:
+        if existing is None and db.get(DeletedAccount, user_id) is not None:
+            deleted = True
+        elif existing is None:
             db.add(
                 Profile(
                     id=user_id,
@@ -150,6 +158,11 @@ def ensure_profile(user_id: uuid.UUID, email: Optional[str] = None, display_name
         logger.exception("ensure_profile failed for %s", user_id)
     finally:
         db.close()
+    if deleted:
+        from app.services.account import mark_deleted_in_memory
+
+        mark_deleted_in_memory(str(user_id))
+        raise HTTPException(status_code=401, detail="Account deleted")
 
 
 def authenticate_request(request: Request) -> str:
@@ -158,6 +171,10 @@ def authenticate_request(request: Request) -> str:
     claims = decode_supabase_token(token)
     sub = claims.get("sub")
     user_uuid = parse_user_uuid(str(sub) if sub is not None else "")
+    from app.services.account import is_deleted_user
+
+    if is_deleted_user(str(user_uuid)):
+        raise HTTPException(status_code=401, detail="Account deleted")
     email = claims.get("email")
     name = claims.get("user_metadata", {}).get("display_name") if isinstance(claims.get("user_metadata"), dict) else None
     ensure_profile(user_uuid, email=email if isinstance(email, str) else None, display_name=name if isinstance(name, str) else None)

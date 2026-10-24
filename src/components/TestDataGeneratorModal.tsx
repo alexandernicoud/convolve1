@@ -964,7 +964,7 @@ export default function TestDataGeneratorModal({
                 <Play className="h-5 w-5" />
                 {starting ? "Starting…" : "Generate test dataset"}
               </button>
-              <RunCostHint />
+              <RunCostHint tool="testdata" />
             </div>
           </div>
         </div>

@@ -1,0 +1,72 @@
+# Cloud Run Job for scheduled paper bots. Not applied by any script in this repo.
+# Prerequisites, IAM, the Cloud Scheduler trigger and the rollout order: deploy/README.md.
+#
+# Replace the REPLACE_* values, then:
+#   gcloud run jobs replace deploy/bots-job.yaml \
+#     --project=project-23824ae4-252f-40b9-94a --region=europe-west6
+#
+# Cloud Scheduler starts one execution every 15 minutes. Each execution decides which bots
+# are due (per-bot run time and timezone, latest completed bar) and records at most one run
+# per bot and bar; overlapping executions, Scheduler retries and manual runs are deduplicated
+# in the database, so starting this job more often than needed is safe.
+# REPLACE_BACKEND_IMAGE must be the same digest (image@sha256:...) used by the API and the
+# trainer job: Keras 3.14 cannot load models saved by 3.15.
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: convolve-run-due-bots
+  labels:
+    app: convolve
+    component: bots
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          # A failed bot run is retried by the next tick (at most every 15 min, 3 attempts per bar);
+          # a task-level retry would only repeat the whole batch.
+          maxRetries: 0
+          timeoutSeconds: 1800
+          # Dedicated account, e.g. convolve-bots@PROJECT.iam.gserviceaccount.com. Only:
+          #   roles/secretmanager.secretAccessor on REPLACE_DATABASE_URL_SECRET
+          #   roles/storage.objectAdmin on REPLACE_MODEL_BUCKET (reads models, writes run charts)
+          serviceAccountName: REPLACE_BOTS_SERVICE_ACCOUNT
+          containers:
+            - image: REPLACE_BACKEND_IMAGE
+              command: ["python", "-m", "app.jobs.run_due_bots"]
+              resources:
+                limits:
+                  cpu: "2"
+                  memory: 4Gi
+              env:
+                - name: APP_PROFILE
+                  value: cloud
+                - name: APP_MODE
+                  value: job
+                - name: MODEL_BUCKET
+                  value: REPLACE_MODEL_BUCKET
+                # Must equal the API's value. With false, only bots owned by USER_ID (or unowned)
+                # run; with true, all active bots run.
+                - name: AUTH_REQUIRED
+                  value: "true"
+                # Both must be true for the job to execute anything; with either false each
+                # execution logs "no-op" and exits 0.
+                - name: LIVE_DEPLOY_ENABLED
+                  value: "false"
+                - name: SCHEDULED_BOTS_ENABLED
+                  value: "false"
+                - name: TF_NUM_INTRAOP_THREADS
+                  value: "2"
+                - name: TF_NUM_INTEROP_THREADS
+                  value: "2"
+                # Session pooler URL in Secret Manager (see trainer-job.yaml for the format).
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: REPLACE_DATABASE_URL_SECRET
+                      key: latest

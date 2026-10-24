@@ -57,17 +57,31 @@ export async function fetchApi(path: string, init?: RequestInit): Promise<Respon
     if (token && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${token}`);
     }
-    return await fetch(url, { ...init, headers });
+    const res = await fetch(url, { ...init, headers });
+    if (res.status === 402) announceInsufficientCredits(res.clone());
+    return res;
   } catch (e) {
     throw networkErrorMessage(e, url);
   }
+}
+
+export const INSUFFICIENT_CREDITS_EVENT = "convolve:insufficient-credits";
+
+function announceInsufficientCredits(res: Response) {
+  void res
+    .json()
+    .then((body: { detail?: unknown }) => {
+      if (typeof window === "undefined") return;
+      window.dispatchEvent(new CustomEvent(INSUFFICIENT_CREDITS_EVENT, { detail: body?.detail ?? null }));
+    })
+    .catch(() => undefined);
 }
 
 export async function apiFetch(path: string, options?: RequestInit) {
   const res = await fetchApi(path, options);
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(text || res.statusText);
+    throw new Error(formatHttpErrorBody(res.status, text) || res.statusText);
   }
   return res.json();
 }
@@ -549,6 +563,9 @@ function formatHttpErrorBody(status: number, raw: string): string {
     if (j && typeof j === 'object' && 'detail' in j) {
       const d = j.detail;
       if (typeof d === 'string') return d;
+      if (d && typeof d === 'object' && typeof (d as { message?: unknown }).message === 'string') {
+        return (d as { message: string }).message;
+      }
       if (Array.isArray(d)) {
         return d
           .map((x) => (typeof x === 'object' && x && 'msg' in x ? String((x as { msg: unknown }).msg) : JSON.stringify(x)))
@@ -567,6 +584,7 @@ function responseStatusLabel(status: number): string {
   if (status === 422) return 'Validation error';
   if (status === 500) return 'Server error';
   if (status === 401 || status === 403) return 'Unauthorized';
+  if (status === 402) return 'Not enough credits';
   return 'Error';
 }
 
@@ -994,6 +1012,16 @@ export interface BotRun {
   error_message?: string | null;
   /** JSON string; may include gradcam_ok and gradcam_error when status is success */
   run_metadata_json?: string | null;
+  /** "<timeframe>:<decision bar date>"; one run per bot and completed bar. */
+  execution_key?: string | null;
+  /** schedule | manual | deploy */
+  trigger?: string | null;
+  attempts?: number | null;
+  decision_bar_at?: string | null;
+  /** pending | filled | skipped_position_open | cancelled (BUY runs only) */
+  entry_state?: string | null;
+  /** created_success | created_error | skipped_already_ran | skipped_in_progress (run-now only) */
+  outcome?: string | null;
 }
 
 export interface BotTrade {
@@ -1015,6 +1043,9 @@ export interface BotTrade {
   pnl_amount?: number | null;
   pnl_pct?: number | null;
   created_at?: string | null;
+  decision_bar_at?: string | null;
+  bars_held?: number | null;
+  outcome_flags?: string | null;
 }
 
 export interface BotEquityPoint {
@@ -1215,11 +1246,18 @@ export interface Bot {
   last_signal?: string | null;
   last_confidence?: number | null;
   last_error?: string | null;
-  /** active | waiting | running | error | paused | expired | closed | archived */
+  /** due | waiting | running | error | paused | expired | closed | archived */
   derived_status?: string | null;
   /** active | paused | closed | archived */
   lifecycle_state?: string | null;
   next_scheduled_run_iso?: string | null;
+  /** 1d | 1wk | 1mo — bar size of the chart the model reads. */
+  timeframe?: string | null;
+  chart_span_unit?: string | null;
+  chart_span_count?: number | null;
+  last_slot_at?: string | null;
+  /** Paper-trading conventions applied to this bot (entry, exits, costs, data). */
+  execution_assumptions?: Record<string, unknown> | null;
   /** "library" | "upload"; null on bots created before provenance was recorded. */
   provenance?: string | null;
   source_model_id?: string | null;
@@ -1295,7 +1333,7 @@ export const botsApi = {
     return apiRequest<Bot>(`/api/bots/${botId}/toggle`, { method: 'POST' });
   },
 
-  runNow(botId: string): Promise<BotRun> {
+  runNow(botId: string): Promise<BotRun & { outcome?: string | null }> {
     return apiRequest<BotRun>(`/api/bots/${botId}/run-now`, { method: 'POST' });
   },
 

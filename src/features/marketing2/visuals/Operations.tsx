@@ -81,7 +81,7 @@ const BOTS: Bot[] = fleet.bots.map((b, i) => {
     name: b.name,
     symbol: b.symbol,
     tf,
-    model: real ? CHAIN.modelName.replace(".keras", "") : `${b.symbol.split(/[.-]/)[0]}-${tf.toLowerCase()}-v${1 + Math.floor(r() * 4)}`,
+    model: real ? CHAIN.modelName : `${b.symbol.split(/[.-]/)[0]}-${tf.toLowerCase()}-v${1 + Math.floor(r() * 4)}`,
     realModel: real,
     status,
     ret: b.ret,
@@ -283,7 +283,7 @@ export function Operations() {
       <div className="overflow-hidden rounded-[18px] border border-white/[0.09] bg-[#08090b]">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-white/[0.07] px-4 py-2.5 sm:px-5">
           <span className="text-[13px] font-medium text-white">Deploy · Bot operations</span>
-          <span className="rounded-full border border-dashed border-white/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-white/70">Demo data</span>
+          <span className="rounded-full border border-dashed border-white/40 px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em] text-white/70">Illustrative data</span>
           <div className="ml-auto flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[10px] text-white/50">
             {(Object.keys(COUNTS) as Status[]).map((k) => (
               <span key={k} className="inline-flex items-center gap-1.5">
@@ -416,7 +416,7 @@ export function Operations() {
         </div>
       </div>
       <div className="mt-3">
-        <ProvenanceTag kind="illustrative" detail="Bots, P&L and executions are simulated. The MSFT chain up to the backtest is real." />
+        <ProvenanceTag kind="illustrative" detail="Bots, P&L and executions are simulated. The MSFT run through the backtest is real." />
       </div>
     </div>
   );

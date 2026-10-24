@@ -17,13 +17,22 @@ type AuthContextValue = {
   loading: boolean;
   configured: boolean;
   emailConfirmed: boolean;
-  signUp: (email: string, password: string) => Promise<{ needsEmailConfirmation: boolean }>;
+  signUp: (
+    email: string,
+    password: string,
+    metadata?: Record<string, unknown>,
+  ) => Promise<{ needsEmailConfirmation: boolean }>;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: (redirectPath?: string) => Promise<void>;
   signOut: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
   resendConfirmation: (email: string) => Promise<void>;
+  /** Re-checks the password and starts a fresh session (used before sensitive changes). */
+  verifyPassword: (password: string) => Promise<void>;
+  changeEmail: (email: string) => Promise<void>;
+  updateMetadata: (data: Record<string, unknown>) => Promise<void>;
+  signOutEverywhere: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -61,12 +70,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
+  const signUp = useCallback(async (email: string, password: string, metadata?: Record<string, unknown>) => {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: originUrl("/login") },
+      options: { emailRedirectTo: originUrl("/login"), data: metadata },
     });
     if (error) throw error;
     return { needsEmailConfirmation: !data.session };
@@ -114,6 +123,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw error;
   }, []);
 
+  const verifyPassword = useCallback(async (password: string) => {
+    const email = session?.user?.email;
+    if (!email) throw new Error("No email address on this account");
+    const { error } = await getSupabaseClient().auth.signInWithPassword({ email, password });
+    if (error) throw new Error("Password is incorrect");
+  }, [session]);
+
+  const changeEmail = useCallback(async (email: string) => {
+    const { error } = await getSupabaseClient().auth.updateUser(
+      { email },
+      { emailRedirectTo: originUrl("/account") },
+    );
+    if (error) throw error;
+  }, []);
+
+  const updateMetadata = useCallback(async (data: Record<string, unknown>) => {
+    const { error } = await getSupabaseClient().auth.updateUser({ data });
+    if (error) throw error;
+  }, []);
+
+  const signOutEverywhere = useCallback(async () => {
+    const { error } = await getSupabaseClient().auth.signOut({ scope: "global" });
+    if (error) throw error;
+  }, []);
+
   const user = session?.user ?? null;
   const emailConfirmed = Boolean(user?.email_confirmed_at);
 
@@ -131,6 +165,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       requestPasswordReset,
       updatePassword,
       resendConfirmation,
+      verifyPassword,
+      changeEmail,
+      updateMetadata,
+      signOutEverywhere,
     }),
     [
       session,
@@ -144,6 +182,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       requestPasswordReset,
       updatePassword,
       resendConfirmation,
+      verifyPassword,
+      changeEmail,
+      updateMetadata,
+      signOutEverywhere,
     ],
   );
 

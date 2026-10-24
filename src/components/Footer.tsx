@@ -1,10 +1,11 @@
 import { Link } from "react-router-dom";
 import logoMark from "@/assets/convolve-mark.png";
+import { LEGAL_LINKS } from "@/features/legal/meta";
 
 const links = [
   { label: "Home", href: "/" },
-  { label: "Vision", href: "/vision" },
-  { label: "Home 3", href: "/home3" },
+  { label: "About", href: "/about" },
+  { label: "Pricing", href: "/pricing" },
   { label: "Products", href: "/products" },
   { label: "Contact", href: "/contact" },
   { label: "Account", href: "/account" },
@@ -31,9 +32,16 @@ export default function Footer() {
             ))}
           </nav>
         </div>
-        <p className="mt-10 text-center text-xs text-muted-foreground/80 md:text-left">
-          © {new Date().getFullYear()} Convolve. Visual AI for trading research.
-        </p>
+        <div className="mt-10 flex flex-col gap-4 text-xs text-muted-foreground/80 md:flex-row md:items-center md:justify-between">
+          <p>© {new Date().getFullYear()} Convolve. Visual AI for trading research.</p>
+          <nav className="flex flex-wrap gap-x-5 gap-y-2" aria-label="Legal">
+            {LEGAL_LINKS.map((l) => (
+              <Link key={l.href} to={l.href} className="transition-colors hover:text-foreground">
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
       </div>
     </footer>
   );

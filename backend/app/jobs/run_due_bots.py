@@ -1,196 +1,173 @@
 """
-Scheduled-style batch run for active bots (localhost / future Cloud Run Job).
+Scheduled batch for paper bots: the Cloud Run job entrypoint (and the local poller's tick).
 
-Uses the same execute_bot_run() path as the API. Filters by per-bot run_time + timezone
-and deactivates bots whose runtime_days window has expired.
+    python -m app.jobs.run_due_bots
 
-Run standalone:  python -m app.jobs.run_due_bots
-(from backend/ with PYTHONPATH set, or `cd backend && python -m app.jobs.run_due_bots`)
+Cloud Scheduler triggers the job every few minutes; the job decides which bots are due
+(bot_schedule.is_due), so frequent ticks never run a daily bot more than once per slot, and
+duplicate executions of a bar are prevented in the database (bot_execution). Exit code 0
+means the batch completed (individual bot failures are recorded on the bot and logged);
+1 means the batch itself could not run (database, configuration).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+from typing import Optional
 
 from sqlalchemy import or_
 
-from app.config import (
-    BOT_SCHEDULE_TIME,
-    BOT_SCHEDULE_TZ,
-    LIVE_DEPLOY_ENABLED,
-    SCHEDULED_BOTS_ENABLED,
-    STALE_RUNNING_RUN_MINUTES,
-    USER_ID,
-    AUTH_REQUIRED,
-    configure_logging,
-)
-from app import ml_versions
+from app import config, ml_versions
+from app.config import configure_logging
 from app.db import SessionLocal, init_db
 from app.models import Bot
 from app.services.bot_execution import (
+    MAX_ATTEMPTS,
     BotNotExecutable,
     BotRunOutcome,
+    MarketDataUnavailable,
     execute_bot_run,
     is_runtime_expired,
 )
+from app.services.bot_schedule import RETRY_AFTER, is_due, latest_slot, utc
 from app.services.stale_run_cleanup import cleanup_stale_running_runs
 
 logger = logging.getLogger(__name__)
 
 
-def _parse_hhmm(raw: str) -> tuple[int, int]:
-    s = (raw or "").strip().replace(".", ":").replace(",", ":")
-    parts = s.split(":")
-    if len(parts) != 2:
-        raise ValueError("Time must be HH:MM")
-    return int(parts[0]), int(parts[1])
-
-
 def is_bot_due_now(bot: Bot, now_utc: datetime) -> bool:
-    """
-    Continuous paper-test: every active bot is due every scheduler tick.
-    Daily HH:MM is ignored so we can prove uninterrupted 60s analysis.
-    """
-    _ = bot, now_utc
-    return True
+    return is_due(bot, now_utc)
 
 
-def run_due_bots_once() -> dict[str, int]:
-    """
-    Query active bots for this deployment (USER_ID scope), run those due now, log summary.
-
-    Returns count dict for tests / Cloud Run exit metrics.
-    """
-    if not LIVE_DEPLOY_ENABLED or not SCHEDULED_BOTS_ENABLED:
-        summary = {
-            "candidates": 0,
-            "skipped_schedule": 0,
-            "skipped_idempotent": 0,
-            "deactivated_expired": 0,
-            "success": 0,
-            "error": 0,
-            "stale_runs_cleaned": 0,
-        }
-        logger.info(
-            "run_due_bots_once: no-op (LIVE_DEPLOY_ENABLED=%s, SCHEDULED_BOTS_ENABLED=%s) %s",
-            LIVE_DEPLOY_ENABLED,
-            SCHEDULED_BOTS_ENABLED,
-            summary,
-        )
-        return summary
-
-    init_db()
-    now_utc = datetime.now(timezone.utc)
-    summary = {
+def _empty_summary() -> dict[str, int]:
+    return {
         "candidates": 0,
+        "due": 0,
         "skipped_schedule": 0,
         "skipped_idempotent": 0,
+        "skipped_in_progress": 0,
+        "no_new_data": 0,
         "deactivated_expired": 0,
         "success": 0,
         "error": 0,
         "stale_runs_cleaned": 0,
     }
 
+
+def _take_slot(db, bot_id: str, slot: datetime, now: datetime) -> bool:
+    """Record this attempt; False when another worker attempted the slot moments ago."""
+    won = (
+        db.query(Bot)
+        .filter(
+            Bot.id == bot_id,
+            or_(Bot.last_slot_at.is_(None), Bot.last_slot_at < slot),
+            or_(Bot.last_attempt_at.is_(None), Bot.last_attempt_at < slot, Bot.last_attempt_at <= now - RETRY_AFTER),
+        )
+        .update({Bot.last_attempt_at: now}, synchronize_session=False)
+    )
+    db.commit()
+    return won == 1
+
+
+def _finish_slot(db, bot_id: str, slot: datetime) -> None:
+    db.query(Bot).filter(Bot.id == bot_id).update({Bot.last_slot_at: slot}, synchronize_session=False)
+    db.commit()
+
+
+def run_due_bots_once(now_utc: Optional[datetime] = None) -> dict[str, int]:
+    summary = _empty_summary()
+    if not config.LIVE_DEPLOY_ENABLED or not config.SCHEDULED_BOTS_ENABLED:
+        logger.info(
+            "run_due_bots_once: no-op (LIVE_DEPLOY_ENABLED=%s, SCHEDULED_BOTS_ENABLED=%s)",
+            config.LIVE_DEPLOY_ENABLED,
+            config.SCHEDULED_BOTS_ENABLED,
+        )
+        return summary
+
+    init_db()
+    now = utc(now_utc) or datetime.now(timezone.utc)
     db = SessionLocal()
     try:
         summary["stale_runs_cleaned"] = cleanup_stale_running_runs(
-            db,
-            stale_after_minutes=STALE_RUNNING_RUN_MINUTES,
-            now_utc=now_utc,
+            db, stale_after_minutes=config.STALE_RUNNING_RUN_MINUTES, now_utc=now
         )
-
-        if AUTH_REQUIRED:
-            bots = (
-                db.query(Bot)
-                .filter(Bot.lifecycle_state == "active")
-                .all()
-            )
-        else:
-            bots = (
-                db.query(Bot)
-                .filter(
-                    Bot.lifecycle_state == "active",
-                    or_(Bot.user_id == USER_ID, Bot.user_id.is_(None)),
-                )
-                .all()
-            )
+        query = db.query(Bot).filter(Bot.lifecycle_state == "active")
+        if not config.AUTH_REQUIRED:
+            query = query.filter(or_(Bot.user_id == config.USER_ID, Bot.user_id.is_(None)))
+        bots = query.all()
         summary["candidates"] = len(bots)
 
         for bot in bots:
-            if is_runtime_expired(bot, now_utc):
-                logger.info("Bot %s runtime expired; deactivating", bot.id)
+            if is_runtime_expired(bot, now):
+                logger.info("Bot %s runtime expired; marking expired", bot.id)
+                bot.lifecycle_state = "expired"
                 bot.is_active = False
-                db.add(bot)
                 db.commit()
                 summary["deactivated_expired"] += 1
                 continue
-
-            if not is_bot_due_now(bot, now_utc):
+            if not is_due(bot, now):
                 summary["skipped_schedule"] += 1
                 continue
-
+            slot = latest_slot(bot, now)
+            if not _take_slot(db, bot.id, slot, now):
+                summary["skipped_in_progress"] += 1
+                continue
+            summary["due"] += 1
+            db.refresh(bot)
+            finished = True
             try:
-                _run, outcome = execute_bot_run(db, bot)
-                if outcome == BotRunOutcome.SKIPPED_ALREADY_RAN:
-                    summary["skipped_idempotent"] += 1
-                elif outcome == BotRunOutcome.CREATED_SUCCESS:
+                run, outcome = execute_bot_run(db, bot, trigger="schedule", now_utc=now)
+                if outcome == BotRunOutcome.CREATED_SUCCESS:
                     summary["success"] += 1
                 elif outcome == BotRunOutcome.CREATED_ERROR:
                     summary["error"] += 1
-            except BotNotExecutable:
-                logger.info("Bot %s: skipped (not executable)", bot.id)
-            except Exception:
-                logger.exception("Bot %s: unexpected failure in execute_bot_run", bot.id)
+                    finished = int(run.attempts or 1) >= MAX_ATTEMPTS
+                elif outcome == BotRunOutcome.SKIPPED_IN_PROGRESS:
+                    summary["skipped_in_progress"] += 1
+                    finished = False
+                elif run.status == "success":
+                    summary["no_new_data"] += 1
+                else:
+                    summary["skipped_idempotent"] += 1
+            except MarketDataUnavailable as exc:
+                logger.warning("Bot %s: %s (will retry)", bot.id, exc)
                 summary["error"] += 1
+                finished = False
+            except BotNotExecutable:
+                logger.info("Bot %s: no longer active", bot.id)
+            except Exception:
+                logger.exception("Bot %s: unexpected failure", bot.id)
+                db.rollback()
+                summary["error"] += 1
+                finished = False
+            if finished:
+                _finish_slot(db, bot.id, slot)
     finally:
         db.close()
 
-    logger.info(
-        "run_due_bots_once finished: candidates=%s schedule_skip=%s idempotent_skip=%s "
-        "deactivated=%s success=%s error=%s stale_cleaned=%s",
-        summary["candidates"],
-        summary["skipped_schedule"],
-        summary["skipped_idempotent"],
-        summary["deactivated_expired"],
-        summary["success"],
-        summary["error"],
-        summary["stale_runs_cleaned"],
-    )
+    logger.info("run_due_bots summary %s", json.dumps(summary, sort_keys=True))
     return summary
 
 
 def main() -> int:
     configure_logging()
     logger.info(
-        "run_due_bots job start (USER_ID=%s, schedule_default=%s %s, stale_run_minutes=%s)",
-        USER_ID,
-        BOT_SCHEDULE_TIME,
-        BOT_SCHEDULE_TZ,
-        STALE_RUNNING_RUN_MINUTES,
+        "run_due_bots job start (live=%s scheduled=%s auth_required=%s)",
+        config.LIVE_DEPLOY_ENABLED,
+        config.SCHEDULED_BOTS_ENABLED,
+        config.AUTH_REQUIRED,
     )
     problems = ml_versions.version_mismatches()
     if problems:
-        logger.error(
-            "ML package versions do not match requirements.txt; models saved by the Trainer may not load: %s",
-            "; ".join(problems),
-        )
-    else:
-        logger.info("ML packages match pins (%s)", ml_versions.describe())
+        logger.error("ML package versions do not match requirements.txt; models may not load: %s", "; ".join(problems))
     try:
-        summary = run_due_bots_once()
+        run_due_bots_once()
     except Exception:
-        logger.exception("run_due_bots job failed fatally (DB init or batch)")
+        logger.exception("run_due_bots job failed (database or configuration)")
         return 1
-
-    logger.info(
-        "run_due_bots job finished OK: success=%s error=%s stale_cleaned=%s",
-        summary.get("success"),
-        summary.get("error"),
-        summary.get("stale_runs_cleaned"),
-    )
     return 0
 
 

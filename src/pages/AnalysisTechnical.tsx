@@ -408,7 +408,7 @@ export default function AnalysisTechnical() {
               {running ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Play className="h-4 w-4" aria-hidden />}
               {running ? "Running…" : "Run analysis"}
             </button>
-            <RunCostHint className="sm:text-left" />
+            <RunCostHint tool="analysis" className="sm:text-left" />
           </div>
           {running && phase ? <span className="text-[12px] tabular-nums text-white/45">{phase}</span> : null}
         </div>

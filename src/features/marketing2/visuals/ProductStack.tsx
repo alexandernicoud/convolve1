@@ -155,8 +155,8 @@ export function DashboardSurface({ stage = null, region = null }: { stage?: numb
 
         {/* KPIs */}
         {[
-          { x: 72, stages: ["deploy"], label: "Bots running", value: String(running), note: "demo fleet" },
-          { x: 294, stages: ["deploy"], label: "Fleet P&L · 30 d", value: fmtUsd(pnl.last), note: "demo fleet" },
+          { x: 72, stages: ["deploy"], label: "Bots running", value: String(running), note: "illustrative" },
+          { x: 294, stages: ["deploy"], label: "Fleet P&L · 30 d", value: fmtUsd(pnl.last), note: "illustrative" },
           { x: 516, stages: ["test"], label: "Last backtest", value: pct(backtest.metrics.total_return), note: `${CHAIN.backtest} · real` },
           { x: 738, stages: ["generate"], label: "Dataset", value: grid.count.toLocaleString("en-US"), note: `${CHAIN.dataset} · real` },
         ].map((c) => (
@@ -437,7 +437,7 @@ export function ProductStack({ mode = "scroll" }: { mode?: "scroll" | "auto" }) 
         </Laptop>
       </div>
       <p className="mt-6 max-w-2xl font-mono text-[10.5px] leading-relaxed text-white/35">
-        Dashboard mockup. Research runs carry the real IDs of the MSFT chain; bots and fleet P&L are demo data.
+        Illustrative dashboard. Research runs come from the real MSFT run; bots and fleet P&L are simulated.
       </p>
     </div>
   );

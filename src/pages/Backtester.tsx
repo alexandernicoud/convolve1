@@ -1643,7 +1643,7 @@ export default function Backtester() {
                   </>
                 )}
               </button>
-              <RunCostHint />
+              <RunCostHint tool="backtester" />
               {!canRun && !isSubmitting ? (
                 <p className="text-center text-[10px] text-white/40">
                   {!hasModel

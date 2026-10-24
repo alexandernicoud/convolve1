@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,9 +23,16 @@ class BotRunOut(BaseModel):
     status: str
     error_message: Optional[str] = None
     created_at: Optional[datetime] = None
+    execution_key: Optional[str] = None
+    trigger: Optional[str] = None
+    attempts: Optional[int] = None
+    decision_bar_at: Optional[datetime] = None
+    entry_state: Optional[str] = None
+    # Manual runs only: created_success | created_error | skipped_already_ran | skipped_in_progress
+    outcome: Optional[str] = None
     run_metadata_json: Optional[str] = Field(
         default=None,
-        description="JSON with optional gradcam_ok / gradcam_error when prediction succeeded.",
+        description="JSON: execution key, assumptions, settlement events, model I/O, Grad-CAM status.",
     )
 
 
@@ -49,6 +56,9 @@ class BotTradeOut(BaseModel):
     exit_run_id: Optional[str] = None
     pnl_amount: Optional[float] = None
     pnl_pct: Optional[float] = None
+    decision_bar_at: Optional[datetime] = None
+    bars_held: Optional[int] = None
+    outcome_flags: Optional[str] = None
     created_at: Optional[datetime] = None
 
 
@@ -75,6 +85,11 @@ class BotOut(BaseModel):
     runtime_days: Optional[int] = None
     run_time: Optional[str] = None
     timezone: Optional[str] = None
+    timeframe: Optional[str] = None
+    chart_span_unit: Optional[str] = None
+    chart_span_count: Optional[int] = None
+    last_slot_at: Optional[datetime] = None
+    execution_assumptions: Optional[Dict[str, Any]] = None
     starting_capital: float = 10000.0
     horizon_days: int = 5
     position_size_pct: float = 10.0

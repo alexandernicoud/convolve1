@@ -19,7 +19,9 @@ os.environ["RUN_BOTS_ON_API_STARTUP"] = "false"
 
 _fd, _db_path = tempfile.mkstemp(suffix=".db")
 os.close(_fd)
-os.environ["DATABASE_URL"] = f"sqlite:///{_db_path}"
+# CONVOLVE_TEST_DATABASE_URL runs the suite against a disposable, already migrated Postgres
+# database (e.g. for row-lock and unique-constraint behaviour). Never a shared server.
+os.environ["DATABASE_URL"] = os.environ.get("CONVOLVE_TEST_DATABASE_URL") or f"sqlite:///{_db_path}"
 
 import jwt  # noqa: E402
 import pytest  # noqa: E402
@@ -50,6 +52,22 @@ def mint_token(user_id: uuid.UUID, *, expired: bool = False, secret: str = JWT_S
 @pytest.fixture(scope="session", autouse=True)
 def _db_schema() -> None:
     init_db()
+    from app.db import engine
+    from sqlalchemy import text
+
+    if engine.dialect.name == "postgresql":
+        # Supabase provides auth.users; account deletion removes the caller's row from it.
+        with engine.begin() as conn:
+            conn.execute(text("create schema if not exists auth"))
+            conn.execute(text("create table if not exists auth.users (id uuid primary key)"))
+
+
+def _profiled(uid: uuid.UUID) -> uuid.UUID:
+    """A signed-in user: the first authenticated request creates the profile row."""
+    from app.auth import ensure_profile
+
+    ensure_profile(uid)
+    return uid
 
 
 @pytest.fixture
@@ -59,9 +77,9 @@ def client() -> TestClient:
 
 @pytest.fixture
 def user_a() -> uuid.UUID:
-    return uuid.uuid4()
+    return _profiled(uuid.uuid4())
 
 
 @pytest.fixture
 def user_b() -> uuid.UUID:
-    return uuid.uuid4()
+    return _profiled(uuid.uuid4())
