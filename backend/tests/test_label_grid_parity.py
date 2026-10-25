@@ -159,6 +159,27 @@ def test_full_parameter_grid_matches_exactly():
             assert np.array_equal(left, right), column
 
 
+def test_fast_engine_matches_legacy_compiled_grid(monkeypatch):
+    from app.services import label_grid
+
+    if not label_grid.HAVE_NUMBA:
+        return
+    df = _walk(120, seed=5, vol=0.02)
+    monkeypatch.setattr(opt, "LABEL_ENGINE", "legacy")
+    legacy = opt._run_grid_search_numba(df)
+    monkeypatch.setattr(opt, "LABEL_ENGINE", "fast")
+    fast = opt._run_grid_search_numba(df)
+    assert list(legacy.columns) == list(fast.columns)
+    assert len(legacy) == len(fast) == 25 * 25 * 200
+    for column in legacy.columns:
+        left, right = legacy[column].to_numpy(), fast[column].to_numpy()
+        if np.issubdtype(left.dtype, np.floating) or np.issubdtype(right.dtype, np.floating):
+            left, right = left.astype(np.float64), right.astype(np.float64)
+            assert np.all((np.isnan(left) & np.isnan(right)) | (left == right)), column
+        else:
+            assert np.array_equal(left, right), column
+
+
 def test_python_mode_does_not_call_numba(monkeypatch):
     monkeypatch.setenv("CONVOLVE_LABEL_GRID", "python")
     monkeypatch.setattr(opt, "_NUMBA_BROKEN", False)

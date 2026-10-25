@@ -1,0 +1,33 @@
+{
+ "provenance": "Both images passed through the same pretrained layer of EfficientNet-B0 (keras.applications, ImageNet weights), the network Convolve's Trainer offers for transfer learning. Same channels, per-map contrast stretch.",
+ "layer": "block2b_expand_activation",
+ "size": 56,
+ "channels": [
+  99,
+  7,
+  126
+ ],
+ "mri": {
+  "input": "domain_mri.png",
+  "maps": [
+   "domain_mri_c099.png",
+   "domain_mri_c007.png",
+   "domain_mri_c126.png"
+  ],
+  "source": "MNI ICBM152 2009a symmetric T1 template, axial slice z=96. A population average of 152 adults; contains no individual subject.",
+  "copyright": "Copyright (C) 1993-2004 Louis Collins, McConnell Brain Imaging Centre, Montreal Neurological Institute, McGill University.",
+  "gradcam": "domain_mri_gradcam.png",
+  "gradcam_source": "EfficientNet-B0 top ImageNet class, top_activation (7 x 7). Illustrates the method; not a diagnosis."
+ },
+ "chart": {
+  "input": "domain_chart.png",
+  "maps": [
+   "domain_chart_c099.png",
+   "domain_chart_c007.png",
+   "domain_chart_c126.png"
+  ],
+  "source": "trace_input.png, decoded as the Trainer decodes chart PNGs (RGB).",
+  "gradcam": "domain_chart_gradcam.png",
+  "gradcam_source": "Convolve CNN trained on MSFT charts, conv2d_2 (52 x 52); lab_3_gradcam.png from the Analysis Lab."
+ }
+}

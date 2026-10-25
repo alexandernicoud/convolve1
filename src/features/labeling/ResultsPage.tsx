@@ -5,7 +5,8 @@ import { btn, btnPrimary, cx, surface as surfaceClass } from "@/features/review/
 import { fetchApi } from "@/lib/api";
 import { buildConclusion, classifyRegion, fmtPct, nearestIndex, neighbourhood2D, REGION_COPY, sliceFor, type Audit, type Conclusion, type Model, type Tone } from "./lib";
 import { MethodTag, StatusBadge, TONE_DOT, TONE_TEXT } from "./ui";
-import { ResultsCtx, useRunData, type CellIdx, type Metrics, type ResultsCtxValue, type TabId } from "./state";
+import { ResultsCtx, useRunData, type CellIdx, type Metrics, type ResultsCtxValue, type RunInfo, type TabId } from "./state";
+import { parseRankMode, type RankMode, type ResearchCandidates } from "./research";
 import OverviewTab from "./tabs/OverviewTab";
 import SearchSpaceTab from "./tabs/SearchSpaceTab";
 import PerformanceTab from "./tabs/PerformanceTab";
@@ -30,14 +31,17 @@ export default function LabelingResultsPage() {
   const { audit, metrics, surface } = data;
 
   const [model, setModel] = useState<Model>("label");
+  const rankMode: RankMode = data.candidates ? parseRankMode(params.get("rank")) : "profitability";
   const [hIndex, setHIndex] = useState(0);
   const [cell, setCell] = useState<{ si: number; ti: number } | null>(null);
   const tabsRef = useRef<HTMLElement>(null);
 
   const bestIdx = useMemo<CellIdx | null>(() => {
-    if (!surface || !Number.isFinite(surface.best.tp)) return null;
-    return { hi: nearestIndex(surface.horizons, surface.best.h), si: nearestIndex(surface.sl, surface.best.sl), ti: nearestIndex(surface.tp, surface.best.tp) };
-  }, [surface]);
+    if (!surface) return null;
+    const best = rankMode === "profitability" ? surface.best : data.candidates?.best[rankMode];
+    if (!best || !Number.isFinite(best.tp)) return null;
+    return { hi: nearestIndex(surface.horizons, best.h), si: nearestIndex(surface.sl, best.sl), ti: nearestIndex(surface.tp, best.tp) };
+  }, [surface, rankMode, data.candidates]);
 
   useEffect(() => {
     if (bestIdx) {
@@ -47,10 +51,11 @@ export default function LabelingResultsPage() {
   }, [bestIdx]);
 
   const localNb = useMemo(() => {
-    if (!surface || !bestIdx) return null;
-    const g = sliceFor(surface, "label", bestIdx.hi);
-    return g ? neighbourhood2D(g, bestIdx.si, bestIdx.ti) : null;
-  }, [surface, bestIdx]);
+    if (!surface || !Number.isFinite(surface.best.tp)) return null;
+    const b = { hi: nearestIndex(surface.horizons, surface.best.h), si: nearestIndex(surface.sl, surface.best.sl), ti: nearestIndex(surface.tp, surface.best.tp) };
+    const g = sliceFor(surface, "label", b.hi);
+    return g ? neighbourhood2D(g, b.si, b.ti) : null;
+  }, [surface]);
   const conclusion = useMemo(() => buildConclusion(audit, metrics, localNb), [audit, metrics, localNb]);
 
   const goTab = useCallback(
@@ -59,6 +64,18 @@ export default function LabelingResultsPage() {
         const n = new URLSearchParams(p);
         if (t === "overview") n.delete("tab");
         else n.set("tab", t);
+        return n;
+      }, { replace: true });
+    },
+    [setParams],
+  );
+
+  const setRankMode = useCallback(
+    (m: RankMode) => {
+      setParams((p) => {
+        const n = new URLSearchParams(p);
+        if (m === "profitability") n.delete("rank");
+        else n.set("rank", m);
         return n;
       }, { replace: true });
     },
@@ -80,11 +97,11 @@ export default function LabelingResultsPage() {
   if (!runId) return <div className="flex min-h-[60vh] items-center justify-center text-white/60">No run ID provided.</div>;
 
   const symbol: string | undefined = audit?.symbol ?? metrics?.symbol;
-  const ctx: ResultsCtxValue = { ...data, runId, symbol, conclusion, model, setModel, hIndex, setHIndex, cell, setCell, bestIdx, select, goTab };
+  const ctx: ResultsCtxValue = { ...data, runId, symbol, conclusion, model, setModel, rankMode, setRankMode, hIndex, setHIndex, cell, setCell, bestIdx, select, goTab };
 
   return (
     <div className="mx-auto w-full max-w-[100rem] space-y-5 pb-10">
-      <Header runId={runId} backHref={backHref} audit={audit} metrics={metrics} conclusion={data.loading ? null : conclusion} />
+      <Header runId={runId} backHref={backHref} audit={audit} metrics={metrics} conclusion={data.loading ? null : conclusion} runInfo={data.runInfo} candidates={data.loading ? undefined : data.candidates} />
 
       {data.loading ? <div className={cx(surfaceClass, "h-48 animate-pulse")} aria-busy /> : null}
       {data.error ? <p className="rounded-xl border border-red-400/25 bg-red-400/[0.06] px-4 py-3 text-[13.5px] text-red-200/90">{data.error}</p> : null}
@@ -121,10 +138,28 @@ export default function LabelingResultsPage() {
 
 // ------------------------------------------------------------------
 
-function Header({ runId, backHref, audit, metrics, conclusion }: { runId: string; backHref: string; audit: Audit | null; metrics: Metrics | null; conclusion: Conclusion | null }) {
+function Header({
+  runId,
+  backHref,
+  audit,
+  metrics,
+  conclusion,
+  runInfo,
+  candidates,
+}: {
+  runId: string;
+  backHref: string;
+  audit: Audit | null;
+  metrics: Metrics | null;
+  conclusion: Conclusion | null;
+  runInfo: RunInfo | null;
+  candidates: ResearchCandidates | null | undefined;
+}) {
   const symbol = audit?.symbol ?? metrics?.symbol;
-  const start = audit?.start ?? metrics?.start;
-  const end = audit?.end ?? metrics?.end;
+  const periods = runInfo?.periods ?? candidates?.periods;
+  const start = periods?.research.start ?? audit?.start ?? metrics?.start;
+  const end = periods?.research.end ?? audit?.end ?? metrics?.end;
+  const evaluation = periods?.evaluation;
   return (
     <header className="flex flex-wrap items-start justify-between gap-4 pt-1">
       <div className="min-w-0">
@@ -142,9 +177,20 @@ function Header({ runId, backHref, audit, metrics, conclusion }: { runId: string
             <MethodTag kind="dashed">{audit?.evaluation === "out_of_sample" ? "Independently evaluated" : "In-sample search"}</MethodTag>
           ) : null}
           {start && end ? (
-            <span className="font-digits tabular-nums">
+            <span className="font-digits tabular-nums" title={periods?.boundary}>
+              {periods ? "Research " : ""}
               {start} → {end}
             </span>
+          ) : null}
+          {evaluation ? (
+            <span className="font-digits tabular-nums text-white/55" title="Shown separately; never used for ranking">
+              Evaluation {evaluation.start} → {evaluation.end}
+            </span>
+          ) : null}
+          {candidates === null ? (
+            <MethodTag kind="dashed">
+              <span title="Run made before methodology v2: no CNN-suitability or robustness diagnostics, and the whole date range was searched.">Legacy run · methodology v1</span>
+            </MethodTag>
           ) : null}
           {audit ? (
             <span className="text-white/45">

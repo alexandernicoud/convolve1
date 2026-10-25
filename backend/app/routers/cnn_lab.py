@@ -11,16 +11,16 @@ import os
 import threading
 import time
 from collections import OrderedDict
-from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from app.auth import get_current_user_id
-from app.config import AUTH_REQUIRED, MODEL_STORAGE_ROOT
+from app.config import AUTH_REQUIRED
 from app.ownership import assert_cross_owned, assert_run_owner, lookup_run_owner
-from app.paths import canonical_user_id, find_local_keras_file, is_user_uuid, run_dir_for, runs_root, validate_id
+from app.paths import canonical_user_id, is_user_uuid, run_dir_for, runs_root, validate_id
+from app.services import library_models
 from app.services.cnn_lab import core, experiments, findings, jobs
 
 router = APIRouter(prefix="/api/lab", tags=["cnn-lab"])
@@ -56,11 +56,8 @@ def _resolve(uid: Optional[str], model_kind: str, model_id: str, dataset_id: Opt
     default_ds = None
     if model_kind == "trained":
         assert_cross_owned(uid, trainer_run_id=mid)
+        model_path = str(library_models.owned_model_file(uid, training_run_id=mid))
         trainer_dir = m.get_run_dir(mid)
-        name = m._find_trained_model_file(trainer_dir) if os.path.isdir(trainer_dir) else None
-        if not name:
-            raise HTTPException(status_code=404, detail="Trained model not found")
-        model_path = os.path.join(trainer_dir, name)
         meta = core.read_json(os.path.join(trainer_dir, "model_metadata.json"))
         cand = meta.get("dataset_id")
         if isinstance(cand, str) and cand:
@@ -72,10 +69,7 @@ def _resolve(uid: Optional[str], model_kind: str, model_id: str, dataset_id: Opt
                 default_ds = None
     elif model_kind == "uploaded":
         assert_cross_owned(uid, model_id=mid)
-        found = find_local_keras_file(Path(MODEL_STORAGE_ROOT), mid, uid)
-        if found is None or not found.is_file():
-            raise HTTPException(status_code=404, detail="Uploaded model not found")
-        model_path = str(found)
+        model_path = str(library_models.owned_model_file(uid, model_id=mid))
     else:
         raise HTTPException(status_code=422, detail="model_kind must be trained or uploaded")
     did = did or default_ds

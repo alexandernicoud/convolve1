@@ -24,6 +24,7 @@ from fastapi import HTTPException, UploadFile
 
 from app.config import MAX_KERAS_UPLOAD_BYTES, MODEL_BUCKET
 from app.paths import keras_storage_key
+from app.storage.local import KERAS_ARCHIVE_MAGIC, NOT_KERAS_DETAIL
 from app.storage.types import StoredKerasModel
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,9 @@ class GcsKerasModelStorage:
                             ),
                         )
                     buf.write(chunk)
+                buf.seek(0)
+                if buf.read(len(KERAS_ARCHIVE_MAGIC)) != KERAS_ARCHIVE_MAGIC:
+                    raise HTTPException(status_code=400, detail=NOT_KERAS_DETAIL)
                 buf.seek(0)
                 bucket = self._ensure_bucket()
                 blob = bucket.blob(key)

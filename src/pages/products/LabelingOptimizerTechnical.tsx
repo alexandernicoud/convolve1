@@ -32,6 +32,8 @@ const formSchema = z
     grid_sl_steps: z.coerce.number().int().min(5).max(80),
     fee_rate_pct: z.coerce.number().min(0).max(1),
     objective: z.enum(["max_cagr", "max_sharpe", "max_winrate", "min_drawdown"]),
+    reserve_eval: z.boolean(),
+    selection_end: z.string(),
   })
   .refine(
     (data) => {
@@ -52,7 +54,33 @@ const formSchema = z
   .refine((data) => data.horizon_min <= data.horizon_max, {
     message: "Horizon min cannot exceed max",
     path: ["horizon_max"],
-  });
+  })
+  .refine((data) => !data.reserve_eval || researchEndProblem(data.start, data.end, data.selection_end) == null, (data) => ({
+    message: researchEndProblem(data.start, data.end, data.selection_end) ?? "",
+    path: ["selection_end"],
+  }));
+
+/** Same limits as the API (LO_MIN_RESEARCH_DAYS / LO_MIN_EVALUATION_DAYS). */
+const MIN_RESEARCH_DAYS = 365;
+const MIN_EVALUATION_DAYS = 60;
+
+function researchEndProblem(start: string, end: string, sel: string): string | null {
+  const s = parseIsoDate(start);
+  const e = parseIsoDate(end);
+  const r = parseIsoDate(sel);
+  if (!s || !e || !r) return "Pick the last day of the research period";
+  const days = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime()) / 86_400_000);
+  if (days(s, r) < MIN_RESEARCH_DAYS) return `The research period needs at least ${MIN_RESEARCH_DAYS} days`;
+  if (days(r, e) < MIN_EVALUATION_DAYS) return `Leave at least ${MIN_EVALUATION_DAYS} days after it for evaluation`;
+  return null;
+}
+
+function defaultResearchEnd(start: string, end: string): string {
+  const s = parseIsoDate(start);
+  const e = parseIsoDate(end);
+  if (!s || !e) return end;
+  return isoDateString(new Date(s.getTime() + (e.getTime() - s.getTime()) * 0.8));
+}
 
 type FormData = z.infer<typeof formSchema>;
 
@@ -101,6 +129,8 @@ export default function LabelingOptimizerTechnical() {
       grid_sl_steps: 25,
       fee_rate_pct: 0.1,
       objective: "max_cagr",
+      reserve_eval: false,
+      selection_end: "",
     },
   });
 
@@ -110,6 +140,8 @@ export default function LabelingOptimizerTechnical() {
   const slMax = watch("sl_max_pct");
   const startIso = watch("start");
   const endIso = watch("end");
+  const reserveEval = watch("reserve_eval");
+  const selectionEnd = watch("selection_end");
   const todayIsoMax = useMemo(() => isoDateString(startOfLocalDay(new Date())), []);
 
   const pricingParams = useMemo(() => ({ start: startIso, end: endIso }), [startIso, endIso]);
@@ -136,6 +168,7 @@ export default function LabelingOptimizerTechnical() {
         grid_sl_steps: data.grid_sl_steps,
         fee_rate_pct: data.fee_rate_pct,
         objective: data.objective,
+        ...(data.reserve_eval ? { selection_end: data.selection_end } : {}),
       });
       chargeRunCredits("labeling-optimizer");
 
@@ -270,6 +303,41 @@ export default function LabelingOptimizerTechnical() {
                     <option value="1wk">1 week</option>
                     <option value="1mo">1 month</option>
                   </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="flex items-center gap-2 text-sm text-white/75">
+                    <input
+                      type="checkbox"
+                      checked={reserveEval}
+                      onChange={(e) => {
+                        setValue("reserve_eval", e.target.checked, { shouldValidate: true });
+                        if (e.target.checked && !selectionEnd) setValue("selection_end", defaultResearchEnd(startIso, endIso), { shouldValidate: true });
+                      }}
+                      className="accent-white"
+                    />
+                    Reserve a later evaluation period
+                    <FieldTip text="Candidates are ranked on the research period only. The bars after the research end are scored separately and shown next to each candidate; they never change the ranking." />
+                  </label>
+                  {reserveEval ? (
+                    <div className="mt-3 max-w-xs">
+                      <label className={labelClass}>Research period ends</label>
+                      <input
+                        type="date"
+                        value={selectionEnd}
+                        min={startIso}
+                        max={endIso}
+                        onChange={(e) => setValue("selection_end", e.target.value, { shouldValidate: true, shouldDirty: true })}
+                        className={`${inputClass} font-mono`}
+                      />
+                      {errors.selection_end ? (
+                        <p className="mt-1 text-xs text-red-400">{errors.selection_end.message}</p>
+                      ) : (
+                        <p className="mt-1 text-xs text-white/45">
+                          Research {startIso} → {selectionEnd}; evaluation from the next trading day to {endIso}.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </StepSection>

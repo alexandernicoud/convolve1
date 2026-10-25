@@ -3,15 +3,23 @@ import Plot from "react-plotly.js";
 import type { Data, PlotMouseEvent } from "plotly.js";
 import { btnSm, cx } from "@/features/review/components/primitives";
 import { cellProfile, classifyRegion, fmtFrac, fmtPct, maxAbs, nearestIndex, neighbourhood2D, percentileInSlice, REGION_COPY, signedLog, signedLogTicks, sliceFor, type Model, type Tone } from "../lib";
-import { axis, baseLayout, Card, DIVERGING, horizonAxis, Legend, MethodTag, PLOT_CONFIG, Segmented, T, TONE_TEXT, Unavailable } from "../ui";
+import { axis, baseLayout, Card, DIVERGING, horizonAxis, Legend, MethodTag, PLOT_CONFIG, Segmented, SEQUENTIAL, T, TONE_TEXT, Unavailable } from "../ui";
 import { useResults } from "../state";
+import { RANK_MODES, type RankMode } from "../research";
+import { CandidateTable, CellDiagnostics, GenerateDatasetLink } from "./ResearchPanels";
 
 export const MODEL_LABEL: Record<Model, string> = { label: "Label payoff", mtm: "Market-valued" };
+export const RANK_LABEL: Record<RankMode, string> = { profitability: "optimizer score", suitability: "CNN suitability", robustness: "robustness" };
 
 export default function OverviewTab() {
   const { surface } = useResults();
   if (!surface) return <Unavailable>No TP × SL surface was exported for this run.</Unavailable>;
-  return <SurfaceExplorer />;
+  return (
+    <div className="space-y-5">
+      <SurfaceExplorer />
+      <CandidateTable />
+    </div>
+  );
 }
 
 function signTone(v: number | null | undefined): Tone {
@@ -19,7 +27,7 @@ function signTone(v: number | null | undefined): Tone {
 }
 
 function SurfaceExplorer() {
-  const { surface: s, model, setModel, hIndex, setHIndex, cell, setCell, bestIdx, goTab } = useResults();
+  const { surface: s, model, setModel, hIndex, setHIndex, cell, setCell, bestIdx, goTab, rankMode, setRankMode, research, candidates } = useResults();
   const surface = s!;
   const effModel: Model = model === "mtm" && !surface.mtm ? "label" : model;
   const otherModel: Model = effModel === "label" ? "mtm" : "label";
@@ -31,8 +39,27 @@ function SurfaceExplorer() {
   const ticks = useMemo(() => signedLogTicks(limit), [limit]);
   const h = surface.horizons[hIndex]!;
 
-  const zLog = useMemo(() => grid?.map((row) => row.map((v) => (v == null ? null : signedLog(v)))) ?? [], [grid]);
-  const customdata = useMemo(() => grid?.map((row, si) => row.map((v, ti) => [v ?? NaN, other?.[si]?.[ti] ?? NaN])) ?? [], [grid, other]);
+  const scoreGrid = rankMode !== "profitability" ? research?.metrics[rankMode]?.[hIndex] ?? null : null;
+  const shareGrid = research?.metrics.label1_share?.[hIndex] ?? null;
+  const samplesGrid = research?.metrics.samples?.[hIndex] ?? null;
+  const zLog = useMemo(
+    () => (scoreGrid ? scoreGrid.map((row) => row.slice()) : grid?.map((row) => row.map((v) => (v == null ? null : signedLog(v)))) ?? []),
+    [grid, scoreGrid],
+  );
+  const customdata = useMemo(
+    () =>
+      grid?.map((row, si) =>
+        row.map((v, ti) => [
+          v ?? NaN,
+          other?.[si]?.[ti] ?? NaN,
+          scoreGrid?.[si]?.[ti] ?? NaN,
+          shareGrid?.[si]?.[ti] != null ? shareGrid[si]![ti]! * 100 : NaN,
+          samplesGrid?.[si]?.[ti] ?? NaN,
+        ]),
+      ) ?? [],
+    [grid, other, scoreGrid, shareGrid, samplesGrid],
+  );
+  const scoreName = RANK_MODES.find((m) => m.value === rankMode)!.label;
 
   const sel = cell ?? (bestIdx ? { si: bestIdx.si, ti: bestIdx.ti } : { si: 0, ti: 0 });
   const selVal = grid?.[sel.si]?.[sel.ti] ?? null;
@@ -52,24 +79,36 @@ function SurfaceExplorer() {
       y: slPct,
       z: zLog,
       customdata: customdata as unknown as number[][],
-      colorscale: DIVERGING,
-      zmin: -signedLog(limit),
-      zmax: signedLog(limit),
+      colorscale: scoreGrid ? SEQUENTIAL : DIVERGING,
+      zmin: scoreGrid ? 0 : -signedLog(limit),
+      zmax: scoreGrid ? 100 : signedLog(limit),
       xgap: 1,
       ygap: 1,
       hovertemplate:
-        `TP %{x:.2f}% · SL %{y:.2f}% · ${h} d<br>${MODEL_LABEL[effModel]}: %{customdata[0]:.1f}% CAGR` +
+        `TP %{x:.2f}% · SL %{y:.2f}% · ${h} d` +
+        (scoreGrid ? `<br>${scoreName}: %{customdata[2]:.0f} / 100` : "") +
+        `<br>${MODEL_LABEL[effModel]}: %{customdata[0]:.1f}% CAGR` +
         (other ? `<br>${MODEL_LABEL[otherModel]}: %{customdata[1]:.1f}%` : "") +
+        (shareGrid ? "<br>Label 1: %{customdata[3]:.0f}% of %{customdata[4]:,} samples" : "") +
         "<extra></extra>",
-      colorbar: {
-        title: { text: "CAGR (signed log scale)", side: "right", font: { size: 11, color: T.title } },
-        thickness: 9,
-        len: 0.9,
-        outlinewidth: 0,
-        tickvals: ticks.vals,
-        ticktext: ticks.text,
-        tickfont: { size: 10.5, color: T.tick },
-      },
+      colorbar: scoreGrid
+        ? {
+            title: { text: `${scoreName} (0–100)`, side: "right", font: { size: 11, color: T.title } },
+            thickness: 9,
+            len: 0.9,
+            outlinewidth: 0,
+            tickvals: [0, 25, 50, 75, 100],
+            tickfont: { size: 10.5, color: T.tick },
+          }
+        : {
+            title: { text: "CAGR (signed log scale)", side: "right", font: { size: 11, color: T.title } },
+            thickness: 9,
+            len: 0.9,
+            outlinewidth: 0,
+            tickvals: ticks.vals,
+            ticktext: ticks.text,
+            tickfont: { size: 10.5, color: T.tick },
+          },
     } as Data,
   ];
   if (bestIdx && bestIdx.hi === hIndex) {
@@ -111,17 +150,27 @@ function SurfaceExplorer() {
     <div id="tp-sl-heatmap" className="scroll-mt-24">
       <Card
         title="TP × SL score at a fixed horizon"
-        note={`Each cell is one take-profit / stop-loss pair at the chosen holding horizon, coloured by its ${MODEL_LABEL[effModel].toLowerCase()} CAGR. Scores are in-sample.`}
+        note={`Each cell is one take-profit / stop-loss pair at the chosen holding horizon, coloured by its ${scoreGrid ? `${scoreName.toLowerCase()} score (0–100)` : `${MODEL_LABEL[effModel].toLowerCase()} CAGR`}. Scores are in-sample${candidates?.periods.evaluation ? " (research period)" : ""}.`}
         aside={
-          <Segmented
-            label="Payoff model"
-            value={effModel}
-            onChange={setModel}
-            options={[
-              { value: "label", label: "Label payoff", title: "The optimizer's own objective: expiries booked at 0%" },
-              { value: "mtm", label: "Market-valued", disabled: !surface.mtm, title: surface.mtm ? "Audit: expiries valued at the close" : "Not available for this run" },
-            ]}
-          />
+          <>
+            {candidates ? (
+              <Segmented
+                label="Ranking"
+                value={rankMode}
+                onChange={setRankMode}
+                options={RANK_MODES.map((m) => ({ value: m.value, label: m.label, title: m.title, disabled: m.value !== "profitability" && !research?.metrics[m.value] }))}
+              />
+            ) : null}
+            <Segmented
+              label="Payoff model"
+              value={effModel}
+              onChange={setModel}
+              options={[
+                { value: "label", label: "Label payoff", title: "The optimizer's own objective: expiries booked at 0%" },
+                { value: "mtm", label: "Market-valued", disabled: !surface.mtm, title: surface.mtm ? "Audit: expiries valued at the close" : "Not available for this run" },
+              ]}
+            />
+          </>
         }
       >
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-white/[0.07] pb-3">
@@ -156,7 +205,7 @@ function SurfaceExplorer() {
                   setCell({ si: bestIdx.si, ti: bestIdx.ti });
                 }}
               >
-                ★ Highest score
+                ★ Highest {rankMode === "profitability" ? "score" : RANK_LABEL[rankMode]}
               </button>
             ) : null}
           </div>
@@ -185,13 +234,16 @@ function SurfaceExplorer() {
               <span>Click a cell to inspect it.</span>
               <Legend
                 items={[
-                  { label: "highest optimizer score", color: "#fff", kind: "star" },
+                  { label: `highest ${RANK_LABEL[rankMode]}`, color: "#fff", kind: "star" },
                   { label: "selected", color: T.select, kind: "ring" },
                 ]}
               />
               <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-2 w-8 rounded-sm" style={{ background: `linear-gradient(90deg, ${DIVERGING.map(([p, c]) => `${c} ${p * 100}%`).join(", ")})` }} />
-                loss · 0 · gain
+                <span
+                  className="inline-block h-2 w-8 rounded-sm"
+                  style={{ background: `linear-gradient(90deg, ${(scoreGrid ? SEQUENTIAL : DIVERGING).map(([p, c]) => `${c} ${p * 100}%`).join(", ")})` }}
+                />
+                {scoreGrid ? "0 · 100" : "loss · 0 · gain"}
               </span>
             </div>
           </div>
@@ -200,7 +252,7 @@ function SurfaceExplorer() {
             <div className="rounded-lg border border-white/[0.08] p-3.5">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[12.5px] text-white/45">Selected cell</p>
-                {isBest ? <MethodTag>Highest score</MethodTag> : null}
+                {isBest ? <MethodTag>Highest {rankMode === "profitability" ? "score" : RANK_LABEL[rankMode]}</MethodTag> : null}
               </div>
               <p className="mt-1.5 font-digits text-[14px] tabular-nums text-white">
                 TP {fmtFrac(surface.tp[sel.ti])} · SL {fmtFrac(surface.sl[sel.si])} · {h} d
@@ -212,6 +264,8 @@ function SurfaceExplorer() {
                 <Row k="Neighbours at this horizon" v={selNb ? `${Math.round(selNb.median_ratio * 100)}% of cell` : "—"} />
                 <Row k="Shape at this horizon" v={REGION_COPY[selRegion].label} tone={selRegion === "isolated" ? "bad" : "neutral"} />
               </dl>
+              <CellDiagnostics at={{ hi: hIndex, ...sel }} />
+              <GenerateDatasetLink at={{ hi: hIndex, ...sel }} className="mt-3 w-full justify-center" />
               <button type="button" onClick={() => goTab("search")} className="mt-3 text-[12.5px] text-white/50 underline-offset-4 transition hover:text-white hover:underline">
                 Locate in 3D search space →
               </button>

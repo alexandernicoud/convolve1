@@ -17,6 +17,7 @@ local file path and need no changes.
 from __future__ import annotations
 
 import logging
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -70,10 +71,13 @@ def _materialise_gcs_uri(uri: str) -> str:
 
     client = storage.Client()
     blob = client.bucket(bucket_name).blob(key)
-    tmp = local_path.with_suffix(local_path.suffix + ".part")
+    tmp = local_path.with_name(f".{local_path.name}.{uuid.uuid4().hex[:8]}.part")
     logger.info("Downloading model from gs://%s/%s -> %s", bucket_name, key, local_path)
-    blob.download_to_filename(str(tmp))
-    tmp.replace(local_path)
+    try:
+        blob.download_to_filename(str(tmp))
+        tmp.replace(local_path)
+    finally:
+        tmp.unlink(missing_ok=True)
     return str(local_path.resolve())
 
 

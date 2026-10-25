@@ -47,38 +47,23 @@ type Chapter = { num: string; name: string; title: ReactNode; body: string; extr
 const CHAPTERS: Chapter[] = [
   {
     num: "I",
-    name: "The ambition",
-    title: (
-      <>
-        A research desk&apos;s instruments, <span className="text-white/45">for one person.</span>
-      </>
-    ),
-    body: "Institutions have teams to source data, build datasets, train models and challenge results. Convolve puts that laboratory into one workspace for the independent trader: labelled datasets, neural networks, interpretability, backtesting and deployment, without writing code.",
-    extra: (
-      <p className="mt-10 border-t border-white/[0.1] pt-6 text-[clamp(1.4rem,2.2vw,1.9rem)] font-extralight leading-[1.2] tracking-[-0.02em] text-white">
-        Not blind automation. <span className="text-white/45">Structured decision support.</span>
-      </p>
-    ),
-  },
-  {
-    num: "II",
     name: "The problem",
     title: (
       <>
-        Most trading tools <span className="text-white/45">hand you an answer.</span>
+        Most platforms let you analyse charts. <span className="text-white/45">Convolve lets you train models to analyse them.</span>
       </>
     ),
-    body: "An indicator someone else parameterised. A signal you cannot inspect. A backtest that shows the best curve and none of the attempts behind it. What is left is confidence without evidence, and no way to tell the two apart.",
+    body: "Technical analysis starts from representations people defined: indicators, named formations, hand-written rules. They are useful, and a great deal of quantitative research is built on them, but they can only measure what someone thought to define. Convolve adds a different kind of experiment, in which a neural network learns its own visual features from market data.",
   },
   {
-    num: "III",
-    name: "The conviction",
+    num: "II",
+    name: "The belief",
     title: (
       <>
-        Trading should be engineered, <span className="text-white/45">researched and tested.</span>
+        The next trading pattern <span className="text-white/45">might not have a name.</span>
       </>
     ),
-    body: "A trading idea is a hypothesis about data, and it can be built like one: a labelled dataset, a trained network, a result measured on data the model never saw. Rigour is part of the method. Three rules run through every experiment.",
+    body: "A neural network is not limited to the formations a researcher decides to look for. Through training it learns combinations of visual features that can be hard to state as a conventional rule. Convolve lets you explore those representations and test whether they carry predictive information. A network can also learn artefacts, so every finding goes through the same three checks.",
     extra: (
       <ol className="mt-8 space-y-5">
         {PRINCIPLES.map(([k, v], i) => (
@@ -94,19 +79,34 @@ const CHAPTERS: Chapter[] = [
     ),
   },
   {
-    num: "IV",
-    name: "The technology",
+    num: "III",
+    name: "The approach",
     title: (
       <>
-        Data, networks and markets <span className="text-white/45">in one laboratory.</span>
+        From market data to a deployed model, <span className="text-white/45">in one connected system.</span>
       </>
     ),
-    body: "Market data and outcome labeling, convolutional networks trained by numerical optimisation, interpretability methods that show what a model attends to, backtests with costs and benchmarks, and scheduled deployment that runs a model on new data. Each tool hands its result to the next.",
+    body: "Price history becomes labelled chart images. The images train convolutional networks; the trained model is opened up to show what it attends to, backtested on data it has never seen and deployed on a schedule for paper trading. Each instrument hands its result to the next, and every result links back to what produced it.",
     extra: (
       <Link to="/#workflow" className="group mt-8 inline-flex items-center gap-2 text-[14px] text-white/70 transition-colors hover:text-white">
         See the workflow
         <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden />
       </Link>
+    ),
+  },
+  {
+    num: "IV",
+    name: "The ambition",
+    title: (
+      <>
+        An advanced machine-learning laboratory. <span className="text-white/45">In your browser.</span>
+      </>
+    ),
+    body: "Generate historical datasets. Experiment with network architectures, optimisers and regularisation. Change what the model is trained to predict, inspect its feature maps, evaluate its predictions and deploy it for scheduled paper trading. All in one environment, without building infrastructure or writing code.",
+    extra: (
+      <p className="mt-10 border-t border-white/[0.1] pt-6 text-[clamp(1.4rem,2.2vw,1.9rem)] font-extralight leading-[1.2] tracking-[-0.02em] text-white">
+        Architecture is a research variable. <span className="text-white/45">Change the network, compare what it learns.</span>
+      </p>
     ),
   },
 ];
@@ -155,7 +155,7 @@ function Origin() {
   const steps: [string, string][] = [
     ["A question", "Can a convolutional network, the kind built to read photographs, learn anything from a picture of a price chart?"],
     ["An experiment", "Render candlestick windows as images, label each by what happened next, train a small CNN and look at the result."],
-    ["Instruments", "Each answer raised the next question: what the network attends to, which label rule to use, how a model behaves once it runs."],
+    ["Instruments", "Each answer raised the next question: which architecture, which label rule, what the network attends to, how a model behaves once it runs."],
     ["A workspace", "Generation, training, interpretability, label search, backtesting and monitored deployment, connected so that every result can be traced."],
   ];
   return (
@@ -173,8 +173,8 @@ function Origin() {
               find patterns with any predictive value.
             </p>
             <p className={`mt-4 ${TYPE.body}`}>
-              Answering that properly took more than one model. It took dataset generation, label search, interpretability and fair backtests,
-              so those were built, and grew into one research infrastructure.
+              Answering that properly took more than one model. It took dataset generation, label search, architecture comparison,
+              interpretability and fair backtests, so those were built, and grew into one research infrastructure.
             </p>
             <p className={`mt-4 ${TYPE.body}`}>
               The direction from here is a larger laboratory: bigger datasets, model families beyond CNNs and more AI-assisted research. Those

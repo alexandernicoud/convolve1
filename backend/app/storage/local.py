@@ -10,6 +10,9 @@ from app.config import BOT_DATA_DIR, MAX_KERAS_UPLOAD_BYTES, MODEL_STORAGE_ROOT
 from app.paths import keras_storage_key, local_keras_path, is_user_uuid, canonical_user_id
 from app.storage.types import StoredKerasModel
 
+KERAS_ARCHIVE_MAGIC = b"PK\x03\x04"
+NOT_KERAS_DETAIL = "Not a Keras model: a .keras file is a zip archive"
+
 
 async def _stream_upload_to_path(upload: UploadFile, dest: Path) -> tuple[int, str, str]:
     """Returns (byte_size, original_filename, content_type)."""
@@ -36,6 +39,11 @@ async def _stream_upload_to_path(upload: UploadFile, dest: Path) -> tuple[int, s
     finally:
         await upload.close()
 
+    with open(dest, "rb") as fh:
+        head = fh.read(len(KERAS_ARCHIVE_MAGIC))
+    if head != KERAS_ARCHIVE_MAGIC:
+        dest.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=NOT_KERAS_DETAIL)
     return total, original, ct
 
 

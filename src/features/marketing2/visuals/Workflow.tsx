@@ -154,7 +154,7 @@ interface Stage {
 const STAGES: Stage[] = [
   { name: "Explore labels", optional: true, doing: "Score take-profit, stop-loss and horizon rules.", artifact: "Label rule", id: "TP × SL × horizon", body: <RuleArtifact /> },
   { name: "Generate", doing: "Render each price window as a labelled image.", artifact: "Image dataset", id: "150,528 values per image", body: <DatasetArtifact /> },
-  { name: "Train", doing: "Fit a CNN and restore the best epoch.", artifact: "Trained CNN", id: `${(training.params / 1e6).toFixed(1)}M parameters`, body: <ModelArtifact /> },
+  { name: "Train", doing: "Choose an architecture, fit it, keep the best epoch.", artifact: "Trained CNN", id: `${(training.params / 1e6).toFixed(1)}M parameters`, body: <ModelArtifact /> },
   { name: "Analyse", optional: true, doing: "Open the model on its own charts.", artifact: "Interpretation", id: "Grad-CAM · attention per pixel", body: <AttentionArtifact /> },
   {
     name: "Backtest",

@@ -11,7 +11,8 @@ import time
 import uuid
 import zipfile
 import io
-from datetime import datetime
+from datetime import date, datetime
+import math
 import sys
 import shutil
 import tempfile
@@ -67,8 +68,6 @@ from app.paths import (
     iter_dataset_dirs,
     dataset_dir_for,
     resolve_existing_dataset_dir,
-    find_local_keras_file,
-    find_keras_sidecar,
     find_backtest_dir,
     is_user_uuid,
     validate_id,
@@ -85,6 +84,7 @@ from app.routers.account import router as account_router
 from app.routers.credits import router as credits_router
 from app.services.model_paths import require_existing_model_file
 from app.services import asset_labels
+from app.services import library_models
 from app.services import review_meta
 from app.services.backtest_api import (
     ARTIFACT_FILES,
@@ -201,6 +201,77 @@ class RunRequest(BaseModel):
     grid_sl_steps: Optional[int] = None
     fee_rate_pct: Optional[float] = None
     objective: Optional[str] = None
+    # Last day of the research period; later bars form an evaluation period that never ranks.
+    selection_end: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _check_selection_end(self):
+        if not self.selection_end:
+            self.selection_end = None
+            return self
+        try:
+            start, end, sel = (date.fromisoformat(str(v)[:10]) for v in (self.start, self.end, self.selection_end))
+        except ValueError:
+            raise ValueError("selection_end, start and end must be YYYY-MM-DD dates")
+        if not start < sel < end:
+            raise ValueError("selection_end must fall strictly between start and end")
+        if (sel - start).days < LO_MIN_RESEARCH_DAYS:
+            raise ValueError(f"the research period must span at least {LO_MIN_RESEARCH_DAYS} days")
+        if (end - sel).days < LO_MIN_EVALUATION_DAYS:
+            raise ValueError(f"the evaluation period must span at least {LO_MIN_EVALUATION_DAYS} days")
+        self.selection_end = sel.isoformat()
+        return self
+
+
+LO_MIN_RESEARCH_DAYS = 365
+LO_MIN_EVALUATION_DAYS = 60
+_OPTIMIZER_MODES = {"profitability", "suitability", "robustness"}
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_SYMBOL_RE = re.compile(r"^[A-Za-z0-9.^=_-]{1,20}$")
+
+
+def sanitize_optimizer_source(raw: Any) -> Optional[Dict[str, Any]]:
+    """Whitelisted provenance of a Generator config transferred from a Labeling Optimizer cell."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("sourceOptimizer must be an object")
+    out: Dict[str, Any] = {}
+    run_id = raw.get("run_id")
+    if run_id is not None:
+        if not isinstance(run_id, str) or not _RUN_ID_RE.match(run_id):
+            raise ValueError("sourceOptimizer.run_id is invalid")
+        out["run_id"] = run_id
+    mode = raw.get("mode")
+    if mode is not None:
+        if mode not in _OPTIMIZER_MODES:
+            raise ValueError("sourceOptimizer.mode is invalid")
+        out["mode"] = mode
+    symbol = raw.get("symbol")
+    if symbol is not None:
+        if not isinstance(symbol, str) or not _SYMBOL_RE.match(symbol):
+            raise ValueError("sourceOptimizer.symbol is invalid")
+        out["symbol"] = symbol.upper()
+    for key, lo, hi in (("tp", 0.0, 1.0), ("sl", 0.0, 1.0)):
+        if raw.get(key) is not None:
+            v = raw[key]
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or not lo < v < hi:
+                raise ValueError(f"sourceOptimizer.{key} is out of range")
+            out[key] = float(v)
+    for key, lo, hi in (("h", 1, 1000), ("methodology_version", 1, 99)):
+        if raw.get(key) is not None:
+            v = raw[key]
+            if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
+                raise ValueError(f"sourceOptimizer.{key} is out of range")
+            out[key] = int(v)
+    for key in ("research_start", "research_end"):
+        if raw.get(key) is not None:
+            try:
+                out[key] = date.fromisoformat(str(raw[key])[:10]).isoformat()
+            except ValueError:
+                raise ValueError(f"sourceOptimizer.{key} must be a YYYY-MM-DD date")
+    return out or None
+
 
 class TrainingChartGeneratorRequest(BaseModel):
     symbols: str
@@ -222,6 +293,121 @@ class TrainingChartGeneratorRequest(BaseModel):
     volumeMode: Optional[str] = None
     referenceEndIso: Optional[str] = None
     trainingStartIso: Optional[str] = None
+    # Provenance when the settings came from a Labeling Optimizer cell (see sanitize_optimizer_source)
+    sourceOptimizer: Optional[Dict[str, Any]] = None
+    # Shown in the library. Older clients omit it; an explicitly blank name is rejected.
+    datasetName: Optional[str] = None
+    # Fixed training period only: walk past the training start until the target is met
+    # (never past the optimizer research start).
+    extendHistory: bool = False
+
+    @model_validator(mode="after")
+    def _clean_source(self):
+        self.sourceOptimizer = sanitize_optimizer_source(self.sourceOptimizer)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_fields(self):
+        errors = generator_request_errors(self)
+        if errors:
+            raise ValueError("; ".join(f"{k}: {v}" for k, v in errors.items()))
+        if self.datasetName is not None:
+            self.datasetName = self.datasetName.strip()
+        syms = [s.strip().upper() for s in self.symbols.split(",") if s.strip()]
+        self.symbols = ",".join(dict.fromkeys(syms))
+        return self
+
+
+def generator_plan_params(config: Dict[str, Any]):
+    """Planner boundaries for a Generator config (run and estimate use the same mapping)."""
+    from dateutil.relativedelta import relativedelta as _rd
+    from app.services import generator_plan as gplan
+
+    tf = config.get("timeframe") or "1d"
+    end = gplan.parse_day(config.get("referenceEndIso"))
+    if end is None:
+        step = {"1d": "days", "1wk": "weeks", "1mo": "months"}.get(tf, "days")
+        end = date.today() - _rd(**{step: int(config.get("endOffset") or 0)})
+    period = config.get("volumeMode") == "by_period"
+    start = gplan.parse_day(config.get("trainingStartIso")) if period else None
+    src = config.get("sourceOptimizer") or {}
+    floor = gplan.parse_day(src.get("research_start")) if isinstance(src, dict) else None
+    return gplan.PlanParams(
+        timeframe=tf,
+        lookback_unit=str(config.get("timespanUnit") or "months").lower(),
+        lookback_count=int(config.get("timespanCount") or 1),
+        horizon=int(config.get("horizonBars") or 1),
+        tp=float(config.get("takeProfitFraction") or 0.0),
+        sl=float(config.get("stopLossFraction") or 0.0),
+        per_class=int(config.get("chartsPerLabel") or 0),
+        end_date=end,
+        start_date=start,
+        floor_date=floor,
+        extend=bool(config.get("extendHistory")) and period,
+    )
+
+
+_GEN_SYMBOL_RE = re.compile(r"^[A-Za-z0-9.^=_-]{1,20}$")
+GEN_MAX_CHARTS_PER_LABEL = 20000
+GEN_MAX_SYMBOLS = 50
+GEN_MAX_NAME_LEN = 120
+
+
+def generator_request_errors(req: "TrainingChartGeneratorRequest") -> Dict[str, str]:
+    """Field → message for an invalid Generator request (same rules as the form)."""
+    from app.services import generator_plan as gplan
+
+    errors: Dict[str, str] = {}
+    syms = [s.strip() for s in (req.symbols or "").split(",") if s.strip()]
+    if not syms:
+        errors["symbols"] = "Add at least one stock symbol."
+    elif len(syms) > GEN_MAX_SYMBOLS:
+        errors["symbols"] = f"Use at most {GEN_MAX_SYMBOLS} stock symbols."
+    elif any(not _GEN_SYMBOL_RE.match(s) for s in syms):
+        errors["symbols"] = "Stock symbols may only contain letters, digits and . ^ = _ -"
+    if not (1 <= int(req.chartsPerLabel) <= GEN_MAX_CHARTS_PER_LABEL):
+        errors["chartsPerLabel"] = f"Charts per class must be between 1 and {GEN_MAX_CHARTS_PER_LABEL:,}."
+    if req.timeframe not in gplan.TIMEFRAMES:
+        errors["timeframe"] = "Timeframe must be daily, weekly or monthly."
+    if str(req.timespanUnit).lower() not in gplan.LOOKBACK_UNITS or int(req.timespanCount) < 1:
+        errors["timespan"] = "Choose a chart history window."
+    if not (1 <= int(req.horizonBars) <= 500):
+        errors["horizonBars"] = "Horizon must be between 1 and 500 bars."
+    if not (0 < float(req.takeProfitFraction) <= 1) or not math.isfinite(float(req.takeProfitFraction)):
+        errors["takeProfit"] = "Take profit must be above 0 % and at most 100 %."
+    if not (0 < float(req.stopLossFraction) < 1) or not math.isfinite(float(req.stopLossFraction)):
+        errors["stopLoss"] = "Stop loss must be above 0 % and below 100 %."
+    if not (64 <= int(req.imageDimension) <= 1024):
+        errors["imageDimension"] = "Image size must be between 64 and 1024 pixels."
+    if int(req.endOffset) < 0:
+        errors["endOffset"] = "End offset cannot be negative."
+    if req.balanceMode is not None and req.balanceMode not in gplan.BALANCE_MODES:
+        errors["balanceMode"] = "Choose balanced or keep all."
+    if req.volumeMode not in (None, "by_charts", "by_period"):
+        errors["volumeMode"] = "Unknown dataset size mode."
+    end = start = None
+    try:
+        end = gplan.parse_day(req.referenceEndIso)
+    except ValueError:
+        errors["referenceEnd"] = "Dataset end must be a valid date."
+    try:
+        start = gplan.parse_day(req.trainingStartIso)
+    except ValueError:
+        errors["trainingStart"] = "Training start must be a valid date."
+    if end is not None and end > date.today():
+        errors["referenceEnd"] = "Dataset end cannot be in the future."
+    if req.volumeMode == "by_period":
+        if start is None and "trainingStart" not in errors:
+            errors["trainingStart"] = "Training start is required for a fixed training period."
+        elif start is not None and end is not None and start >= end:
+            errors["trainingStart"] = "Training start must be before the dataset end."
+    if req.datasetName is not None:
+        name = req.datasetName.strip()
+        if not name:
+            errors["datasetName"] = "Dataset name is required."
+        elif len(name) > GEN_MAX_NAME_LEN:
+            errors["datasetName"] = f"Dataset name must be at most {GEN_MAX_NAME_LEN} characters."
+    return errors
 
 class ChartPreviewRequest(BaseModel):
     """Config for a single live-preview chart (Step 3 of the generator)."""
@@ -273,8 +459,8 @@ class BacktestRunRequest(BaseModel):
 
     @model_validator(mode="after")
     def _require_model_ref(self) -> "BacktestRunRequest":
-        if not self.model_path and not self.model_id:
-            raise ValueError("Either model_id or model_path is required")
+        if not self.model_path and not self.model_id and not self.trainer_run_id:
+            raise ValueError("Either trainer_run_id, model_id or model_path is required")
         if self.engine not in ("auto", "v1", "v2"):
             raise ValueError("engine must be auto, v1 or v2")
         if self.threshold_mode not in ("fixed", "validation"):
@@ -1475,6 +1661,37 @@ def _training_sample_times(out_dir: Path, kept: set) -> Dict[str, str]:
     return out
 
 
+def _generation_breakdown(run_dir: str, per_class: int, balance_mode: str, final_total: int) -> Optional[Dict[str, Any]]:
+    """Counts from the script's generation_report.json (absent for runs before it existed)."""
+    from app.services import generator_plan as gplan
+
+    path = os.path.join(run_dir, "generation_report.json")
+    try:
+        with open(path) as fh:
+            report = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    rows = report.get("symbols") or []
+    plans = []
+    for r in rows:
+        sp = gplan.SymbolPlan(symbol=str(r.get("symbol", "")))
+        for k in sp.summary():
+            if k in r and k != "symbol":
+                setattr(sp, k, r[k])
+        sp.kept_label0 = int(r.get("rendered_label0", sp.kept_label0))
+        sp.kept_label1 = int(r.get("rendered_label1", sp.kept_label1))
+        plans.append(sp)
+    out = gplan.finalize(plans, per_class, balance_mode)
+    out["render_failed"] = sum(int(r.get("render_failed") or 0) for r in rows)
+    out["final_total"] = int(final_total)
+    out["period"] = report.get("params")
+    out["per_symbol"] = [
+        {k: r.get(k) for k in ("symbol", "raw_bars", "first_bar", "last_bar", "stop_reason", "rendered_label0", "rendered_label1", "earliest_observation")}
+        for r in rows
+    ]
+    return out
+
+
 def run_training_chart_generator(config: Dict[str, Any], run_id: str):
     """Run the training chart generator script"""
     run_dir = get_run_dir(run_id)
@@ -1510,6 +1727,7 @@ def run_training_chart_generator(config: Dict[str, Any], run_id: str):
         s = config['stopLossFraction']  # stop loss fraction
         img_dim = config['imageDimension']  # image dimension
         i1 = config['endOffset']  # end offset
+        plan_params = generator_plan_params(config)
 
         # Create a temporary output directory for this run
         temp_out_dir = os.path.join(run_dir, "temp_output")
@@ -1557,8 +1775,14 @@ def run_training_chart_generator(config: Dict[str, Any], run_id: str):
             "--img_dim", str(img_dim),
             "--i1", str(i1),
             "--run_id", run_id,
-            "--progress_dir", run_dir
+            "--progress_dir", run_dir,
+            "--end_date", plan_params.end_date.isoformat(),
+            "--extend", "yes" if plan_params.extend else "no",
         ]
+        if plan_params.start_date is not None:
+            cmd += ["--start_date", plan_params.start_date.isoformat()]
+        if plan_params.floor_date is not None:
+            cmd += ["--floor_date", plan_params.floor_date.isoformat()]
         print(f"About to execute: {' '.join(cmd)}")
         print(f"Working directory: {_SCRIPTS_DIR}")
         print(f"Script exists: {script_path.is_file()}")
@@ -1700,7 +1924,11 @@ def run_training_chart_generator(config: Dict[str, Any], run_id: str):
             "balance_mode": balance_mode,
             "balanced": final_label0 == final_label1,
             "removed_for_balance": removed_for_balance,
+            "requested_total": int(x) * 2 * len([s for s in symbols.split(',') if s.strip()]),
         }
+        breakdown = _generation_breakdown(run_dir, int(x), balance_mode, total_charts)
+        if breakdown:
+            dataset_stats["breakdown"] = breakdown
 
         with open(os.path.join(artifacts_dir, "dataset_stats.json"), 'w') as f:
             json.dump(dataset_stats, f)
@@ -2094,6 +2322,127 @@ def _render_preview_png(use_candles: bool, chart_df, img_dim: int) -> str:
     plt.close(fig)
     return "data:image/png;base64," + base64.b64encode(buf.read()).decode("ascii")
 
+
+
+class ChartEstimateRequest(BaseModel):
+    """Generator settings that change how many charts a run yields."""
+
+    symbols: str
+    chartsPerLabel: int = 1000
+    useCandles: bool = True
+    timeframe: str = "1d"
+    timespanUnit: str = "months"
+    timespanCount: int = 6
+    horizonBars: int = 7
+    takeProfitFraction: float = 0.02
+    stopLossFraction: float = 0.01
+    balanceMode: Optional[str] = "match_minority"
+    volumeMode: Optional[str] = None
+    referenceEndIso: Optional[str] = None
+    trainingStartIso: Optional[str] = None
+    endOffset: int = 0
+    extendHistory: bool = False
+    sourceOptimizer: Optional[Dict[str, Any]] = None
+
+
+_ESTIMATE_HISTORY_CACHE: Dict[tuple, tuple] = {}
+_ESTIMATE_HISTORY_TTL_S = 600.0
+_ESTIMATE_CACHE_MAX = 64
+
+
+def _estimate_history(symbol: str, timeframe: str, end_date, start_date):
+    """Bars up to the dataset end only, cached briefly per (symbol, timeframe, period)."""
+    import time as _time
+    from app.services import generator_plan as gplan
+
+    key = (symbol, timeframe, end_date, start_date)
+    now = _time.time()
+    hit = _ESTIMATE_HISTORY_CACHE.get(key)
+    if hit and now - hit[0] < _ESTIMATE_HISTORY_TTL_S:
+        return hit[1]
+    df = gplan.fetch_history(symbol, timeframe, end_date, start_date)
+    if len(_ESTIMATE_HISTORY_CACHE) >= _ESTIMATE_CACHE_MAX:
+        _ESTIMATE_HISTORY_CACHE.pop(next(iter(_ESTIMATE_HISTORY_CACHE)))
+    _ESTIMATE_HISTORY_CACHE[key] = (now, df)
+    return df
+
+
+def estimate_generator_counts(config: Dict[str, Any], load_history) -> Dict[str, Any]:
+    """Pre-run chart counts from real bars, using the generator's own sample walk.
+
+    ``load_history(symbol, timeframe, end_date, start_date)`` returns the bars to plan on.
+    """
+    from dataclasses import replace
+    from app.services import generator_plan as gplan
+
+    params = generator_plan_params(config)
+    symbols = [s for s in str(config.get("symbols") or "").upper().replace(" ", "").split(",") if s][:GEN_MAX_SYMBOLS]
+    balance = config.get("balanceMode") or "match_minority"
+    candles = bool(config.get("useCandles", True))
+
+    def run(p):
+        plans, failed = [], []
+        start = gplan.history_fetch_start(p)
+        for sym in symbols:
+            try:
+                hist = load_history(sym, p.timeframe, p.end_date, start)
+            except Exception as exc:  # noqa: BLE001 — a failed download is reported per symbol
+                logger.warning("Estimate fetch failed for %s/%s: %s", sym, p.timeframe, exc)
+                hist = None
+                failed.append(sym)
+            plans.append(gplan.plan_symbol(sym, hist, p, use_candles=candles))
+        return plans, failed
+
+    plans, failed = run(params)
+    out = gplan.finalize(plans, params.per_class, balance)
+    out.update({
+        "ok": True,
+        "source": "market_data",
+        "end_date": params.end_date.isoformat(),
+        "start_date": params.start_date.isoformat() if params.start_date else None,
+        "floor_date": params.floor_date.isoformat() if params.floor_date else None,
+        "extend": params.extend,
+        "failed_symbols": failed,
+        "per_symbol": [p.summary() for p in plans],
+    })
+    if params.start_date is not None:
+        cap, _ = run(replace(params, per_class=0, extend=False))
+        per_class = [
+            (min(p.kept_label0, p.kept_label1) if balance != "keep_all" else max(p.kept_label0, p.kept_label1))
+            for p in cap
+        ]
+        out["window_per_class"] = max(per_class) if per_class else 0
+        if not params.extend and not out["fulfilled"]:
+            ext_plans, _ = run(replace(params, extend=True))
+            ext = gplan.finalize(ext_plans, params.per_class, balance)
+            out["with_extension"] = {
+                k: ext[k] for k in ("final_total", "fulfilled", "earliest_observation", "limit")
+            }
+    return out
+
+
+@app.post("/api/training-chart-generator/estimate")
+def estimate_training_charts(request: ChartEstimateRequest) -> Dict[str, Any]:
+    """How many charts the current settings would produce, from actual trading bars.
+
+    Uses the same sample walk as generation (``generator_plan``), so balancing, incomplete
+    horizons and the permitted period are applied exactly as in a run. Sync endpoint (threadpool).
+    """
+    from app.services import generator_plan as gplan
+
+    if not any(s.strip() for s in (request.symbols or "").split(",")):
+        return {"ok": False, "message": "Add a stock to estimate from market data."}
+    if request.timeframe not in gplan.TIMEFRAMES:
+        return {"ok": False, "message": "Unsupported timeframe."}
+    if not (0 < request.stopLossFraction < 1) or request.takeProfitFraction <= 0 or request.horizonBars < 1:
+        return {"ok": False, "message": "Fix take profit, stop loss and horizon to see an estimate."}
+    try:
+        config = request.dict()
+        config["sourceOptimizer"] = sanitize_optimizer_source(request.sourceOptimizer)
+        config["chartsPerLabel"] = max(1, min(int(request.chartsPerLabel), GEN_MAX_CHARTS_PER_LABEL))
+        return estimate_generator_counts(config, _estimate_history)
+    except ValueError as exc:
+        return {"ok": False, "message": str(exc)}
 
 
 @app.post("/api/training-chart-generator/preview")
@@ -2832,7 +3181,7 @@ async def get_uploaded_model_metadata(model_id: str, http_request: Request) -> D
     """Metadata sidecar for an uploaded .keras model (404 when none exists — never fabricated)."""
     uid = get_current_user_id(http_request)
     assert_cross_owned(uid, model_id=model_id)
-    path = find_keras_sidecar(Path(MODEL_STORAGE_ROOT), model_id, uid)
+    path = library_models.uploaded_model_sidecar(model_id, uid)
     if path is None or not path.is_file():
         raise HTTPException(status_code=404, detail="No metadata for this model")
     try:
@@ -3894,16 +4243,9 @@ async def start_standalone_cnn_analysis(
         ) from import_error
 
     if request.trainer_run_id:
-        trainer_dir = get_run_dir(request.trainer_run_id)
-        trained_name = _find_trained_model_file(trainer_dir) if os.path.isdir(trainer_dir) else None
-        if not trained_name:
-            raise HTTPException(status_code=404, detail="Trained model not found for this trainer run")
-        model_file = Path(trainer_dir) / trained_name
+        model_file = library_models.owned_model_file(uid, training_run_id=request.trainer_run_id)
     elif request.model_id:
-        found = find_local_keras_file(Path(MODEL_STORAGE_ROOT), request.model_id, uid)
-        if found is None or not found.is_file():
-            raise HTTPException(status_code=404, detail="Uploaded model not found")
-        model_file = found
+        model_file = library_models.owned_model_file(uid, model_id=request.model_id)
     else:
         raise HTTPException(status_code=422, detail="Provide model_id or trainer_run_id")
 
@@ -4161,9 +4503,7 @@ async def start_backtester_run(
     # Resolve model path (canonical resolver + existence check)
     try:
         if request.model_id:
-            model_path = require_existing_model_file(
-                f"backend/models/{request.model_id}.keras", user_id=uid
-            )
+            model_path = str(library_models.owned_model_file(uid, model_id=request.model_id))
         elif request.model_path:
             if AUTH_REQUIRED:
                 raise HTTPException(status_code=404, detail="Model not found")
@@ -4386,19 +4726,11 @@ async def start_backtest_run(
 
     try:
         if payload.get("trainer_run_id"):
-            trainer_dir = get_run_dir(str(payload["trainer_run_id"]))
-            model_file = _find_trained_model_file(trainer_dir) if os.path.isdir(trainer_dir) else None
-            if not model_file:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"No model artifact found in trainer run {payload['trainer_run_id']}",
-                )
-            payload["model_path"] = require_existing_model_file(os.path.join(trainer_dir, model_file), user_id=uid)
-        elif payload.get("model_id"):
-            payload["model_path"] = require_existing_model_file(
-                f"backend/models/{payload['model_id']}.keras",
-                user_id=uid,
+            payload["model_path"] = str(
+                library_models.owned_model_file(uid, training_run_id=str(payload["trainer_run_id"]))
             )
+        elif payload.get("model_id"):
+            payload["model_path"] = str(library_models.owned_model_file(uid, model_id=str(payload["model_id"])))
         elif payload.get("model_path"):
             payload["model_path"] = require_existing_model_file(payload["model_path"])
     except FileNotFoundError as exc:
@@ -4557,7 +4889,7 @@ def _v2_backtest_context(payload: Dict[str, Any], dataset_dir: Path, uid: Option
         meta_path = mpath if meta else None
     elif payload.get("model_id"):
         model_ref["model_id"] = payload["model_id"]
-        side = find_keras_sidecar(Path(MODEL_STORAGE_ROOT), str(payload["model_id"]), uid)
+        side = library_models.uploaded_model_sidecar(str(payload["model_id"]), uid)
         meta_path = str(side) if side and side.is_file() else None
         meta = _read_json_dict(meta_path) if meta_path else None
         if meta and meta.get("training_run_id"):
@@ -5933,7 +6265,9 @@ def _build_review_overview(user_id: Optional[str]) -> Dict[str, Any]:
                 datasets_by_key[key] = {
                     "id": key,
                     "dataset_id": None,
-                    "name": f"training-dataset-{run.id}.zip" if has_zip else f"Generator run {run.id}",
+                    "name": str(cfg.get("datasetName") or "").strip()
+                    or (f"training-dataset-{run.id}.zip" if has_zip else f"Generator run {run.id}"),
+                    "dataset_name": str(cfg.get("datasetName") or "").strip() or None,
                     "kind": "training",
                     "source": "generated",
                     "representation": "archive",
@@ -6804,7 +7138,7 @@ async def get_review_asset(kind: str, asset_id: str, http_request: Request) -> D
             if not AUTH_REQUIRED and os.path.isfile(os.path.join(run_dir, "summary.json")):
                 return {"kind": "model", "id": asset_id, "source": "trained", **_review_trained_model_detail(asset_id)}
             assert_cross_owned(uid, model_id=asset_id)
-            sidecar_path = find_keras_sidecar(Path(MODEL_STORAGE_ROOT), asset_id, uid)
+            sidecar_path = library_models.uploaded_model_sidecar(asset_id, uid)
             sidecar = _read_json_dict(str(sidecar_path)) if sidecar_path else None
             return {
                 "kind": "model",

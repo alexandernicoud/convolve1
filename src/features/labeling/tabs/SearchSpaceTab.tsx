@@ -3,9 +3,10 @@ import Plot from "react-plotly.js";
 import type { Data, PlotMouseEvent, Shape } from "plotly.js";
 import { btnSm } from "@/features/review/components/primitives";
 import { flattenSurface, fmtFrac, fmtPct, quantileThreshold, signedLog, signedLogTicks, unpackIndex, type Model } from "../lib";
-import { axis, baseLayout, Card, DIVERGING, Legend, PLOT_CONFIG, Segmented, SelectField, T, Unavailable } from "../ui";
+import { axis, baseLayout, Card, DIVERGING, Legend, PLOT_CONFIG, Segmented, SelectField, SEQUENTIAL, T, Unavailable } from "../ui";
 import { useArtifact, useResults, type CellIdx } from "../state";
-import { MODEL_LABEL } from "./OverviewTab";
+import { RANK_MODES } from "../research";
+import { MODEL_LABEL, RANK_LABEL } from "./OverviewTab";
 
 /** Column arrays shared by the 3D view and the scatter. `index` links back to grid cells when available. */
 type Points = {
@@ -93,14 +94,25 @@ function linkOf(points: Points, i: number, surfaceFor: (packed: number) => CellI
 }
 
 function VoxelCube({ points, complete }: { points: Points; complete: boolean }) {
-  const { surface, model, setModel, hIndex, cell, bestIdx, select } = useResults();
+  const { surface, model, setModel, hIndex, cell, bestIdx, select, rankMode, research } = useResults();
   const effModel: Model = model === "mtm" && points.mtm ? "mtm" : "label";
+  const scoreCube = complete && rankMode !== "profitability" ? research?.metrics[rankMode] ?? null : null;
+  const scoreName = RANK_MODES.find((m) => m.value === rankMode)!.label;
+  const scoreVals = useMemo(() => {
+    if (!scoreCube || !points.index || !surface) return null;
+    const out = new Float64Array(points.n);
+    for (let i = 0; i < points.n; i++) {
+      const { hi, si, ti } = unpackIndex(surface, points.index[i]!);
+      out[i] = scoreCube[hi]?.[si]?.[ti] ?? NaN;
+    }
+    return out;
+  }, [scoreCube, points, surface]);
   const [share, setShare] = useState<Share>("0.1");
   const [logH, setLogH] = useState(true);
   const [context, setContext] = useState(false);
   const [rev, setRev] = useState(0);
 
-  const vals = effModel === "mtm" && points.mtm ? points.mtm : points.label;
+  const vals = scoreVals ?? (effModel === "mtm" && points.mtm ? points.mtm : points.label);
   const limit = useMemo(() => absMax(vals), [vals]);
   const ticks = useMemo(() => signedLogTicks(limit), [limit]);
   const thr = useMemo(() => quantileThreshold(vals, Number(share)), [vals, share]);
@@ -119,11 +131,11 @@ function VoxelCube({ points, complete }: { points: Points; complete: boolean }) 
       x: pick(shown, (i) => points.tp[i]! * 100),
       y: pick(shown, (i) => points.sl[i]! * 100),
       z: pick(shown, (i) => points.h[i]!),
-      c: pick(shown, (i) => signedLog(vals[i]!)),
-      cd: shown.map((i) => [points.label[i]!, points.mtm ? points.mtm[i]! : NaN]),
+      c: pick(shown, (i) => (scoreVals ? vals[i]! : signedLog(vals[i]!))),
+      cd: shown.map((i) => [points.label[i]!, points.mtm ? points.mtm[i]! : NaN, scoreVals ? scoreVals[i]! : NaN]),
       rest,
     };
-  }, [points, vals, thr]);
+  }, [points, vals, thr, scoreVals]);
 
   const restTrace = useMemo(() => {
     if (!context) return null;
@@ -153,21 +165,24 @@ function VoxelCube({ points, complete }: { points: Points; complete: boolean }) 
         size: built.shown.length > 40000 ? 1.6 : built.shown.length > 8000 ? 2.2 : 3,
         opacity: 0.9,
         color: built.c,
-        colorscale: DIVERGING,
-        cmin: -signedLog(limit),
-        cmax: signedLog(limit),
+        colorscale: scoreVals ? SEQUENTIAL : DIVERGING,
+        cmin: scoreVals ? 0 : -signedLog(limit),
+        cmax: scoreVals ? 100 : signedLog(limit),
         colorbar: {
-          title: { text: `${MODEL_LABEL[effModel]} CAGR`, side: "right", font: { size: 11, color: T.title } },
+          title: { text: scoreVals ? `${scoreName} (0–100)` : `${MODEL_LABEL[effModel]} CAGR`, side: "right", font: { size: 11, color: T.title } },
           thickness: 9,
           len: 0.7,
           outlinewidth: 0,
-          tickvals: ticks.vals,
-          ticktext: ticks.text,
+          ...(scoreVals ? { tickvals: [0, 25, 50, 75, 100] } : { tickvals: ticks.vals, ticktext: ticks.text }),
           tickfont: { size: 10.5, color: T.tick },
         },
       },
       hovertemplate:
-        "TP %{x:.2f}% · SL %{y:.2f}% · %{z} d<br>Label payoff: %{customdata[0]:.1f}% CAGR" + (points.mtm ? "<br>Market-valued: %{customdata[1]:.1f}% CAGR" : "") + "<extra></extra>",
+        "TP %{x:.2f}% · SL %{y:.2f}% · %{z} d" +
+        (scoreVals ? `<br>${scoreName}: %{customdata[2]:.0f} / 100` : "") +
+        "<br>Label payoff: %{customdata[0]:.1f}% CAGR" +
+        (points.mtm ? "<br>Market-valued: %{customdata[1]:.1f}% CAGR" : "") +
+        "<extra></extra>",
     } as Data,
   ];
   if (restTrace) traces.push(restTrace);
@@ -221,7 +236,7 @@ function VoxelCube({ points, complete }: { points: Points; complete: boolean }) 
   return (
     <Card
       title="TP × SL × horizon search space"
-      note={`Every evaluated cell of the grid (${points.n.toLocaleString("en-US")} from the ${points.source}). Colour uses the same signed-log scale as the heatmap. Drag to rotate, scroll to zoom${complete ? ", click a point to select that cell everywhere" : ""}.`}
+      note={`Every evaluated cell of the grid (${points.n.toLocaleString("en-US")} from the ${points.source}). Colour ${scoreVals ? `shows ${scoreName.toLowerCase()} (0–100), the ranking chosen on the overview` : "uses the same signed-log scale as the heatmap"}. Drag to rotate, scroll to zoom${complete ? ", click a point to select that cell everywhere" : ""}.`}
       aside={
         <Segmented
           label="Payoff model"
@@ -248,7 +263,7 @@ function VoxelCube({ points, complete }: { points: Points; complete: boolean }) 
           Reset view
         </button>
         <span className="font-digits text-[12px] tabular-nums text-white/40">
-          {built.shown.length.toLocaleString("en-US")} cells{Number(share) < 1 ? ` · score ≥ ${fmtPct(thr, 1)}` : ""}
+          {built.shown.length.toLocaleString("en-US")} cells{Number(share) < 1 ? ` · score ≥ ${scoreVals ? thr.toFixed(0) : fmtPct(thr, 1)}` : ""}
         </span>
       </div>
       <div className="mt-2 grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
@@ -276,7 +291,7 @@ function VoxelCube({ points, complete }: { points: Points; complete: boolean }) 
         <div className="space-y-3 text-[12.5px]">
           <Legend
             items={[
-              ...(complete ? [{ label: "highest optimizer score", color: "#fff", kind: "star" as const }, { label: "selected cell", color: T.select, kind: "ring" as const }] : []),
+              ...(complete ? [{ label: `highest ${RANK_LABEL[rankMode]}`, color: "#fff", kind: "star" as const }, { label: "selected cell", color: T.select, kind: "ring" as const }] : []),
             ]}
           />
           {complete && selTp != null && selSl != null ? (

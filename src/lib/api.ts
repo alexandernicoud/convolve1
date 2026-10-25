@@ -12,6 +12,8 @@
  * Do not use `process.env` in client code; Vite only exposes `VITE_*` via `import.meta.env`.
  * @see https://vitejs.dev/guide/env-and-mode.html
  */
+import type { ChartEstimate } from "@/features/generator/plan";
+
 function resolveApiBase(): string {
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (raw == null || String(raw).trim() === '') {
@@ -107,6 +109,8 @@ export interface RunRequest {
   grid_sl_steps?: number;
   fee_rate_pct?: number;
   objective?: string;
+  /** Last day of the research period; later bars are evaluated separately and never rank candidates. */
+  selection_end?: string;
 }
 
 export interface RunResponse {
@@ -148,6 +152,10 @@ export interface TrainingChartGeneratorConfig {
   volumeMode?: string | null;
   referenceEndIso?: string | null;
   trainingStartIso?: string | null;
+  datasetName?: string | null;
+  /** Fixed training period: continue past the training start until the target is met. */
+  extendHistory?: boolean;
+  sourceOptimizer?: Record<string, unknown> | null;
 }
 
 export interface ChartPreviewRequest {
@@ -196,6 +204,22 @@ export interface DatasetStats {
   balance_mode?: string;
   balanced?: boolean;
   removed_for_balance?: number;
+  requested_total?: number;
+  /** Per-run counts from the generation report (runs created after it existed). */
+  breakdown?: {
+    raw_bars: number;
+    decision_bars: number;
+    valid_windows: number;
+    incomplete_horizon: number;
+    invalid_windows: number;
+    label1_found: number;
+    label0_found: number;
+    removed_for_balance: number;
+    render_failed?: number;
+    final_total: number;
+    fulfilled: boolean;
+    limit: { code: string; message: string } | null;
+  };
 }
 
 export interface TrainerRunRequest {
@@ -1269,6 +1293,15 @@ export const trainingChartGeneratorApi = {
   /** Render a single example chart for the current Step-3 settings (live preview). */
   async preview(request: ChartPreviewRequest, signal?: AbortSignal): Promise<ChartPreviewResult> {
     return apiRequest<ChartPreviewResult>('/api/training-chart-generator/preview', {
+      method: 'POST',
+      body: JSON.stringify(request),
+      signal,
+    });
+  },
+
+  /** Chart counts the current settings would yield, from real trading bars (same walk as a run). */
+  async estimate(request: Record<string, unknown>, signal?: AbortSignal): Promise<ChartEstimate> {
+    return apiRequest<ChartEstimate>('/api/training-chart-generator/estimate', {
       method: 'POST',
       body: JSON.stringify(request),
       signal,

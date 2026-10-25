@@ -37,6 +37,13 @@ export const DIVERGING: [number, string][] = [
   [1, "#f3e8ff"],
 ];
 
+/** 0–100 research scores (CNN suitability, robustness): the gain half of `DIVERGING`, so 0 reads as "nothing". */
+export const SEQUENTIAL: [number, string][] = [
+  [0, "#17151b"],
+  [0.5, "#6d3fb0"],
+  [1, "#f3e8ff"],
+];
+
 /** Log horizon axis when the grid has many horizons (1–200 days). */
 export function horizonAxis(horizons: number[], extra: Record<string, unknown> = {}) {
   if (horizons.length <= 20) return extra;

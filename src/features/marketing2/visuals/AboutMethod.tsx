@@ -76,10 +76,11 @@ export function AboutMethod({ label }: { label: ReactNode }) {
                   The {int(flat?.out[0] ?? 86528)} feature values pass through the dense layer to one score <I>z</I>; the sigmoid maps it to{" "}
                   <I>p</I> between 0 and 1, the model&apos;s estimate that this chart carries label 1.
                 </Op>
-                <Op name="Architecture as a hypothesis">
+                <Op name="Architecture as a research variable">
                   This is the original Convolve CNN, one of seven networks in the Trainer. Each encodes a different assumption about where the
                   signal sits: a dense head that keeps position or global pooling that discards it, residual depth, or ImageNet features reused
-                  by transfer. Trained on the same split, they are compared on validation and test data; a larger network is not presumed better.
+                  by transfer. Optimiser, learning-rate schedule, dropout, L2 and augmentation are chosen per run as well. Trained on the same
+                  split, the variants are compared on validation and test data; a larger network is not presumed better.
                 </Op>
               </div>
             </Movement>

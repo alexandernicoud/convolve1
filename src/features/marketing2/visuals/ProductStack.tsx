@@ -21,7 +21,7 @@ const href = (id: string) => PRODUCT_PIPELINE_ITEMS.find((p) => p.id === id)?.hr
 
 export const STAGES: Stage[] = [
   { id: "generate", name: "Generate", line: "Prices into labelled chart images", artifact: "Dataset", icon: Database, href: href("generate") },
-  { id: "train", name: "Train", line: "Fit a CNN, keep the best epoch", artifact: "Model", icon: Cpu, href: href("train") },
+  { id: "train", name: "Train", line: "Pick an architecture, keep the best epoch", artifact: "Model", icon: Cpu, href: href("train") },
   { id: "analyze", name: "Analyze", line: "See what the model attends to", artifact: "Attention maps", icon: ScanSearch, href: href("analyze") },
   { id: "test", name: "Test", line: "Backtest on data it never saw", artifact: "Backtest report", icon: LineChart, href: href("test") },
   { id: "optimize", name: "Optimize", line: "Search label rules", artifact: "Label rule", icon: SlidersHorizontal, href: href("optimize") },

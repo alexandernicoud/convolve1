@@ -11,6 +11,7 @@ import {
   subtractTimeframeSteps,
   timelinePercentFromIso,
 } from "@/lib/generatorDates";
+import type { TimelineEstimate } from "@/features/generator/plan";
 
 type Mode = "range" | "end-only";
 type Timeframe = "1d" | "1wk" | "1mo";
@@ -26,6 +27,15 @@ type Props = {
   /** Charts-per-label target — used for the rough total (~×2) chip left of the end lever. */
   chartsPerLabel?: number;
   timeframe?: Timeframe;
+  /** Period the run reads and whether the target fits (from trading bars when available). */
+  estimate?: TimelineEstimate | null;
+};
+
+const STATUS_TEXT: Record<TimelineEstimate["status"], string> = {
+  enough: "text-emerald-200/85",
+  short: "text-amber-200/90",
+  approx: "text-white/60",
+  loading: "text-white/45",
 };
 
 /**
@@ -40,17 +50,28 @@ export default function GeneratorTimeline({
   onTrainingStartChange,
   chartsPerLabel = 0,
   timeframe = "1d",
+  estimate = null,
 }: Props) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<null | "start" | "end">(null);
 
   const pctEnd = timelinePercentFromIso(referenceEndIso);
   const pctStart = mode === "range" ? timelinePercentFromIso(trainingStartIso) : pctEnd;
+  const pctEstStart = estimate ? timelinePercentFromIso(estimate.startIso) : null;
 
-  /** Rough training-period readout shown left of the end lever. */
+  /** Training-period readout shown left of the end lever. */
   const periodChip = useMemo(() => {
     const end = parseIsoDate(referenceEndIso);
     if (!end) return null;
+    if (estimate) {
+      const start = parseIsoDate(estimate.startIso);
+      return {
+        startIso: estimate.startIso,
+        endIso: estimate.endIso,
+        totalCharts: estimate.totalCharts,
+        spanDays: start ? calendarDaysBetween(start, end) : 0,
+      };
+    }
     let start: Date | null = null;
     let perLabel = chartsPerLabel;
     if (mode === "range") {
@@ -73,7 +94,7 @@ export default function GeneratorTimeline({
       totalCharts,
       spanDays,
     };
-  }, [mode, referenceEndIso, trainingStartIso, chartsPerLabel, timeframe]);
+  }, [mode, referenceEndIso, trainingStartIso, chartsPerLabel, timeframe, estimate]);
 
   const readPercentFromClientX = useCallback((clientX: number) => {
     const el = trackRef.current;
@@ -166,8 +187,13 @@ export default function GeneratorTimeline({
     applyPercent(which, p);
   };
 
-  const left = mode === "range" ? Math.min(pctStart, pctEnd) : 0;
-  const width = mode === "range" ? Math.max(Math.abs(pctEnd - pctStart), 1.2) : Math.max(pctEnd, 1.2);
+  const endOnlyLeft = pctEstStart != null ? Math.min(pctEstStart, pctEnd) : 0;
+  const left = mode === "range" ? Math.min(pctStart, pctEnd) : endOnlyLeft;
+  const width =
+    mode === "range" ? Math.max(Math.abs(pctEnd - pctStart), 1.2) : Math.max(pctEnd - endOnlyLeft, 1.2);
+  /** Fixed period with automatic extension: history read before the chosen start. */
+  const extensionLeft =
+    mode === "range" && pctEstStart != null && pctEstStart < Math.min(pctStart, pctEnd) - 0.05 ? pctEstStart : null;
   /** Right edge of the training highlight — test phase is timeline from here chronologically forward to Today. */
   const bandRightPct = left + width;
 
@@ -203,7 +229,8 @@ export default function GeneratorTimeline({
           </>
         ) : (
           <>
-            Bars from 1960 up to the dataset end handle represent the context you anchor on. From that handle{" "}
+            The <span className="text-white/75">lighter band</span> is the history the run needs to reach your chart
+            count, worked out from actual trading bars. From the dataset end handle{" "}
             <span className="text-white/75">to Today</span> is the <strong className="text-white/85">test phase</strong>{" "}
             (forward calendar for out-of-sample evaluation).
           </>
@@ -266,8 +293,16 @@ export default function GeneratorTimeline({
           <div
             className="pointer-events-none absolute bottom-7 z-10 h-2.5 rounded bg-white/22 ring-1 ring-white/35"
             style={{ left: `${left}%`, width: `${width}%` }}
-            title="Training phase"
+            title={estimate ? `Training data ${estimate.startIso} → ${estimate.endIso}` : "Training phase"}
+            data-testid="timeline-training-band"
           />
+          {extensionLeft != null ? (
+            <div
+              className="pointer-events-none absolute bottom-7 z-10 h-2.5 rounded-l border border-dashed border-white/45 bg-white/[0.07]"
+              style={{ left: `${extensionLeft}%`, width: `${Math.max(Math.min(pctStart, pctEnd) - extensionLeft, 0.6)}%` }}
+              title={`Extended back to ${estimate?.startIso} to reach the chart count`}
+            />
+          ) : null}
 
           {mode === "range" ? (
             <button
@@ -282,23 +317,40 @@ export default function GeneratorTimeline({
           {/* Rough period + chart count, parked just left of the end lever */}
           {periodChip ? (
             <div
-              className="pointer-events-none absolute z-30 max-w-[11rem] -translate-x-full text-right"
+              className="pointer-events-none absolute z-30 hidden -translate-x-full whitespace-nowrap text-right sm:block"
               style={{
                 left: `calc(${Math.max(pctEnd, 8)}% - 10px)`,
                 bottom: "2.85rem",
               }}
-              title={`Training period ~${periodChip.spanDays}d · ~${periodChip.totalCharts} charts (both labels)`}
+              title={
+                estimate
+                  ? `${estimate.note} · ${periodChip.spanDays} calendar days`
+                  : `Training period ~${periodChip.spanDays}d · ~${periodChip.totalCharts} charts (both labels)`
+              }
             >
-              <div className="inline-block rounded-md border border-white/20 bg-[#0a0a0a]/90 px-2 py-1 shadow-lg backdrop-blur-sm">
+              <div
+                className={`inline-block rounded-md border bg-[#0a0a0a]/90 px-2 py-1 shadow-lg backdrop-blur-sm ${
+                  estimate?.status === "short" ? "border-amber-300/50" : "border-white/20"
+                }`}
+              >
                 <div className="font-mono text-[10px] leading-tight text-white/85">
                   {periodChip.startIso}
                   <span className="mx-0.5 text-white/40">→</span>
                   {periodChip.endIso}
                 </div>
-                <div className="mt-0.5 text-[10px] font-medium tabular-nums text-white/60">
-                  ~{periodChip.totalCharts.toLocaleString()} charts
-                  <span className="ml-1 text-white/35">({Math.round(periodChip.totalCharts / 2)}×2)</span>
-                </div>
+                {estimate && estimate.status !== "approx" ? (
+                  <div className={`mt-0.5 text-[10px] font-medium tabular-nums ${STATUS_TEXT[estimate.status]}`}>
+                    {estimate.status === "short"
+                      ? `${estimate.totalCharts.toLocaleString()} of ${estimate.requestedTotal.toLocaleString()} charts`
+                      : `${estimate.totalCharts.toLocaleString()} charts`}
+                  </div>
+                ) : (
+                  <div className="mt-0.5 text-[10px] font-medium tabular-nums text-white/60">
+                    {estimate ? "" : "~"}
+                    {periodChip.totalCharts.toLocaleString()} charts
+                    {estimate ? <span className="ml-1 text-white/40">· span at least</span> : null}
+                  </div>
+                )}
               </div>
             </div>
           ) : null}
@@ -327,6 +379,12 @@ export default function GeneratorTimeline({
             <span className="font-mono text-white">{trainingStartIso}</span>
           </span>
         ) : null}
+        {estimate ? (
+          <span>
+            <span className="text-white/45">{mode === "range" && extensionLeft == null ? "First chart data · " : "Data needed from · "}</span>
+            <span className="font-mono text-white">{estimate.startIso}</span>
+          </span>
+        ) : null}
         <span>
           <span className="text-white/45">Dataset end · </span>
           <span className="font-mono text-white">{referenceEndIso}</span>
@@ -340,6 +398,11 @@ export default function GeneratorTimeline({
           <span className="ml-2 text-[10px] text-white/40">dataset end → today</span>
         </span>
       </div>
+      {estimate ? (
+        <p role="status" aria-live="polite" className={`text-xs ${STATUS_TEXT[estimate.status]}`} data-testid="timeline-estimate-status">
+          {estimate.note}
+        </p>
+      ) : null}
 
       {testPhaseNone ? (
         <div className="rounded-lg border border-amber-500/45 bg-amber-500/12 px-3 py-2.5 text-xs leading-relaxed text-amber-50/95">

@@ -140,8 +140,37 @@ def walk_candidate(df: pd.DataFrame, tp: float, sl: float, h: int, *, engine, ma
 # Full-grid mark-to-market (compiled)
 # ------------------------------------------------------------------
 
+def _mtm_equity_fast(df: pd.DataFrame, tp_values, sl_values, horizons, *, engine):
+    """Same walk as the kernel below via first-passage tables (bit-identical); None when unavailable."""
+    if getattr(engine, "LABEL_ENGINE", "fast") == "legacy":
+        return None
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from app.services import label_grid
+    except Exception:
+        return None
+    if not label_grid.HAVE_NUMBA:
+        return None
+    o = np.ascontiguousarray(df["Open"].to_numpy(dtype=np.float64))
+    hgh = np.ascontiguousarray(df["High"].to_numpy(dtype=np.float64))
+    lw = np.ascontiguousarray(df["Low"].to_numpy(dtype=np.float64))
+    c = np.ascontiguousarray(df["Close"].to_numpy(dtype=np.float64))
+    tps = np.ascontiguousarray(tp_values, dtype=np.float64)
+    sls = np.ascontiguousarray(sl_values, dtype=np.float64)
+    hs = np.ascontiguousarray(horizons, dtype=np.int64)
+    fp_tp, fp_sl = label_grid.passage_tables(o, hgh, lw, tps, sls, int(hs.max()))
+    return label_grid.mtm_grid(o, c, fp_tp, fp_sl, tps, sls, hs, len(o), float(engine.TOTAL_COST_FRAC),
+                               1 if engine.AMBIGUOUS_FILL != "TP_FIRST" else 0)
+
+
 def mtm_grid(df: pd.DataFrame, tp_values, sl_values, horizons, *, engine):
     """compounded CAGR % under mark-to-market exits for every grid cell, or None."""
+    years = max((df.index[-1] - df.index[0]).days / 365.25, 1e-9)
+    eq = _mtm_equity_fast(df, tp_values, sl_values, horizons, engine=engine)
+    if eq is not None:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            cagr = np.where(eq > 1e-6, eq ** (1.0 / years) - 1.0, np.nan) * 100.0
+        return cagr.reshape(len(tp_values), len(sl_values), len(horizons))
     try:
         from numba import njit, prange
     except Exception:
@@ -378,7 +407,7 @@ def walk_forward(df_price: pd.DataFrame, engine):
 # ------------------------------------------------------------------
 
 def run_audit(df_price: pd.DataFrame, df_res: pd.DataFrame, out_dir: str, *, symbol: str, start: str,
-              end: str, engine, config: dict | None = None, log=print) -> dict:
+              end: str, engine, config: dict | None = None, log=print, cube_mtm=None) -> dict:
     tp_values = np.sort(df_res["tp_frac"].unique())
     sl_values = np.sort(df_res["sl_frac"].unique())
     horizons = np.sort(df_res["horizon_days"].unique()).astype(int)
@@ -401,7 +430,8 @@ def run_audit(df_price: pd.DataFrame, df_res: pd.DataFrame, out_dir: str, *, sym
     nb_lab = neighbourhood(cube_lab, ti, si, hi)
 
     log("audit: mark-to-market grid")
-    cube_mtm = mtm_grid(df_price, tp_values, sl_values, horizons, engine=engine)
+    if cube_mtm is None:
+        cube_mtm = mtm_grid(df_price, tp_values, sl_values, horizons, engine=engine)
     nb_mtm = neighbourhood(cube_mtm, ti, si, hi) if cube_mtm is not None else None
     mtm_best = None
     if cube_mtm is not None and np.isfinite(cube_mtm).any():

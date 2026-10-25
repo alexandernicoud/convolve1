@@ -106,5 +106,14 @@ def _finish_model_upload(artifact, uid, by_manifest=_UNSET) -> ModelUploadRespon
             match = {**(match or {}), **by_manifest}
     if match:
         _merge_upload_sidecar(artifact.model_id, artifact.original_filename, match, user_id=uid)
+        record_user_model(
+            artifact.model_id,
+            uid,
+            extra={
+                **match,
+                "original_filename": artifact.original_filename,
+                "source": "uploaded_matched_trained" if match.get("training_run_id") else "uploaded",
+            },
+        )
 
     return ModelUploadResponse.from_stored(artifact, match=match)

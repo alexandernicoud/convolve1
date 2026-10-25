@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useMotionValueEvent, useReducedMotion, useScro
 import { Maximize2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { screen, type Provenance } from "../data";
-import { SYSTEM } from "../figures";
+import { SYSTEM, int, trainingSetups } from "../figures";
 import { EASE, Kicker, ProvenanceTag, TYPE, useMediaQuery } from "../ui";
 import { GeneratorDemo, TrainerDemo } from "./LiveTools";
 
@@ -145,15 +145,15 @@ const TOOLS: Tool[] = [
   {
     key: "trainer",
     tool: "Trainer",
-    title: "Train a network. Change the architecture.",
-    summary: `One dataset, ${SYSTEM.architectureCount} networks, each a different hypothesis about which chart features matter. Test whether a change actually improves the result.`,
+    title: "Architecture is a research variable",
+    summary: `Choose the network, optimiser, learning-rate schedule and augmentation: ${int(trainingSetups().total)} discrete setups for one dataset, each a hypothesis you can compare against the others.`,
     provenance: "real",
     source: "2,323 training / 581 validation charts",
     views: [
       {
         key: "train",
         label: "Architecture and curves",
-        heading: "One dataset. Different networks. Different hypotheses.",
+        heading: "Architecture is a research variable.",
         path: "Train / Training session",
         live: (sub) => <TrainerDemo focus={sub == null ? undefined : Math.min(8, Math.floor(sub * 9))} />,
         points: [

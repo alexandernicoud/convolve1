@@ -2,8 +2,10 @@ import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { MotionConfig, motion, useReducedMotion, useScroll, useTransform, type MotionValue } from "framer-motion";
 import { screen } from "./data";
-import { Container, EASE, Kicker, M2Footer, Pinned, PrimaryCta, ScrollIn, SecondaryCta, SectionHead, usePinEnabled, useStartHref } from "./ui";
+import { cn } from "@/lib/utils";
+import { Container, EASE, Kicker, M2Footer, Pinned, PrimaryCta, Reveal, ScrollIn, SecondaryCta, SectionHead, TYPE, usePinEnabled, useStartHref } from "./ui";
 import { ComputeStrip } from "./visuals/ComputeStrip";
+import { DomainFigure } from "./visuals/DomainFigure";
 import { HeroContours } from "./visuals/HeroContours";
 import { HeroFlow } from "./visuals/HeroFlow";
 import { Mathematics } from "./visuals/Mathematics";
@@ -25,7 +27,7 @@ function Hero() {
   const consoleY = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : 50]);
   const enter = (delay: number) =>
     reduce ? {} : { initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.9, ease: EASE, delay } };
-  const lines = ["Build your own", "CNN trading models"];
+  const lines = ["Build your own", "AI that reads charts"];
   return (
     <section ref={ref} className="relative isolate">
       <HeroContours />
@@ -33,7 +35,7 @@ function Hero() {
       <Container className="relative pb-16 pt-10 lg:pb-14 lg:pt-12">
         <motion.div style={{ opacity: fade, y: textY }}>
           <motion.div {...enter(0)}>
-            <Kicker>CNN research workspace</Kicker>
+            <Kicker>Computer vision for financial markets</Kicker>
           </motion.div>
           <h1 className="mt-6 text-[clamp(2.6rem,4.7vw,5.6rem)] font-normal leading-[1.0] tracking-[-0.042em] text-white">
             {lines.map((l, i) => (
@@ -55,8 +57,9 @@ function Hero() {
         <div className="mt-8 grid gap-12 lg:mt-12 lg:grid-cols-12 lg:gap-10 2xl:gap-14">
           <motion.div className="flex flex-col lg:col-span-4 lg:pb-12 xl:col-span-3" style={{ y: textY }}>
             <motion.p className="max-w-[26rem] text-[18px] leading-[1.6] text-white/60" {...enter(0.4)}>
-              <span className="text-white/90">Your trading hypothesis deserves more than a line on a chart.</span> Build labelled chart datasets, train
-              convolutional networks on them, interrogate what they learn and test every decision on data they have never seen.
+              <span className="text-white/90">Neural networks that learn patterns straight from price charts.</span> Convolve turns price
+              history into labelled chart images, trains models on them, shows you what they learned and tests the result on data they
+              have never seen.
             </motion.p>
             <motion.div className="mt-9 flex flex-wrap gap-3" {...enter(0.55)}>
               <PrimaryCta to={start} size="lg">
@@ -181,11 +184,44 @@ function Closing() {
 }
 
 
+/** What a CNN is, shown on two images rather than explained in paragraphs. */
+function TechnologySection() {
+  return (
+    <section id="technology" className="scroll-mt-20 pb-24 pt-20 lg:pb-32">
+      <Container>
+        <SectionHead
+          index="01"
+          label="The technology"
+          title={
+            <>
+              The technology behind image recognition. <span className="text-white/45">Applied to financial markets.</span>
+            </>
+          }
+          intro="Convolutional neural networks learn to recognise patterns in images. They read medical scans; Convolve trains them on price charts."
+        />
+        <div className="mt-14 grid gap-12 lg:grid-cols-12 lg:items-end lg:gap-10">
+          <ScrollIn className="lg:col-span-8">
+            <DomainFigure />
+          </ScrollIn>
+          <Reveal className="border-t border-white/[0.08] pt-6 lg:col-span-3 lg:col-start-10 lg:mb-[4.5rem]">
+            <p className="text-balance text-[clamp(1.35rem,1.7vw,1.75rem)] leading-[1.25] tracking-[-0.02em] text-white/90">
+              Don't just analyse the chart. <span className="text-white/45">Train a model to analyse it.</span>
+            </p>
+            <p className={cn(TYPE.small, "mt-5")}>
+              An indicator is a formula someone chose. A CNN learns its own features from the data, and they need not have a name.
+            </p>
+          </Reveal>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
 function ModelSection() {
   const pin = usePinEnabled();
   const head = (
     <SectionHead
-      index="03"
+      index="04"
       label="Inside the model"
       title="See what the network sees."
       intro="Real attention maps on real charts. Switch method or chart at any point."
@@ -218,12 +254,12 @@ function ModelSection() {
   );
 }
 
-/** 01 and 05 hold in place while their scroll-driven sequence runs, like the model section. */
+/** 02 and 06 hold in place while their scroll-driven sequence runs, like the model section. */
 function WorkflowSection() {
   const pin = usePinEnabled(820);
   const head = (
     <SectionHead
-      index="01"
+      index="02"
       label="Workflow"
       title="From a label rule to a deployed model."
       intro="Each tool hands its result to the next. Dashed stages are optional; any stage can be revisited."
@@ -231,7 +267,7 @@ function WorkflowSection() {
   );
   if (!pin)
     return (
-      <section id="workflow" className="scroll-mt-20 pb-24 pt-20 lg:pb-32">
+      <section id="workflow" className="scroll-mt-20 border-t border-white/[0.06] pb-24 pt-20 lg:pb-32">
         <Container>
           {head}
           <ScrollIn className="mt-14">
@@ -241,7 +277,7 @@ function WorkflowSection() {
       </section>
     );
   return (
-    <section id="workflow" className="scroll-mt-20">
+    <section id="workflow" className="scroll-mt-20 border-t border-white/[0.06]">
       <Pinned length="190vh">
         {(p) => (
           <Container>
@@ -259,7 +295,7 @@ function WorkflowSection() {
 function SystemSection() {
   const pin = usePinEnabled(860);
   const head = (
-    <SectionHead index="05" label="One system" title="One pipeline. Every stage." intro="The dashboard brings runs, results and deployed models onto one surface." />
+    <SectionHead index="06" label="One system" title="One pipeline. Every stage." intro="The dashboard brings runs, results and deployed models onto one surface." />
   );
   if (!pin)
     return (
@@ -291,7 +327,7 @@ function SystemSection() {
 export default function Home2Page() {
   const { hash } = useLocation();
   useEffect(() => {
-    document.title = "convolve. | Build, research and deploy CNN trading models";
+    document.title = "convolve. | Build your own AI that reads charts";
   }, []);
   useEffect(() => {
     if (!hash) return;
@@ -303,11 +339,13 @@ export default function Home2Page() {
       <div className="relative overflow-x-clip bg-[#050506] text-white antialiased">
         <Hero />
 
+        <TechnologySection />
+
         <WorkflowSection />
 
         <section id="workspace" className="scroll-mt-20 border-t border-white/[0.06] pb-20 pt-24 lg:pb-28 lg:pt-32">
           <Container>
-            <SectionHead index="02" label="The workspace" title="Inside the research workspace." intro="Six connected tools, each shown on a real research run." />
+            <SectionHead index="03" label="The workspace" title="Inside the research workspace." intro="Six connected tools, each shown on a real research run." />
             <div className="mt-12 lg:mt-6">
               <Showcase />
             </div>
@@ -319,7 +357,7 @@ export default function Home2Page() {
         <section id="deploy" className="scroll-mt-20 border-t border-white/[0.06] py-24 lg:py-32">
           <Container>
             <SectionHead
-              index="04"
+              index="05"
               label="Lineage and deployment"
               title="From backtest to deployed model."
               intro="Put a tested model on a schedule: it predicts, acts on a simulated account and reports back. Every deployment traces to the experiment behind it."
@@ -335,7 +373,7 @@ export default function Home2Page() {
         <section id="math" className="scroll-mt-20 border-t border-white/[0.06] pt-24 lg:pt-32">
           <Container>
             <SectionHead
-              index="06"
+              index="07"
               label="For the curious"
               title="From pixels to a prediction."
               intro="The maths behind every prediction, for those who want it. Five operations, repeated, turn a chart into a probability; matching colours link each equation to its picture."

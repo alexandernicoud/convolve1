@@ -416,6 +416,19 @@ export default function GeneratorResults() {
                       }. Label 1 is naturally rarer than label 0.`}
                 </p>
               ) : null}
+              {datasetStats.breakdown && datasetStats.requested_total ? (
+                <p className="mt-1.5 text-xs leading-relaxed text-white/50" data-testid="generator-count-breakdown">
+                  Requested {datasetStats.requested_total.toLocaleString()} charts (
+                  {datasetStats.charts_per_label_requested?.toLocaleString()} per class per stock), generated{" "}
+                  {datasetStats.breakdown.final_total.toLocaleString()} from{" "}
+                  {datasetStats.breakdown.raw_bars.toLocaleString()} bars: {datasetStats.breakdown.label1_found.toLocaleString()}{" "}
+                  label 1 and {datasetStats.breakdown.label0_found.toLocaleString()} label 0 outcomes found,{" "}
+                  {datasetStats.breakdown.incomplete_horizon.toLocaleString()} windows without a complete horizon,{" "}
+                  {datasetStats.breakdown.invalid_windows.toLocaleString()} with missing prices
+                  {datasetStats.breakdown.render_failed ? `, ${datasetStats.breakdown.render_failed} not rendered` : ""}.
+                  {datasetStats.breakdown.limit ? ` ${datasetStats.breakdown.limit.message}` : ""}
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <button

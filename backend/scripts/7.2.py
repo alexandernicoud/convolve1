@@ -12,9 +12,19 @@ import sys
 import argparse
 import json
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from app.services import label_grid  # noqa: E402
+
 # ================================
 # CONFIG
 # ================================
+
+# "fast" = first-passage kernels (app.services.label_grid), bit-identical to "legacy" = per-bar walk.
+LABEL_ENGINE = os.environ.get("CONVOLVE_LABEL_ENGINE", "fast").strip().lower()
+
+# Static PNG / HTML / CSV outputs. No page or export reads them; the API run (headless) skips them
+# unless CONVOLVE_LO_STATIC_OUTPUTS=1. The interactive CLI keeps them.
+STATIC_OUTPUTS = True
 
 TP_MIN = 0.005
 TP_MAX = 0.40
@@ -873,7 +883,86 @@ def _append_grid_rows(rows, stats_iter):
         })
 
 
+def grid_axes():
+    tp_values = np.ascontiguousarray(np.linspace(TP_MIN, TP_MAX, TP_STEPS), dtype=np.float64)
+    sl_values = np.ascontiguousarray(np.linspace(SL_MIN, SL_MAX, SL_STEPS), dtype=np.float64)
+    horizon_values = np.ascontiguousarray(np.arange(HORIZON_MIN, HORIZON_MAX + 1), dtype=np.int64)
+    return tp_values, sl_values, horizon_values
+
+
+def _grid_frame(tp_values, sl_values, horizon_values, years, start_equity, state) -> pd.DataFrame:
+    """Vectorised _metrics_from_state + _append_grid_rows over the flat (tp, sl, h) order."""
+    trades, label1, pnl, dd, mean, m2, equity = state
+    n_tp, n_sl, n_h = len(tp_values), len(sl_values), len(horizon_values)
+    tp = np.repeat(tp_values, n_sl * n_h)
+    sl = np.tile(np.repeat(sl_values, n_h), n_tp)
+    h = np.tile(horizon_values, n_tp * n_sl).astype(np.int64)
+    trades = trades.astype(np.int64)
+    label1 = label1.astype(np.int64)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        per_year = pnl / years
+        label1_ratio = np.where(trades > 0, label1 / np.where(trades > 0, trades, 1), 0.0)
+        max_dd = np.minimum(-dd, 1.0)
+        tpy = trades / years if years > 0 else np.full(trades.shape, np.nan)
+        var = np.where(trades > 1, m2 / np.where(trades > 1, trades - 1, 1), 0.0)
+        std = np.where(var > 0, np.sqrt(np.where(var > 0, var, 0.0)), 0.0)
+        sharpe = np.where((trades > 1) & (std > 1e-12), mean / np.where(std > 1e-12, std, 1.0) * np.sqrt(tpy), np.nan)
+        comp_ret = (equity / start_equity) - 1.0
+        ok = (years > 0) & (comp_ret > -0.999999)
+        cagr = np.where(ok, np.power(np.where(ok, 1.0 + comp_ret, 1.0), 1.0 / years) - 1.0, np.nan)
+        calmar = np.where(max_dd > 1e-9, per_year / np.where(max_dd > 1e-9, max_dd, 1.0), np.nan)
+    return pd.DataFrame({
+        "tp_frac": tp,
+        "sl_frac": sl,
+        "horizon_days": h,
+        "spread": tp - sl,
+        "trades": trades,
+        "years": np.full(tp.shape, years),
+        "pnl_linear": pnl,
+        "pnl_linear_per_year": per_year,
+        "pnl_linear_pct": pnl * 100.0,
+        "pnl_linear_per_year_pct": per_year * 100.0,
+        "pnl_per_trade": mean,
+        "pnl_per_trade_pct": mean * 100.0,
+        "label1_ratio": label1_ratio,
+        "max_drawdown": max_dd,
+        "max_drawdown_pct": max_dd * 100.0,
+        "trades_per_year": tpy,
+        "sharpe_annual": sharpe,
+        "calmar_ratio": calmar,
+        "equity_final": equity,
+        "compounded_return": comp_ret,
+        "compounded_return_pct": comp_ret * 100.0,
+        "compounded_cagr": cagr,
+        "compounded_cagr_pct": cagr * 100.0,
+    })
+
+
+def _run_grid_search_fast(df: pd.DataFrame, progress: ProgressWriter | None = None) -> pd.DataFrame:
+    if not label_grid.HAVE_NUMBA:
+        raise ImportError("numba unavailable")
+    opens, highs, lows = _ohlc_arrays(df)
+    if opens.shape[0] < 3:
+        print("\nRunning grid search over 0 combinations...\n")
+        print("No systems produced metrics.")
+        return pd.DataFrame()
+    tp_values, sl_values, horizon_values = grid_axes()
+    total_combos = int(tp_values.shape[0] * sl_values.shape[0] * horizon_values.shape[0])
+    print(f"\nRunning grid search over {total_combos:,} combinations...\n")
+    sl_first = 0 if AMBIGUOUS_FILL == "TP_FIRST" else 1
+    fp_tp, fp_sl = label_grid.passage_tables(opens, highs, lows, tp_values, sl_values, int(horizon_values.max()))
+    state = label_grid.simulate_grid(
+        fp_tp, fp_sl, tp_values, sl_values, horizon_values, opens.shape[0],
+        float(START_CAPITAL), float(TOTAL_COST_FRAC), sl_first,
+    )
+    if progress is not None:
+        progress.update("grid search", percent=100.0, step=total_combos)
+    return _grid_frame(tp_values, sl_values, horizon_values, _years_covered(df), float(START_CAPITAL), state)
+
+
 def _run_grid_search_numba(df: pd.DataFrame, progress: ProgressWriter | None = None) -> pd.DataFrame:
+    if LABEL_ENGINE != "legacy":
+        return _run_grid_search_fast(df, progress)
     funcs = _load_numba_funcs()
     if funcs is None:
         raise ImportError("numba unavailable")
@@ -886,9 +975,7 @@ def _run_grid_search_numba(df: pd.DataFrame, progress: ProgressWriter | None = N
         return pd.DataFrame()
 
     years = _years_covered(df)
-    tp_values = np.ascontiguousarray(np.linspace(TP_MIN, TP_MAX, TP_STEPS), dtype=np.float64)
-    sl_values = np.ascontiguousarray(np.linspace(SL_MIN, SL_MAX, SL_STEPS), dtype=np.float64)
-    horizon_values = np.ascontiguousarray(np.arange(HORIZON_MIN, HORIZON_MAX + 1), dtype=np.int64)
+    tp_values, sl_values, horizon_values = grid_axes()
     total_combos = int(tp_values.shape[0] * sl_values.shape[0] * horizon_values.shape[0])
     print(f"\nRunning grid search over {total_combos:,} combinations...\n")
 
@@ -1076,7 +1163,7 @@ def make_time_visuals_for_best_system(df_price: pd.DataFrame, best_row: pd.Serie
     ax.legend(loc="upper left")
     ax.grid(True, linestyle="--", alpha=0.3)
     fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, f"{symbol}_time_cum_linear_vs_price_best.png"), dpi=200)
+    _savefig(fig, os.path.join(out_dir, f"{symbol}_time_cum_linear_vs_price_best.png"))
     plt.close(fig)
 
     # ---------------------------------------------------------
@@ -1101,7 +1188,7 @@ def make_time_visuals_for_best_system(df_price: pd.DataFrame, best_row: pd.Serie
     ax.legend(loc="upper left")
     ax.grid(True, linestyle="--", alpha=0.3)
     fig.tight_layout()
-    fig.savefig(os.path.join(out_dir, f"{symbol}_time_cum_compound_vs_price_best.png"), dpi=200)
+    _savefig(fig, os.path.join(out_dir, f"{symbol}_time_cum_compound_vs_price_best.png"))
     plt.close(fig)
     
     # Export time series JSON for dashboard
@@ -1154,7 +1241,7 @@ def make_time_visuals_for_best_system(df_price: pd.DataFrame, best_row: pd.Serie
         ax.set_title(f"{symbol}: Yearly linear returns – strategy vs price")
         ax.legend()
         fig.tight_layout()
-        fig.savefig(os.path.join(out_dir, f"{symbol}_yearly_linear_vs_price_best.png"), dpi=200)
+        _savefig(fig, os.path.join(out_dir, f"{symbol}_yearly_linear_vs_price_best.png"))
         plt.close(fig)
 
     # 2) Yearly compounded bars
@@ -1174,7 +1261,7 @@ def make_time_visuals_for_best_system(df_price: pd.DataFrame, best_row: pd.Serie
         ax.set_title(f"{symbol}: Yearly compounded returns – strategy vs price")
         ax.legend()
         fig.tight_layout()
-        fig.savefig(os.path.join(out_dir, f"{symbol}_yearly_compound_vs_price_best.png"), dpi=200)
+        _savefig(fig, os.path.join(out_dir, f"{symbol}_yearly_compound_vs_price_best.png"))
         plt.close(fig)
         
         # Export yearly returns JSON for dashboard
@@ -1204,7 +1291,7 @@ def make_time_visuals_for_best_system(df_price: pd.DataFrame, best_row: pd.Serie
         ax.set_title(f"{symbol}: Yearly scenario counts (TP / SL / FLAT) – best system")
         ax.legend()
         fig.tight_layout()
-        fig.savefig(os.path.join(out_dir, f"{symbol}_yearly_scenarios_best.png"), dpi=200)
+        _savefig(fig, os.path.join(out_dir, f"{symbol}_yearly_scenarios_best.png"))
         plt.close(fig)
 # ================================
 # HTML VOXEL CUBE (CAGR FIELD)
@@ -1213,6 +1300,19 @@ def make_time_visuals_for_best_system(df_price: pd.DataFrame, best_row: pd.Serie
 def make_html_voxel_cube(df_res: pd.DataFrame, symbol: str, out_dir: str, tp_merge: int = 1, sl_merge: int = 1, h_merge: int = 1):
     df = df_res.copy()
     if df.empty:
+        return
+
+    # Export voxel points JSON for dashboard (use original data, not aggregated)
+    voxel_json = {
+        "tp": [float(x) for x in df_res["tp_frac"].values],
+        "sl": [float(x) for x in df_res["sl_frac"].values],
+        "h": [int(x) for x in df_res["horizon_days"].values],
+        "metric": [float(x) for x in df_res["compounded_cagr_pct"].values],
+        "metric_name": "compounded_cagr",
+        "colorscale": DASH_COLOR_SCALE,
+    }
+    _write_json(os.path.join(out_dir, f"{symbol}_voxel_cube_cagr.json"), voxel_json)
+    if not STATIC_OUTPUTS:
         return
 
     tp_vals = np.sort(df["tp_frac"].unique())
@@ -1332,21 +1432,13 @@ def make_html_voxel_cube(df_res: pd.DataFrame, symbol: str, out_dir: str, tp_mer
         )
     )
 
-    html_path = os.path.join(out_dir, f"{symbol}_voxel_cube_cagr.html")
-    fig.write_html(html_path)
-    webbrowser.open("file://" + os.path.abspath(html_path))
-    print(f"HTML voxel cube saved and opened: {html_path} (cubes: {cube_count})")
+    if STATIC_OUTPUTS:
+        html_path = os.path.join(out_dir, f"{symbol}_voxel_cube_cagr.html")
+        fig.write_html(html_path)
+        if sys.stdout.isatty():
+            webbrowser.open("file://" + os.path.abspath(html_path))
+        print(f"HTML voxel cube saved: {html_path} (cubes: {cube_count})")
     
-    # Export voxel points JSON for dashboard (use original data, not aggregated)
-    voxel_json = {
-        "tp": [float(x) for x in df_res["tp_frac"].values],
-        "sl": [float(x) for x in df_res["sl_frac"].values],
-        "h": [int(x) for x in df_res["horizon_days"].values],
-        "metric": [float(x) for x in df_res["compounded_cagr_pct"].values],
-        "metric_name": "compounded_cagr",
-        "colorscale": DASH_COLOR_SCALE,
-    }
-    _write_json(os.path.join(out_dir, f"{symbol}_voxel_cube_cagr.json"), voxel_json)
 
 
 # ================================
@@ -1355,9 +1447,14 @@ def make_html_voxel_cube(df_res: pd.DataFrame, symbol: str, out_dir: str, tp_mer
 DASH_COLOR_SCALE = "Viridis"
 
 def _write_json(path: str, obj: dict):
-    """Helper to write JSON file."""
+    """Dashboard JSON, compact (same content as the former indented files)."""
     with open(path, "w") as f:
-        json.dump(obj, f, indent=2)
+        f.write(json.dumps(obj, separators=(",", ":")))
+
+
+def _savefig(fig, path: str):
+    if STATIC_OUTPUTS:
+        fig.savefig(path, dpi=200)
 
 
 # ================================
@@ -1369,8 +1466,9 @@ def save_tp_sl_heatmap_grid(df_all: pd.DataFrame, horizons: list, value_col: str
     6-panel heatmap layout with a single external colorbar on the RIGHT (no overlay).
     Also exports JSON data for interactive dashboard.
     """
-    fig, axes = plt.subplots(2, 3, figsize=(14, 8))
-    axes = axes.ravel()
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8)) if STATIC_OUTPUTS else (None, [None] * len(horizons))
+    if STATIC_OUTPUTS:
+        axes = axes.ravel()
 
     vmin = np.nanpercentile(df_all[value_col], 5)
     vmax = np.nanpercentile(df_all[value_col], 95)
@@ -1413,6 +1511,8 @@ def save_tp_sl_heatmap_grid(df_all: pd.DataFrame, horizons: list, value_col: str
                 matrix.append(row)
             json_data["horizons"][str(h)] = {"z": matrix}
 
+        if ax is None:
+            continue
         last_im = ax.imshow(
             pivot.values, origin="lower", aspect="auto",
             extent=[pivot.columns.min(), pivot.columns.max(),
@@ -1423,6 +1523,15 @@ def save_tp_sl_heatmap_grid(df_all: pd.DataFrame, horizons: list, value_col: str
         ax.set_xlabel("TP fraction")
         ax.set_ylabel("SL fraction")
 
+    if STATIC_OUTPUTS:
+        _draw_heatmap_grid(fig, title, last_im, value_col, out_path)
+
+    # Export JSON (same base name, .json extension)
+    json_path = out_path.replace(".png", ".json")
+    _write_json(json_path, json_data)
+
+
+def _draw_heatmap_grid(fig, title, last_im, value_col, out_path):
     fig.suptitle(title, fontsize=14)
 
     # Leave room for the colorbar and avoid overlaps
@@ -1433,12 +1542,8 @@ def save_tp_sl_heatmap_grid(df_all: pd.DataFrame, horizons: list, value_col: str
     cbar = fig.colorbar(last_im, cax=cax)
     cbar.set_label(value_col)
 
-    fig.savefig(out_path, dpi=200)
+    _savefig(fig, out_path)
     plt.close(fig)
-    
-    # Export JSON (same base name, .json extension)
-    json_path = out_path.replace(".png", ".json")
-    _write_json(json_path, json_data)
 
 
 def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_stats: dict, df_price: pd.DataFrame):
@@ -1459,6 +1564,16 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
     # Best system by CAGR
     best_idx = df["compounded_cagr"].idxmax()
     best_row = df.loc[best_idx]
+
+    if not STATIC_OUTPUTS:
+        hs = [1, 5, 20, 50, 100, 200]
+        save_tp_sl_heatmap_grid(df, hs, "compounded_cagr_pct", f"{symbol}: TP–SL heatmaps (CAGR %) for key horizons",
+                                os.path.join(out_dir, f"{symbol}_tp_sl_heatmap_grid_cagr.png"))
+        save_tp_sl_heatmap_grid(df, hs, "pnl_linear_per_year_pct", f"{symbol}: TP–SL heatmaps (Annual Linear P/L %) for key horizons",
+                                os.path.join(out_dir, f"{symbol}_tp_sl_heatmap_grid_annual_linear_pl.png"))
+        make_time_visuals_for_best_system(df_price, best_row, symbol, out_dir)
+        make_html_voxel_cube(df_res, symbol, out_dir)
+        return
 
     # =========================
     # 1) Best horizon by avg CAGR
@@ -1486,7 +1601,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
         plt.ylabel("SL fraction")
         plt.title(f"{symbol}: CAGR (TP vs SL, horizon={best_h}d)")
         plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, f"{symbol}_heatmap_cagr_tp_sl_h{best_h}.png"), dpi=200)
+        _savefig(plt, os.path.join(out_dir, f"{symbol}_heatmap_cagr_tp_sl_h{best_h}.png"))
         plt.close()
 
     # =========================
@@ -1506,7 +1621,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
         plt.ylabel("SL fraction")
         plt.title(f"{symbol}: L1 prediction rate (TP vs SL, horizon={best_h}d)")
         plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, f"{symbol}_heatmap_label1_tp_sl_h{best_h}.png"), dpi=200)
+        _savefig(plt, os.path.join(out_dir, f"{symbol}_heatmap_label1_tp_sl_h{best_h}.png"))
         plt.close()
 
     # =========================
@@ -1529,7 +1644,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
         plt.ylabel("TP - SL (spread)")
         plt.title(f"{symbol}: CAGR (spread vs horizon)")
         plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, f"{symbol}_heatmap_cagr_spread_horizon.png"), dpi=200)
+        _savefig(plt, os.path.join(out_dir, f"{symbol}_heatmap_cagr_spread_horizon.png"))
         plt.close()
 
     # =========================
@@ -1584,7 +1699,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
 
         ax.set_title(f"{symbol}: TP–SL–H vs ratio (3D, horizon sampled every 5d)")
         plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, f"{symbol}_3d_tp_sl_h_ratio_vs_asset.png"), dpi=200)
+        _savefig(plt, os.path.join(out_dir, f"{symbol}_3d_tp_sl_h_ratio_vs_asset.png"))
         plt.close(fig)
 
     # =========================
@@ -1603,7 +1718,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
     cb.set_label("CAGR (%)")
     plt.grid(True, linestyle="--", alpha=0.3)
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f"{symbol}_scatter_horizon_vs_spread_cagr.png"), dpi=200)
+    _savefig(plt, os.path.join(out_dir, f"{symbol}_scatter_horizon_vs_spread_cagr.png"))
     plt.close()
 
     # =========================
@@ -1616,7 +1731,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
     plt.title(f"{symbol}: Risk–return (CAGR vs max drawdown)")
     plt.grid(True, linestyle="--", alpha=0.3)
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f"{symbol}_risk_return_cagr_vs_maxdd.png"), dpi=200)
+    _savefig(plt, os.path.join(out_dir, f"{symbol}_risk_return_cagr_vs_maxdd.png"))
     plt.close()
 
     # =========================
@@ -1629,7 +1744,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
     plt.title(f"{symbol}: CAGR vs L1 prediction rate")
     plt.grid(True, linestyle="--", alpha=0.3)
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f"{symbol}_cagr_vs_winrate.png"), dpi=200)
+    _savefig(plt, os.path.join(out_dir, f"{symbol}_cagr_vs_winrate.png"))
     plt.close()
 
     # =========================
@@ -1642,7 +1757,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
     plt.ylabel("Count of systems")
     plt.title(f"{symbol}: Annual linear P/L distribution")
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f"{symbol}_hist_annual_pnl_per_year.png"), dpi=200)
+    _savefig(plt, os.path.join(out_dir, f"{symbol}_hist_annual_pnl_per_year.png"))
     plt.close()
 
     # CAGR histogram
@@ -1652,7 +1767,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
     plt.ylabel("Count of systems")
     plt.title(f"{symbol}: CAGR distribution")
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f"{symbol}_hist_cagr.png"), dpi=200)
+    _savefig(plt, os.path.join(out_dir, f"{symbol}_hist_cagr.png"))
     plt.close()
 
     # =========================
@@ -1673,7 +1788,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
         plt.ylabel("SL fraction")
         plt.title(f"{symbol}: Envelope CAGR (TP vs SL, best horizon per pair)")
         plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, f"{symbol}_heatmap_envelope_best_cagr_tp_sl.png"), dpi=200)
+        _savefig(plt, os.path.join(out_dir, f"{symbol}_heatmap_envelope_best_cagr_tp_sl.png"))
         plt.close()
 
     # =========================
@@ -1699,7 +1814,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
     plt.grid(True, linestyle="--", alpha=0.3)
     plt.legend(fontsize=7)
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f"{symbol}_cagr_vs_horizon_spread_groups.png"), dpi=200)
+    _savefig(plt, os.path.join(out_dir, f"{symbol}_cagr_vs_horizon_spread_groups.png"))
     plt.close()
 
     # =========================
@@ -1725,7 +1840,7 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
         ax.add_patch(Rectangle((i - 0.5, i - 0.5), 1, 1, facecolor="white", edgecolor="white"))
     plt.title(f"{symbol}: Correlation matrix (params, performance, risk)")
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f"{symbol}_correlation_matrix.png"), dpi=200)
+    _savefig(plt, os.path.join(out_dir, f"{symbol}_correlation_matrix.png"))
     plt.close()
 
     # =========================
@@ -1766,107 +1881,60 @@ def make_visualizations(df_res: pd.DataFrame, symbol: str, out_dir: str, asset_s
 # RAW DATA EXPORTS FOR INTERACTIVE DASHBOARD
 # ================================
 
+def _voxel_records(df: pd.DataFrame) -> list:
+    tp = df["tp_frac"].to_numpy(dtype=float).tolist()
+    sl = df["sl_frac"].to_numpy(dtype=float).tolist()
+    h = df["horizon_days"].to_numpy().astype(np.int64).tolist()
+    metric = df["compounded_cagr_pct"].to_numpy(dtype=float).tolist()
+    return [{"tp": a, "sl": b, "h": c, "metric": d, "metric_name": "cagr"} for a, b, c, d in zip(tp, sl, h, metric)]
+
+
 def export_voxel_data(df_res: pd.DataFrame, out_dir: str):
     """Export voxel points for 3D interactive plot."""
     if df_res.empty:
         return
-    
-    # Full dataset
-    voxel_points = []
-    for _, row in df_res.iterrows():
-        voxel_points.append({
-            "tp": float(row["tp_frac"]),
-            "sl": float(row["sl_frac"]),
-            "h": int(row["horizon_days"]),
-            "metric": float(row["compounded_cagr_pct"]),
-            "metric_name": "cagr"
-        })
-    
+
     with open(os.path.join(out_dir, "voxel_points.json"), "w") as f:
-        json.dump(voxel_points, f, indent=2)
-    
+        f.write(json.dumps(_voxel_records(df_res), separators=(",", ":")))
+
     # Top 10% by CAGR
     df_top = df_res.nlargest(max(1, len(df_res) // 10), "compounded_cagr_pct")
-    voxel_top = []
-    for _, row in df_top.iterrows():
-        voxel_top.append({
-            "tp": float(row["tp_frac"]),
-            "sl": float(row["sl_frac"]),
-            "h": int(row["horizon_days"]),
-            "metric": float(row["compounded_cagr_pct"]),
-            "metric_name": "cagr"
-        })
-    
     with open(os.path.join(out_dir, "voxel_points_top.json"), "w") as f:
-        json.dump(voxel_top, f, indent=2)
+        f.write(json.dumps(_voxel_records(df_top), separators=(",", ":")))
+
+
+def _heatmap_matrices(df_res: pd.DataFrame, col: str, tp_values, sl_values, horizons) -> dict:
+    """{h: [sl][tp]} of ``col``; the first row per cell, None where a cell is missing."""
+    out = {}
+    h_arr = df_res["horizon_days"].to_numpy()
+    for h in horizons:
+        mask = h_arr == h
+        if not mask.any():
+            continue
+        sub = df_res.loc[mask]
+        lookup = {}
+        for key, v in zip(zip(sub["sl_frac"].tolist(), sub["tp_frac"].tolist()), sub[col].to_numpy(dtype=float).tolist()):
+            lookup.setdefault(key, v)
+        out[str(h)] = [[lookup.get((sl, tp)) for tp in tp_values] for sl in sl_values]
+    return out
 
 
 def export_heatmap_data(df_res: pd.DataFrame, out_dir: str):
     """Export heatmap matrices for key horizons."""
     if df_res.empty:
         return
-    
-    tp_values = sorted(df_res["tp_frac"].unique())
-    sl_values = sorted(df_res["sl_frac"].unique())
+
+    tp_values = sorted(df_res["tp_frac"].unique().tolist())
+    sl_values = sorted(df_res["sl_frac"].unique().tolist())
     horizons = [1, 5, 20, 50, 100, 200]
-    
-    # CAGR heatmaps
-    heatmaps_cagr = {
-        "metric_name": "cagr",
-        "horizons": {},
-        "tp_values": [float(x) for x in tp_values],
-        "sl_values": [float(x) for x in sl_values]
-    }
-    
-    for h in horizons:
-        df_h = df_res[df_res["horizon_days"] == h]
-        if df_h.empty:
-            continue
-        
-        matrix = []
-        for sl in sl_values:
-            row = []
-            for tp in tp_values:
-                matches = df_h[(df_h["tp_frac"] == tp) & (df_h["sl_frac"] == sl)]
-                if not matches.empty:
-                    row.append(matches["compounded_cagr_pct"].iloc[0])
-                else:
-                    row.append(None)
-            matrix.append(row)
-        
-        heatmaps_cagr["horizons"][str(h)] = matrix
-    
-    with open(os.path.join(out_dir, "heatmaps_cagr.json"), "w") as f:
-        json.dump(heatmaps_cagr, f, indent=2)
-    
-    # Linear annual P/L heatmaps
-    heatmaps_linear = {
-        "metric_name": "linear",
-        "horizons": {},
-        "tp_values": [float(x) for x in tp_values],
-        "sl_values": [float(x) for x in sl_values]
-    }
-    
-    for h in horizons:
-        df_h = df_res[df_res["horizon_days"] == h]
-        if df_h.empty:
-            continue
-        
-        matrix = []
-        for sl in sl_values:
-            row = []
-            for tp in tp_values:
-                matches = df_h[(df_h["tp_frac"] == tp) & (df_h["sl_frac"] == sl)]
-                if not matches.empty:
-                    row.append(matches["pnl_linear_per_year_pct"].iloc[0])
-                else:
-                    row.append(None)
-            matrix.append(row)
-        
-        heatmaps_linear["horizons"][str(h)] = matrix
-    
-    with open(os.path.join(out_dir, "heatmaps_linear.json"), "w") as f:
-        json.dump(heatmaps_linear, f, indent=2)
+    for name, metric, col in (("heatmaps_cagr.json", "cagr", "compounded_cagr_pct"),
+                              ("heatmaps_linear.json", "linear", "pnl_linear_per_year_pct")):
+        _write_json(os.path.join(out_dir, name), {
+            "metric_name": metric,
+            "horizons": _heatmap_matrices(df_res, col, tp_values, sl_values, horizons),
+            "tp_values": [float(x) for x in tp_values],
+            "sl_values": [float(x) for x in sl_values],
+        })
 
 
 def _density_preserving_sample_indices(
@@ -1963,7 +2031,8 @@ def export_metrics_json(df_res: pd.DataFrame, symbol: str, start: str, end: str,
         "best_h": int(best["horizon_days"]),
         "best_cagr": float(best["compounded_cagr_pct"]),
         "best_linear_annual_pl": float(best["pnl_linear_per_year_pct"]),
-        "max_drawdown": float(min(0, max(-100, best["max_drawdown_pct"]))),
+        # Negative percent (max_drawdown_pct is a positive magnitude); was clipped to 0 before v2.
+        "max_drawdown": float(-min(100.0, max(0.0, best["max_drawdown_pct"]))),
         "trades": int(best["trades"]),
         "asset_total_ret_pct": float(asset_stats.get("total_ret_pct", 0)),
         "asset_annual_cagr_pct": float(asset_stats.get("annual_cagr_pct", 0)),
@@ -2095,7 +2164,7 @@ def export_metrics_json(df_res: pd.DataFrame, symbol: str, start: str, end: str,
         # Continue without advanced data
 
     with open(os.path.join(out_dir, "metrics.json"), "w") as f:
-        json.dump(metrics, f, indent=2)
+        f.write(json.dumps(metrics, separators=(",", ":")))
 
 
 def export_horizon_best_data(df_res: pd.DataFrame, out_dir: str):
@@ -2118,7 +2187,7 @@ def export_horizon_best_data(df_res: pd.DataFrame, out_dir: str):
         })
     
     with open(os.path.join(out_dir, "horizon_best.json"), "w") as f:
-        json.dump({"data": horizon_best}, f, indent=2)
+        f.write(json.dumps({"data": horizon_best}, separators=(",", ":")))
 
 
 def export_cagr_vs_horizon_spread_json(df_res: pd.DataFrame, out_dir: str, n_bins: int = 8) -> None:
@@ -2193,7 +2262,7 @@ def export_cagr_vs_horizon_spread_json(df_res: pd.DataFrame, out_dir: str, n_bin
         "spread_groups": spread_groups,
     }
     with open(os.path.join(out_dir, "cagr_vs_horizon_spread.json"), "w") as f:
-        json.dump(payload, f, indent=2)
+        f.write(json.dumps(payload, separators=(",", ":")))
 
 
 def export_best_system_timeseries(df_price: pd.DataFrame, best_row: pd.Series, symbol: str, out_dir: str):
@@ -2227,7 +2296,7 @@ def export_best_system_timeseries(df_price: pd.DataFrame, best_row: pd.Series, s
     }
 
     with open(os.path.join(out_dir, "best_system_timeseries.json"), "w") as f:
-        json.dump(timeseries, f, indent=2)
+        f.write(json.dumps(timeseries, separators=(",", ":")))
 
 
 def export_yearly_compounded_returns(df_price: pd.DataFrame, best_row: pd.Series, symbol: str, out_dir: str):
@@ -2265,7 +2334,7 @@ def export_yearly_compounded_returns(df_price: pd.DataFrame, best_row: pd.Series
     }
 
     with open(os.path.join(out_dir, "yearly_compounded.json"), "w") as f:
-        json.dump(yearly_data, f, indent=2)
+        f.write(json.dumps(yearly_data, separators=(",", ":")))
 
 
 def export_best_system_heatmap(df_res: pd.DataFrame, best_row: pd.Series, out_dir: str):
@@ -2302,7 +2371,7 @@ def export_best_system_heatmap(df_res: pd.DataFrame, best_row: pd.Series, out_di
     }
     
     with open(os.path.join(out_dir, "best_system_heatmap.json"), "w") as f:
-        json.dump(heatmap_data, f, indent=2)
+        f.write(json.dumps(heatmap_data, separators=(",", ":")))
 
 
 def export_best_system_trades(df_price: pd.DataFrame, best_row: pd.Series, out_dir: str):
@@ -2330,7 +2399,7 @@ def export_best_system_trades(df_price: pd.DataFrame, best_row: pd.Series, out_d
     trades_data = {"trades": trades}
     
     with open(os.path.join(out_dir, "best_system_trades.json"), "w") as f:
-        json.dump(trades_data, f, indent=2)
+        f.write(json.dumps(trades_data, separators=(",", ":")))
 
 
 # ================================
@@ -2425,7 +2494,7 @@ def print_and_save_summary(symbol: str, start: str, end: str, df_res: pd.DataFra
     plt.ylabel("CAGR (%)")
     plt.title(f"{symbol}: Best system vs benchmarks (CAGR)")
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f"{symbol}_benchmarks_vs_best_cagr.png"), dpi=200)
+    _savefig(plt, os.path.join(out_dir, f"{symbol}_benchmarks_vs_best_cagr.png"))
     plt.close()
 
 
@@ -2514,91 +2583,225 @@ def parse_args():
     p.add_argument("--out_dir", type=str, default="runs")
     return p.parse_args()
 
+class _Stages:
+    """Wall-clock seconds per pipeline stage (benchmarks and run metadata)."""
+
+    def __init__(self):
+        self.seconds: dict = {}
+        self._name = None
+        self._t0 = 0.0
+
+    def __call__(self, name: str):
+        now = time.perf_counter()
+        if self._name is not None:
+            self.seconds[self._name] = round(self.seconds.get(self._name, 0.0) + now - self._t0, 4)
+        self._name, self._t0 = name, now
+
+    def done(self) -> dict:
+        self(None)
+        return self.seconds
+
+
+def _read_config(run_dir: str) -> dict:
+    path = os.path.join(run_dir, "optimizer_config.json")
+    try:
+        with open(path) as f:
+            cfg = json.load(f)
+        return cfg if isinstance(cfg, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _day(ts) -> str:
+    return str(pd.Timestamp(ts).date())
+
+
+def research_periods(df_all: pd.DataFrame, sel_end: int, requested: dict) -> dict:
+    n = len(df_all)
+    closes = df_all["Close"].to_numpy(dtype=float)
+    out = {
+        "research": {"start": _day(df_all.index[0]), "end": _day(df_all.index[sel_end]), "bars": int(sel_end + 1)},
+        "evaluation": None,
+        "requested": requested,
+        "boundary": (
+            "Ranking and every in-sample figure use the research period only. Research outcomes read no bar after "
+            "the research end: a TP or SL touch must happen inside the period, and an untouched window that would need later bars is excluded. Evaluation entries "
+            "start at the first bar after the research end and never influence the ranking."
+        ),
+    }
+    if sel_end < n - 1:
+        out["evaluation"] = {
+            "start": _day(df_all.index[sel_end + 1]),
+            "end": _day(df_all.index[-1]),
+            "bars": int(n - 1 - sel_end),
+            "buy_and_hold_return_pct": round(float((closes[-1] / closes[sel_end] - 1.0) * 100.0), 2),
+        }
+    if requested.get("selection_end") and sel_end == n - 1:
+        out["note"] = "The requested research end left no evaluation bars inside the data; the whole range was used for research."
+    return out
+
+
+def _eval_profit(df_eval: pd.DataFrame, audit):
+    """Evaluation-period profitability of one cell (same portfolio and exits as the ranking)."""
+    def run(tp: float, sl: float, h: int) -> dict:
+        if len(df_eval) < 2:
+            return {}
+        mtm = audit.walk_candidate(df_eval, tp, sl, h, engine=sys.modules[__name__], mark_to_market=True)
+        cagr, ret = mtm.get("cagr_pct"), mtm.get("total_return_pct")
+        return {
+            "profitability_cagr_pct": round(float(cagr), 2) if cagr is not None and np.isfinite(cagr) else None,
+            "profitability_return_pct": round(float(ret), 2) if ret is not None and np.isfinite(ret) else None,
+            "closed_trades": int(mtm["tp_hits"] + mtm["sl_hits"] + mtm["expiries"]),
+        }
+    return run
+
+
+def _audit_module():
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import label_optimizer_audit
+    return label_optimizer_audit
+
+
+def export_research(df_all: pd.DataFrame, sel_end: int, df_res: pd.DataFrame, out_dir: str, periods: dict):
+    """research_surface.json + research_candidates.json (methodology v2 diagnostics).
+
+    Returns the research-period mark-to-market CAGR cube so the audit does not recompute it.
+    """
+    from app.services import label_research
+
+    audit = _audit_module()
+    tp_values, sl_values, horizon_values = grid_axes()
+    shape = (len(tp_values), len(sl_values), len(horizon_values))
+    label_payoff = df_res["compounded_cagr_pct"].to_numpy(dtype=float).reshape(shape)
+    mtm = audit.mtm_grid(df_all.iloc[: sel_end + 1], tp_values, sl_values, horizon_values, engine=sys.modules[__name__])
+    res = label_research.compute(
+        df_all, sel_end, tp_values, sl_values, horizon_values, float(TOTAL_COST_FRAC),
+        sl_first=AMBIGUOUS_FILL != "TP_FIRST",
+    )
+    _write_json(os.path.join(out_dir, "research_surface.json"), label_research.surface_payload(res))
+    eval_profit = _eval_profit(df_all.iloc[sel_end:], audit) if periods.get("evaluation") else None
+    payload = label_research.candidates_payload(
+        res, mtm if mtm is not None else label_payoff, cost=float(TOTAL_COST_FRAC), periods=periods,
+        label_payoff_cagr=label_payoff, eval_profit=eval_profit,
+    )
+    payload["profitability_model"] = "mark_to_market" if mtm is not None else "label_payoff"
+    payload["engine"] = {"label_engine": LABEL_ENGINE if label_grid.HAVE_NUMBA else "python"}
+    _write_json(os.path.join(out_dir, "research_candidates.json"), payload)
+    return mtm
+
+
+def run_headless(symbol: str, start: str, end: str, run_dir: str, *, df: pd.DataFrame | None = None, stages: _Stages | None = None) -> dict:
+    global STATIC_OUTPUTS
+    STATIC_OUTPUTS = os.environ.get("CONVOLVE_LO_STATIC_OUTPUTS", "0") == "1"
+    stages = stages or _Stages()
+    out_dir = os.path.join(run_dir, "artifacts")
+    os.makedirs(out_dir, exist_ok=True)
+    cfg = _read_config(run_dir)
+
+    progress = ProgressWriter(
+        path=os.path.join(run_dir, "progress.json"),
+        timeseries_path=os.path.join(run_dir, "progress_timeseries.jsonl"),
+        total_steps=TP_STEPS * SL_STEPS * (HORIZON_MAX - HORIZON_MIN + 1),
+    )
+    progress.update("starting", percent=0.0, step=0)
+
+    stages("load")
+    df_all = load_data(symbol, start, end) if df is None else df
+    if df_all.empty:
+        raise SystemExit("No data.")
+
+    # Research period: everything that ranks or scores candidates sees only these bars.
+    from app.services.label_research import selection_index
+    sel_end = selection_index(df_all.index, cfg.get("selection_end"))
+    df = df_all.iloc[: sel_end + 1]
+    research_end = _day(df.index[-1])
+    periods = research_periods(df_all, sel_end, {"start": start, "end": end, "selection_end": cfg.get("selection_end")})
+
+    asset_stats = compute_asset_stats_from_df(df)
+    stages("grid")
+    df_res = run_grid_search(df, progress=progress)
+    if df_res.empty:
+        raise SystemExit("No results.")
+    stages("frame")
+
+    asset_total = asset_stats["total_ret"]
+    asset_annual_lin = asset_stats["annual_lin"]
+    asset_cagr = asset_stats["annual_cagr"]
+
+    df_res["ratio_total_vs_asset"] = df_res["pnl_linear"] / asset_total if abs(asset_total) > 1e-12 else np.nan
+    df_res["ratio_annual_vs_asset"] = df_res["pnl_linear_per_year"] / asset_annual_lin if abs(asset_annual_lin) > 1e-12 else np.nan
+    df_res["ratio_cagr_vs_asset"] = df_res["compounded_cagr"] / asset_cagr if abs(asset_cagr) > 1e-12 else np.nan
+
+    df_res = mark_cnn_candidates(df_res, asset_cagr)
+
+    if STATIC_OUTPUTS:
+        stages("csv")
+        df_res.to_csv(os.path.join(out_dir, f"{symbol}_LO_full.csv"), index=False)
+        df_cnn = df_res[df_res["is_cnn_candidate"]].copy().sort_values("cnn_rank_score", ascending=False)
+        df_cnn.to_csv(os.path.join(out_dir, f"{symbol}_cnn_candidates.csv"), index=False)
+        csv_best = os.path.join(out_dir, f"label_grid_best_{symbol}_{start}_to_{research_end}.csv")
+        df_res.sort_values("compounded_cagr", ascending=False).head(TOP_N_SAVE).to_csv(csv_best, index=False)
+
+    stages("visuals")
+    make_visualizations(df_res, symbol, out_dir, asset_stats, df)
+    if STATIC_OUTPUTS:
+        stages("summary")
+        print_and_save_summary(symbol, start, research_end, df_res, out_dir, asset_stats)
+
+    stages("exports")
+    export_voxel_data(df_res, out_dir)
+    export_heatmap_data(df_res, out_dir)
+    export_metrics_json(df_res, symbol, start, research_end, asset_stats, out_dir)
+    best_row = df_res.nlargest(1, "compounded_cagr_pct").iloc[0]
+    export_horizon_best_data(df_res, out_dir)
+    export_cagr_vs_horizon_spread_json(df_res, out_dir, n_bins=8)
+    export_best_system_timeseries(df, best_row, symbol, out_dir)
+    export_yearly_compounded_returns(df, best_row, symbol, out_dir)
+    export_best_system_heatmap(df_res, best_row, out_dir)
+    export_best_system_trades(df, best_row, out_dir)
+
+    stages("research")
+    progress.update("label research", percent=98.0, step=progress.total_steps)
+    cube_mtm = None
+    try:
+        cube_mtm = export_research(df_all, sel_end, df_res, out_dir, periods)
+    except Exception as exc:  # diagnostics never block the optimizer's own results
+        print(f"Research diagnostics skipped: {exc}")
+
+    # Methodology audit (diagnostic only; never changes the grid results above)
+    stages("audit")
+    try:
+        progress.update("methodology audit", percent=99.0, step=progress.total_steps)
+        _audit_module().run_audit(
+            df, df_res, out_dir, symbol=symbol, start=start, end=research_end,
+            engine=sys.modules[__name__], config=cfg, cube_mtm=cube_mtm,
+        )
+    except Exception as exc:
+        print(f"Methodology audit skipped: {exc}")
+
+    seconds = stages.done()
+    _write_json(os.path.join(out_dir, "optimizer_run.json"), {
+        "methodology_version": 2,
+        "label_engine": LABEL_ENGINE if label_grid.HAVE_NUMBA else "python",
+        "periods": periods,
+        "stages_s": seconds,
+    })
+    progress.update("done", percent=100.0, step=progress.total_steps)
+    return seconds
+
+
 if __name__ == "__main__":
     args = parse_args()
 
     # If user passed --symbol, run headless (NO input prompts)
     if args.symbol:
-        symbol = args.symbol.upper()
-        start = args.start or "2010-01-01"
-        end = args.end or datetime.today().strftime("%Y-%m-%d")
-
         run_id = args.run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_dir = os.path.join(args.out_dir, run_id)
-        out_dir = os.path.join(run_dir, "artifacts")
-        os.makedirs(out_dir, exist_ok=True)
-
-        progress = ProgressWriter(
-            path=os.path.join(run_dir, "progress.json"),
-            timeseries_path=os.path.join(run_dir, "progress_timeseries.jsonl"),
-            total_steps=TP_STEPS * SL_STEPS * (HORIZON_MAX - HORIZON_MIN + 1),
+        run_headless(
+            args.symbol.upper(),
+            args.start or "2010-01-01",
+            args.end or datetime.today().strftime("%Y-%m-%d"),
+            os.path.join(args.out_dir, run_id),
         )
-        progress.update("starting", percent=0.0, step=0)
-
-        # run your existing logic (same as inside main, but without input())
-        df = load_data(symbol, start, end)
-        if df.empty:
-            raise SystemExit("No data.")
-
-        asset_stats = compute_asset_stats_from_df(df)
-        df_res = run_grid_search(df, progress=progress)
-        if df_res.empty:
-            raise SystemExit("No results.")
-
-        # keep the rest identical to your main()
-        asset_total = asset_stats["total_ret"]
-        asset_annual_lin = asset_stats["annual_lin"]
-        asset_cagr = asset_stats["annual_cagr"]
-
-        df_res["ratio_total_vs_asset"] = df_res["pnl_linear"] / asset_total if abs(asset_total) > 1e-12 else np.nan
-        df_res["ratio_annual_vs_asset"] = df_res["pnl_linear_per_year"] / asset_annual_lin if abs(asset_annual_lin) > 1e-12 else np.nan
-        df_res["ratio_cagr_vs_asset"] = df_res["compounded_cagr"] / asset_cagr if abs(asset_cagr) > 1e-12 else np.nan
-
-        df_res = mark_cnn_candidates(df_res, asset_cagr)
-
-        df_res.to_csv(os.path.join(out_dir, f"{symbol}_LO_full.csv"), index=False)
-        df_cnn = df_res[df_res["is_cnn_candidate"]].copy().sort_values("cnn_rank_score", ascending=False)
-        df_cnn.to_csv(os.path.join(out_dir, f"{symbol}_cnn_candidates.csv"), index=False)
-
-        csv_full = os.path.join(out_dir, f"label_grid_full_{symbol}_{start}_to_{end}.csv")
-        df_res.to_csv(csv_full, index=False)
-
-        csv_best = os.path.join(out_dir, f"label_grid_best_{symbol}_{start}_to_{end}.csv")
-        df_res.sort_values("compounded_cagr", ascending=False).head(TOP_N_SAVE).to_csv(csv_best, index=False)
-
-        make_visualizations(df_res, symbol, out_dir, asset_stats, df)
-        print_and_save_summary(symbol, start, end, df_res, out_dir, asset_stats)
-        
-        # Export raw data for interactive dashboard
-        export_voxel_data(df_res, out_dir)
-        export_heatmap_data(df_res, out_dir)
-        export_metrics_json(df_res, symbol, start, end, asset_stats, out_dir)
-        
-        # Export advanced dashboard data
-        best_row = df_res.nlargest(1, "compounded_cagr_pct").iloc[0]
-        export_horizon_best_data(df_res, out_dir)
-        export_cagr_vs_horizon_spread_json(df_res, out_dir, n_bins=8)
-        export_best_system_timeseries(df, best_row, symbol, out_dir)  # df is the price dataframe
-        export_yearly_compounded_returns(df, best_row, symbol, out_dir)  # df is the price dataframe
-        export_best_system_heatmap(df_res, best_row, out_dir)
-        export_best_system_trades(df, best_row, out_dir)  # df is the price dataframe
-
-        # Methodology audit (diagnostic only; never changes the grid results above)
-        try:
-            progress.update("methodology audit", percent=99.0, step=progress.total_steps)
-            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-            import label_optimizer_audit
-            cfg_path = os.path.join(run_dir, "optimizer_config.json")
-            cfg = json.load(open(cfg_path)) if os.path.isfile(cfg_path) else {}
-            label_optimizer_audit.run_audit(
-                df, df_res, out_dir, symbol=symbol, start=start, end=end,
-                engine=sys.modules[__name__], config=cfg,
-            )
-        except Exception as exc:
-            print(f"Methodology audit skipped: {exc}")
-
-        # Mark run as complete
-        progress.update("done", percent=100.0, step=progress.total_steps)
 
     # Otherwise run interactive mode (WITH prompts)
     else:

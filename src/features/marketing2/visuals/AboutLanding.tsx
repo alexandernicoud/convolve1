@@ -195,12 +195,15 @@ export function AboutLanding() {
             about<span className="text-[#a6ecc8]">.</span>
           </motion.h1>
           <motion.div
-            className="max-w-xs pb-3 md:text-right"
+            className="max-w-sm pb-3 md:text-right"
             initial={reduce ? false : { opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 0.8 }}
           >
-            <p className="text-[15.5px] leading-relaxed text-white/60">A quantitative research laboratory for traders who would rather engineer an idea than trust one.</p>
+            <p className="text-[15.5px] leading-relaxed text-white/60">
+              <span className="text-white/90">A new way to investigate financial markets.</span> Other platforms give you tools to interpret
+              prices. Convolve gives you the infrastructure to build AI that interprets them.
+            </p>
             <a href="#chapters" className="pointer-events-auto mt-5 inline-flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.22em] text-white/45 transition-colors hover:text-white">
               Scroll
               <ChevronDown className="h-3.5 w-3.5 motion-safe:animate-bounce" aria-hidden />

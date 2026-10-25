@@ -16,6 +16,10 @@ type Props = {
    * `onAdd` so the parent can replace (typical for single-symbol tools).
    */
   maxSymbols?: number;
+  /** Id of the search input (label target and validation focus). */
+  inputId?: string;
+  /** Validation message; marks the field invalid when set. */
+  error?: string | null;
 };
 
 /**
@@ -29,7 +33,10 @@ export default function SymbolBasket({
   tipText,
   label,
   maxSymbols,
+  inputId,
+  error,
 }: Props) {
+  const errorId = inputId ? `${inputId}-error` : undefined;
   const [symbolDraft, setSymbolDraft] = useState("");
   const [symbolSuggestions, setSymbolSuggestions] = useState<YFinanceSearchRow[]>([]);
   const [symbolSearchLoading, setSymbolSearchLoading] = useState(false);
@@ -73,7 +80,7 @@ export default function SymbolBasket({
 
   return (
     <div className="relative">
-      <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
+      <label htmlFor={inputId} className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
         {fieldLabel} <span className="text-[#e5e5e5]">*</span>
         <FieldTip
           text={
@@ -88,7 +95,11 @@ export default function SymbolBasket({
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
           <input
+            id={inputId}
             type="text"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? errorId : undefined}
+            aria-required={inputId ? true : undefined}
             value={symbolDraft}
             onChange={(e) => {
               setSymbolDraft(e.target.value);
@@ -104,7 +115,11 @@ export default function SymbolBasket({
                 else if (q) addSymbol(q.replace(/[^A-Z0-9.-]/g, ""));
               }
             }}
-            className="w-full rounded-lg border border-white/8 bg-[#0a0a0a]/60 py-2 pl-9 pr-3 text-[#F5F5F5] placeholder:text-white/30 focus:border-white/30 focus:ring-1 focus:ring-white/50"
+            className={`w-full rounded-lg border bg-[#0a0a0a]/60 py-2 pl-9 pr-3 text-[#F5F5F5] placeholder:text-white/30 focus:ring-1 ${
+              error
+                ? "border-red-400/80 ring-1 ring-red-400/40 focus:border-red-400 focus:ring-red-400/60"
+                : "border-white/8 focus:border-white/30 focus:ring-white/50"
+            }`}
             placeholder={single ? "e.g. AAPL or Apple" : "Search a stock — e.g. AAPL or Apple"}
             autoComplete="off"
           />
@@ -168,6 +183,11 @@ export default function SymbolBasket({
           ) : null}
         </div>
       </div>
+      {error ? (
+        <p id={errorId} className="mt-1.5 text-xs font-medium text-red-300">
+          {error}
+        </p>
+      ) : null}
       <div className="mt-3 rounded-lg border border-white/12 bg-white/[0.06] p-3">
         <div className="mb-2 flex items-center justify-between gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
