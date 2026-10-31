@@ -18,9 +18,6 @@ export function LegalLayout({
   children: ReactNode;
 }) {
   const { pathname } = useLocation();
-  useEffect(() => {
-    document.title = `${title} | convolve.`;
-  }, [title]);
   return (
     <div className="bg-[#050506] text-white">
       <div className="mx-auto grid max-w-6xl gap-12 px-5 pb-24 pt-10 sm:px-8 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-16 lg:pt-16">

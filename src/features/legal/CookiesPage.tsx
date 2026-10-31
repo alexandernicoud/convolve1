@@ -20,6 +20,7 @@ export default function CookiesPage() {
             ["convolve_runs", "Local storage", "Remembers your active and recent research runs in the workspace", "Until cleared"],
             ["convolve_paper_wallet_usd", "Local storage", "Size of your simulated paper wallet shown in the workspace", "Until cleared"],
             ["convolve_profile_name, convolve_profile_email", "Local storage", "Display name and email shown in the workspace interface", "Until cleared"],
+            ["convolve.referral", "Local storage", "The invite code from an ambassador's link, kept until your new account is linked to it", "Removed once used, at most 14 days"],
             ["convolve-pending-terms", "Session storage", "Carries your acceptance of the Terms through sign-up with Google until it is recorded", "Until the tab is closed"],
             ["convolve_dismissed_runs", "Session storage", "Run notifications you have dismissed", "Until the tab is closed"],
             ["convolve:tour-spot", "Session storage", "Which control the guided tour is pointing at, so a reload resumes in place", "Until the tab is closed or the tour ends"],
@@ -37,6 +38,11 @@ export default function CookiesPage() {
           The website loads typefaces from Google Fonts; your browser therefore sends your IP address to Google. Google
           Fonts does not set cookies. If you choose to sign in with Google, Google sets its own cookies on its sign-in
           pages under Google&apos;s privacy policy.
+        </p>
+        <p>
+          When you buy a subscription or credits, or manage your billing, you are taken to our payment provider&apos;s
+          checkout or billing pages. The provider sets its own cookies there, for example to prevent fraud and remember
+          the payment session, under its own policy. Convolve&apos;s own pages still set no cookies.
         </p>
       </Section>
 

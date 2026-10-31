@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { trainerApi } from "@/lib/api";
 import { HeatmapPlotCore } from "./HeatmapPlotCore";
 import { cn } from "@/lib/utils";
+import { Bone, LoadingRegion } from "@/components/skeleton/Skeleton";
 
 type Bundle = {
   selected_maps: { index: number; values: number[][] }[];
@@ -25,7 +26,7 @@ export function LearnedFiltersGrid({ runId, analysisId, filename, title, classNa
     trainerApi
       .getAnalysisArtifact<Bundle>(runId, analysisId, filename)
       .then((j) => {
-        if (!cancelled) setData(j?.selected_maps?.length ? j : null);
+        if (!cancelled) setData(j?.selected_maps?.length ? j : { selected_maps: [] });
       })
       .catch((e) => {
         if (!cancelled) setErr(e instanceof Error ? e.message : "Load failed");
@@ -39,10 +40,17 @@ export function LearnedFiltersGrid({ runId, analysisId, filename, title, classNa
     return <p className="text-xs text-rose-300/80">{err}</p>;
   }
 
-  if (!data?.selected_maps?.length) {
+  if (!data) {
+    return (
+      <LoadingRegion label="Loading learned filters">
+        <Bone className={cn("h-24 w-full rounded-2xl", className)} />
+      </LoadingRegion>
+    );
+  }
+  if (!data.selected_maps?.length) {
     return (
       <div className={cn("flex h-24 items-center justify-center rounded-2xl border border-white/[0.08] bg-[#0c0c0e] text-xs text-white/35", className)}>
-        Loading…
+        No filter maps were recorded for this run.
       </div>
     );
   }

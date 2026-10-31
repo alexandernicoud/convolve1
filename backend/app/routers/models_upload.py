@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Request, UploadFile
 
 from app.auth import get_current_user_id
+from app.billing.gates import require_feature
 from app.config import MODEL_STORAGE_ROOT
 from app.ownership import record_user_model
 from app.paths import find_keras_sidecar, local_keras_path, runs_root
@@ -58,6 +59,7 @@ async def upload_keras_model(
     request: Request, file: UploadFile = File(...)
 ) -> ModelUploadResponse:
     uid = get_current_user_id(request)
+    require_feature(uid, "uploads")
     storage = get_keras_model_storage()
     artifact = await storage.save_keras_upload(file, user_id=uid)
     return _finish_model_upload(artifact, uid)
@@ -67,6 +69,7 @@ async def upload_keras_model(
 def finalize_model_upload(upload_id: str, request: Request) -> ModelUploadResponse:
     """Adopt a finished direct upload as the caller's model (same result as /models/upload)."""
     uid = get_current_user_id(request)
+    require_feature(uid, "uploads")
     with direct_uploads.adopt_upload(uid, upload_id, "model") as (staged, local):
         artifact = get_keras_model_storage().save_keras_file(local, staged.filename, user_id=uid)
         by_manifest = _manifest_match(str(local), artifact.model_id, uid)

@@ -5,7 +5,7 @@ import { LEGAL_LINKS, OPERATOR } from "@/features/legal/meta";
 const links = [
   { label: "Home", href: "/" },
   { label: "About", href: "/about" },
-  { label: "Pricing", href: "/pricing" },
+  { label: "Pricing", href: "/products#pricing" },
   { label: "Products", href: "/products" },
   { label: "Contact", href: "/contact" },
   { label: "Account", href: "/account" },
@@ -33,7 +33,7 @@ export default function Footer() {
           </nav>
         </div>
         <div className="mt-10 flex flex-col gap-4 text-xs text-muted-foreground/80 md:flex-row md:items-center md:justify-between">
-          <p>© {new Date().getFullYear()} {OPERATOR.name}. Convolve: visual AI for trading research.</p>
+          <p>© {new Date().getFullYear()} {OPERATOR.owner}. Convolve: visual AI for trading research.</p>
           <nav className="flex flex-wrap gap-x-5 gap-y-2" aria-label="Legal">
             {LEGAL_LINKS.map((l) => (
               <Link key={l.href} to={l.href} className="transition-colors hover:text-foreground">

@@ -12,6 +12,7 @@ import SensitivityView from "./SensitivityView";
 import FeaturesView from "./FeaturesView";
 import RepresentationView from "./RepresentationView";
 import FindingsView from "./FindingsView";
+import { LoadingRegion, SkeletonPanel } from "@/components/skeleton/Skeleton";
 
 const TABS = [
   { id: "explorer", label: "Image explorer" },
@@ -215,7 +216,11 @@ export default function LabPage() {
           </p>
         </Panel>
       ) : !context ? (
-        <div className={cx(surface, "h-32 animate-pulse")} aria-busy={ctxLoading} />
+        ctxErr && !ctxLoading ? null : (
+          <LoadingRegion label="Loading model context">
+            <SkeletonPanel rows={2} />
+          </LoadingRegion>
+        )
       ) : (
         <>
           <div data-help="lab-context">

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Plus, FlaskConical } from "lucide-react";
+import { Plus, FlaskConical, MessageSquare } from "lucide-react";
 import { ExplainToggle } from "@/features/help/ExplainMode";
 import logoMark from "@/assets/convolve-mark.png";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,15 @@ export function DashboardTopBar({ title = "Overview", className }: Props) {
       </div>
       <div className="flex shrink-0 items-center gap-2.5">
         <ExplainToggle className="h-10" />
+        <Link
+          to="/dashboard/feedback"
+          title="Answer six short questions and get 5 bonus credits"
+          className="hidden h-10 md:inline-flex items-center gap-2 rounded-lg border border-white/25 bg-white/[0.04] px-3 font-sans text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.08] sm:px-4"
+        >
+          <MessageSquare className="h-4 w-4" aria-hidden />
+          Feedback
+          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-medium text-white/75">+5</span>
+        </Link>
         <Link
           to="/dashboard/demo"
           className="hidden h-10 md:inline-flex items-center gap-2 rounded-lg border border-white/25 bg-white/[0.04] px-3 font-sans text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.08] sm:px-4"

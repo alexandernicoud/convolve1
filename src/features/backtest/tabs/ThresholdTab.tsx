@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { CartesianGrid, ErrorBar, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Panel, cx } from "@/features/review/components/primitives";
-import { axisLabel, axisProps, ChartFrame, ChartPlaceholder, ChartTooltip, gridProps } from "@/components/viz/chartKit";
+import { axisLabel, axisProps, ChartFrame, ChartLoading, ChartPlaceholder, ChartTooltip, gridProps } from "@/components/viz/chartKit";
 import { fmtInt, fmtNum, fmtPct, isFiniteNum } from "@/lib/viz/format";
 import { SEMANTIC, SERIES, VIZ } from "@/lib/viz/tokens";
 import { useWorkspace } from "../BacktestWorkspace";
@@ -26,7 +26,7 @@ const MULTIPLES: { key: keyof SweepRow; title: string; fmt: (v: unknown) => stri
 ];
 
 export default function ThresholdTab() {
-  const { metrics, summary } = useWorkspace();
+  const { metrics, summary, failed, retry } = useWorkspace();
   const sweep = metrics?.threshold_sweep;
   const headline = summary.threshold.value;
   const rows = useMemo(
@@ -104,7 +104,7 @@ export default function ThresholdTab() {
 
       <Panel title="Test-set sensitivity" description="Each panel shares the threshold axis. Points are separate simulations; lines only connect neighbouring grid values. The dashed line marks the headline threshold.">
         {!metrics ? (
-          <ChartPlaceholder height={200}>Loading…</ChartPlaceholder>
+          <ChartLoading height={200} label="Loading threshold sweep" error={failed.metrics} onRetry={retry} />
         ) : !rows.length ? (
           <ChartPlaceholder height={200}>No sweep was computed for this run.</ChartPlaceholder>
         ) : (

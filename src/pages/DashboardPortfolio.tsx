@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import {
@@ -28,8 +28,9 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { Bone } from "@/components/skeleton/Skeleton";
 
-function metricCell(label: string, value: string) {
+function metricCell(label: string, value: ReactNode) {
   return (
     <div>
       <p className="text-[9px] uppercase tracking-[0.12em] text-white/40">{label}</p>
@@ -109,6 +110,11 @@ export default function DashboardPortfolio() {
     }
   };
 
+  const ready = !loading && bundle != null;
+  const show = (s: string): ReactNode =>
+    ready ? s : loading ? <Bone className="inline-block h-[0.8em] w-16 align-middle" /> : "—";
+  const showText = (s: string) => (ready ? s : loading ? "…" : "—");
+
   const label1Line =
     cap.label1Precision != null && cap.label1Sample > 0
       ? `${(cap.label1Precision * 100).toFixed(1)}% (n=${cap.label1Sample})`
@@ -142,18 +148,18 @@ export default function DashboardPortfolio() {
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">Account & Performance</p>
             <p className="mt-2 font-digits text-[clamp(1.5rem,3vw,2rem)] font-semibold tabular-nums text-white">
-              {loading ? "…" : formatUsdPlain(cap.equity)}
+              {show(formatUsdPlain(cap.equity))}
             </p>
             <p className="mt-1 text-[10px] text-white/40">Equity</p>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {metricCell("Start capital", loading ? "…" : formatUsdPlain(cap.startCapital))}
-            {metricCell("Realized PnL", loading ? "…" : formatSignedUsd(cap.realizedPnl))}
-            {metricCell("Return", loading ? "…" : formatReturnPct(cap.realizedReturnPct))}
-            {metricCell("Open MTM", loading ? "…" : formatSignedUsd(cap.openMtm))}
-            {metricCell("Open trades", loading ? "…" : String(cap.openTrades))}
-            {metricCell("Closed trades", loading ? "…" : String(cap.closedTrades))}
-            {metricCell("Label 1 precision", loading ? "…" : label1Line)}
+            {metricCell("Start capital", show(formatUsdPlain(cap.startCapital)))}
+            {metricCell("Realized PnL", show(formatSignedUsd(cap.realizedPnl)))}
+            {metricCell("Return", show(formatReturnPct(cap.realizedReturnPct)))}
+            {metricCell("Open MTM", show(formatSignedUsd(cap.openMtm)))}
+            {metricCell("Open trades", show(String(cap.openTrades)))}
+            {metricCell("Closed trades", show(String(cap.closedTrades)))}
+            {metricCell("Label 1 precision", show(label1Line))}
           </div>
         </div>
 
@@ -161,14 +167,14 @@ export default function DashboardPortfolio() {
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">Available capital</p>
             <p className="mt-1 font-digits text-xl font-semibold tabular-nums text-emerald-200/95">
-              {loading ? "…" : formatUsdPlain(available)}
+              {show(formatUsdPlain(available))}
             </p>
             <p className="mt-1 text-[10px] text-white/40">Not allocated to bots</p>
           </div>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">Allocated capital</p>
             <p className="mt-1 font-digits text-xl font-semibold tabular-nums text-white/90">
-              {loading ? "…" : formatUsdPlain(allocated)}
+              {show(formatUsdPlain(allocated))}
             </p>
             <p className="mt-1 text-[10px] text-white/40">Sum of bot starting capital (non-archived)</p>
           </div>
@@ -194,7 +200,7 @@ export default function DashboardPortfolio() {
           </div>
           <p className="text-[10px] text-white/40">
             Deploy uses this pool: new bot starting capital cannot exceed available capital (
-            {loading ? "…" : formatUsdPlain(available)}).
+            {showText(formatUsdPlain(available))}).
           </p>
 
           <AlertDialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
@@ -238,9 +244,9 @@ export default function DashboardPortfolio() {
           <RunningProfitChart
             equityByBot={bundle?.equity_by_bot ?? []}
             baselineEquity={overview?.total_starting_capital ?? cap.startCapital}
-            equityDisplay={loading ? "…" : formatUsdPlain(cap.equity)}
-            returnDisplay={loading ? "…" : formatReturnPct(cap.realizedReturnPct)}
-            realizedDisplay={loading ? "…" : formatSignedUsd(cap.realizedPnl)}
+            equityDisplay={showText(formatUsdPlain(cap.equity))}
+            returnDisplay={showText(formatReturnPct(cap.realizedReturnPct))}
+            realizedDisplay={showText(formatSignedUsd(cap.realizedPnl))}
           />
         </div>
       </div>

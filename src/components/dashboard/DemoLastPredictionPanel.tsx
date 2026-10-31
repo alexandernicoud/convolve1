@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { AuthorizedImage } from "@/components/AuthorizedImage";
 import heatmapImg from "@/assets/heatmap.png";
 import { demoLinkClass } from "@/components/dashboard/demoPortfolioPalette";

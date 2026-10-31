@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Fact, LegalLayout, List, Placeholder, Section } from "./LegalLayout";
-import { OPERATOR, TERMS_VERSION } from "./meta";
+import { DATA_SOURCE, OPERATOR, OPERATOR_LINE, TERMS_VERSION } from "./meta";
 
 const SECTIONS = [
   { id: "provider", title: "Provider and scope" },
@@ -34,8 +34,8 @@ export default function TermsPage() {
     >
       <Section id="provider" title="1. Provider and scope">
         <p>
-          Convolve is operated under the name {OPERATOR.name} (&quot;we&quot;, &quot;us&quot;). Your contract is with{" "}
-          <Fact value={OPERATOR.contractingParty} />, <Fact value={OPERATOR.address} />. These terms apply to the website
+          Convolve is a product operated by {OPERATOR_LINE} (&quot;we&quot;, &quot;us&quot;). Convolve is not an incorporated
+          company; your contract is with {OPERATOR.owner} personally, as sole proprietor. These terms apply to the website
           and the workspace. By creating an account and accepting these terms you enter into an agreement with us. If you use Convolve on behalf of an
           organisation, you confirm that you may bind it, and these terms apply to it as well.
         </p>
@@ -125,19 +125,59 @@ export default function TermsPage() {
 
       <Section id="thirdparty" title="9. Market data and third parties">
         <p>
-          Historical prices are retrieved from third-party sources. We do not guarantee their accuracy, completeness or
-          continued availability, and they may change their terms or stop providing data. Parts of the service rely on
-          third-party infrastructure listed in the <Link to="/privacy">Privacy Policy</Link>.
+          Historical prices are currently retrieved from {DATA_SOURCE}. We have no agreement with Yahoo and hold no
+          commercial licence for this data. It is used to generate charts and run your research inside Convolve; we do
+          not sell it, and these terms grant you no right to the underlying data. Use any data you obtain through
+          Convolve for your own research only and in accordance with the source&apos;s terms.
+        </p>
+        <p>
+          Market data may be inaccurate, delayed, incomplete, adjusted after the fact or temporarily or permanently
+          unavailable, and the source may change its terms or stop providing data. We may replace the source at any
+          time. We do not guarantee the accuracy, completeness or continued availability of any market data.{" "}
+          <Placeholder>[A commercially licensed data source is required before paid plans launch.]</Placeholder>
+        </p>
+        <p>
+          Parts of the service rely on third-party infrastructure listed in the <Link to="/privacy">Privacy Policy</Link>.
         </p>
       </Section>
 
       <Section id="fees" title="10. Fees">
         <p>
-          Convolve is currently provided free of charge. Before each run the workspace shows its estimated computation in
-          credits, calculated by the pricing policy described in the <Link to="/help#credits">help center</Link>. Credits
-          measure computation only: they have no monetary value and cannot be bought, sold or redeemed. While charging is
-          off, credits are not deducted. If we introduce paid plans, prices and terms will be
-          shown before you subscribe, and nothing will be charged without your explicit agreement.
+          Creating an account and browsing your work are free. Running research tools uses credits, calculated per run by
+          the pricing policy described in the <Link to="/help#credits">help center</Link> and shown before each run.
+        </p>
+        <p>
+          Paid subscriptions and credit packs, once offered, are governed by the{" "}
+          <Link to="/subscription-terms">Subscription and Credit Terms</Link> and the{" "}
+          <Link to="/refunds">Refund and Cancellation Policy</Link>, which form part of these terms. Prices, what a plan
+          includes and how it renews are shown before you buy, and nothing is charged without your explicit agreement.
+          Paid plans are not offered to residents of the United States or its territories at this time. We check the
+          country you declare, your billing address and the country that issued your card; a purchase from an excluded
+          country is refunded in full and no credits or plan are granted.
+        </p>
+        <p>
+          <strong>Promotional credits.</strong> We may grant free credits, for example for completing the feedback
+          questionnaire or for a citation of Convolve that we have reviewed and approved. Promotional credits have no cash
+          value, are never refunded or paid out, cannot be transferred or exchanged for money, and are not purchased
+          credits for the purposes of the <Link to="/refunds">Refund and Cancellation Policy</Link>. Each promotion can be
+          claimed once per verified account; we may withdraw credits obtained through abuse, such as multiple accounts.
+        </p>
+        <p>
+          <strong>Ambassador programme.</strong> You can create a personal invite code. A reward is earned once per new
+          account that signed up with your code, when the first payment of its first paid subscription succeeds, and
+          depends on that plan. Starter: that account receives 5 promotional credits and you receive 10. Research or
+          Professional: that account receives 20 promotional credits and you receive one free month of the Research plan;
+          if you have no paid subscription, a complimentary month that ends by itself and is never charged; if you have one,
+          a credit of the Research monthly price against your next invoices. Free months and invoice credits are limited to
+          12 per year. Invite codes are for new accounts only and cannot be used on your own account or between two
+          accounts that invited each other; a subscription fully covered by a discount does not qualify. If the qualifying
+          payment is refunded in full, disputed or charged back, rewards from it that are still unused are withdrawn.
+          Rewards have no cash value and are not refunded. We may refuse or withdraw rewards obtained through
+          self-referral, multiple accounts or other abuse, and we may change or end the programme for future invites.
+        </p>
+        <p>
+          While paid plans are not available in your country or account, Convolve is provided free of charge and credits are
+          either not deducted or granted as a free allowance with no monetary value.
         </p>
       </Section>
 
@@ -157,6 +197,11 @@ export default function TermsPage() {
           keep first. We may suspend or terminate accounts that breach these terms or put the service or other users at
           risk, with notice where reasonable.
         </p>
+        <p>
+          When a subscription ends, your account stays open with read-only access: your models, datasets, runs and bots
+          are kept and remain visible, but research tools and scheduled bots stop until you subscribe again. Ending a
+          subscription never deletes your content.
+        </p>
       </Section>
 
       <Section id="liability" title="13. Liability">
@@ -172,8 +217,9 @@ export default function TermsPage() {
       <Section id="law" title="14. Governing law and disputes">
         <p>
           These terms are governed by Swiss law, excluding its conflict-of-law rules and the UN Convention on Contracts
-          for the International Sale of Goods. Courts at <Placeholder>[place of jurisdiction]</Placeholder>, Switzerland,
-          have jurisdiction. If you are a consumer, you also keep the protection of mandatory provisions of the law of
+          for the International Sale of Goods. The courts at the operator&apos;s place of business, currently Hausen AG
+          (Canton of Aargau), Switzerland, have jurisdiction.{" "}
+          <Placeholder>[Counsel to confirm the jurisdiction clause.]</Placeholder> If you are a consumer, you also keep the protection of mandatory provisions of the law of
           your country of residence and may bring proceedings where the law allows.
         </p>
       </Section>

@@ -32,9 +32,13 @@ PUBLIC_PATHS = frozenset(
         "/openapi.json",
         "/favicon.ico",
         "/api/plans",
+        "/api/billing/catalog",
+        "/api/contact",
+        "/api/referrals/check",
     }
 )
-PUBLIC_PREFIXES = ("/docs",)
+# Provider webhooks carry no user token; they are authenticated by their signature.
+PUBLIC_PREFIXES = ("/docs", "/api/billing/webhook/")
 
 
 def _is_public(request: Request) -> bool:
@@ -176,9 +180,38 @@ def authenticate_request(request: Request) -> str:
     if is_deleted_user(str(user_uuid)):
         raise HTTPException(status_code=401, detail="Account deleted")
     email = claims.get("email")
-    name = claims.get("user_metadata", {}).get("display_name") if isinstance(claims.get("user_metadata"), dict) else None
+    meta = claims.get("user_metadata") if isinstance(claims.get("user_metadata"), dict) else {}
+    name = meta.get("display_name")
     ensure_profile(user_uuid, email=email if isinstance(email, str) else None, display_name=name if isinstance(name, str) else None)
+    request.state.auth_claims = {
+        "email": email if isinstance(email, str) else None,
+        "is_anonymous": bool(claims.get("is_anonymous")),
+        "email_verified": meta.get("email_verified"),
+    }
     return str(user_uuid)
+
+
+def require_verified_user(request: Request) -> str:
+    """A signed-in, non-anonymous account with an email address that is not marked unverified.
+
+    Supabase issues sessions to email/password users only after confirmation when
+    "Confirm email" is enabled; OAuth providers verify the address themselves.
+    """
+    user_id = require_user_id(request)
+    claims = getattr(request.state, "auth_claims", None) or {}
+    if claims.get("is_anonymous") or not claims.get("email") or claims.get("email_verified") is False:
+        raise HTTPException(status_code=403, detail={"code": "verification_required",
+                                                     "message": "Verify your email address first."})
+    return user_id
+
+
+def require_admin(request: Request) -> str:
+    from app import config
+
+    user_id = require_verified_user(request)
+    if user_id.lower() not in config.ADMIN_USER_IDS:
+        raise HTTPException(status_code=404, detail="Not found")
+    return user_id
 
 
 def get_current_user_id(request: Request) -> Optional[str]:

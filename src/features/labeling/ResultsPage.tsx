@@ -3,6 +3,7 @@ import { Link, useLocation, useParams, useSearchParams } from "react-router-dom"
 import { ArrowLeft, Download, Plus } from "lucide-react";
 import { btn, btnPrimary, cx, surface as surfaceClass } from "@/features/review/components/primitives";
 import { fetchApi } from "@/lib/api";
+import { LoadingRegion, SkeletonChart, SkeletonStatGrid } from "@/components/skeleton/Skeleton";
 import { buildConclusion, classifyRegion, fmtPct, nearestIndex, neighbourhood2D, REGION_COPY, sliceFor, type Audit, type Conclusion, type Model, type Tone } from "./lib";
 import { MethodTag, StatusBadge, TONE_DOT, TONE_TEXT } from "./ui";
 import { ResultsCtx, useRunData, type CellIdx, type Metrics, type ResultsCtxValue, type RunInfo, type TabId } from "./state";
@@ -103,7 +104,12 @@ export default function LabelingResultsPage() {
     <div className="mx-auto w-full max-w-[100rem] space-y-5 pb-10">
       <Header runId={runId} backHref={backHref} audit={audit} metrics={metrics} conclusion={data.loading ? null : conclusion} runInfo={data.runInfo} candidates={data.loading ? undefined : data.candidates} />
 
-      {data.loading ? <div className={cx(surfaceClass, "h-48 animate-pulse")} aria-busy /> : null}
+      {data.loading ? (
+        <LoadingRegion label="Loading optimizer results" className="space-y-4">
+          <SkeletonStatGrid />
+          <SkeletonChart height={260} />
+        </LoadingRegion>
+      ) : null}
       {data.error ? <p className="rounded-xl border border-red-400/25 bg-red-400/[0.06] px-4 py-3 text-[13.5px] text-red-200/90">{data.error}</p> : null}
 
       {!data.loading && !data.error ? (

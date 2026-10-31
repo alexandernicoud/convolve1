@@ -4,7 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation, useParams, Navigate } from "react-router-dom";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useRunsStore } from "@/state/runsStore";
 import { HeaderRevealProvider, useHeaderReveal, isCompactHeaderPathname } from "@/context/HeaderRevealContext";
 import { AuthProvider } from "@/context/AuthContext";
@@ -23,16 +23,16 @@ import Products2Page from "./features/marketing2/Products2Page";
 import PrivacyPage from "./features/legal/PrivacyPage";
 import TermsPage from "./features/legal/TermsPage";
 import RiskDisclosurePage from "./features/legal/RiskDisclosurePage";
+import SubscriptionTermsPage from "./features/legal/SubscriptionTermsPage";
+import RefundPolicyPage from "./features/legal/RefundPolicyPage";
 import CookiesPage from "./features/legal/CookiesPage";
 import LegalNoticePage from "./features/legal/LegalNoticePage";
 import { isLegalPath } from "./features/legal/paths";
 import Contact from "./pages/Contact";
-import Docs from "./pages/Docs";
 import NotFound from "./pages/NotFound";
-import RunLog from "./pages/RunLog";
-import Account from "./pages/Account";
-import PricingPage from "./features/pricing/PricingPage";
-import CreditGuardModal, { RunConfirmModal } from "@/components/CreditGuardModal";
+import CreditGuardModal, { BillingBlockModal, RunConfirmModal } from "@/components/CreditGuardModal";
+import { RunRefusedModal } from "@/features/beta/BetaUI";
+import { RouteSeo } from "@/components/RouteSeo";
 import { OnboardingHost } from "@/features/onboarding/OnboardingHost";
 import { ExplainLayer } from "@/features/help/ExplainMode";
 import HelpPage from "@/features/help/HelpPage";
@@ -42,31 +42,38 @@ import Signup from "./pages/auth/Signup";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 
-// Product / optimizer (technical UIs under /products; landings removed — use Navigate below)
-import LabelingOptimizerTechnical from "./pages/products/LabelingOptimizerTechnical";
-import LabelingOptimizerRun from "./pages/products/LabelingOptimizerRun";
-import LabelingOptimizerResults from "./pages/products/LabelingOptimizerResults";
-import TrainerAdvancedVisuals from "./pages/products/TrainerAdvancedVisuals";
-
-// Tool pages
-import Generator from "./pages/Generator";
-import GeneratorResults from "./pages/GeneratorResults";
-import Trainer from "./pages/Trainer";
-import AnalysisTechnical from "./pages/AnalysisTechnical";
-import LabPage from "./features/lab/LabPage";
-import TrainingSessionPage, { LegacyTrainerAnalysisRedirect } from "./features/trainer/TrainingSessionPage";
-import Backtester from "./pages/Backtester";
-import BacktesterResults from "./pages/BacktesterResults";
-import Optimizer from "./pages/tools/Optimizer";
-import Deploy from "./pages/tools/Deploy";
-import Dashboard from "./pages/Dashboard";
-import DashboardDemo from "./pages/DashboardDemo";
-import DashboardBotsDirectory from "./pages/DashboardBotsDirectory";
-import DashboardPortfolio from "./pages/DashboardPortfolio";
-import DashboardTradeHistory from "./pages/DashboardTradeHistory";
-import DashboardCommunityRanking from "./pages/DashboardCommunityRanking";
-import LiveBotDetail from "./pages/LiveBotDetail";
+import { ReferralClaimer } from "./features/rewards/ReferralClaimer";
 import { TechnicalLayout } from "@/components/layout/TechnicalLayout";
+
+// Signed-in workspace pages load on demand, so public pages do not download the research tools.
+const Docs = lazy(() => import("./pages/Docs"));
+const RunLog = lazy(() => import("./pages/RunLog"));
+const Account = lazy(() => import("./pages/Account"));
+const LabelingOptimizerTechnical = lazy(() => import("./pages/products/LabelingOptimizerTechnical"));
+const LabelingOptimizerRun = lazy(() => import("./pages/products/LabelingOptimizerRun"));
+const LabelingOptimizerResults = lazy(() => import("./pages/products/LabelingOptimizerResults"));
+const TrainerAdvancedVisuals = lazy(() => import("./pages/products/TrainerAdvancedVisuals"));
+const Generator = lazy(() => import("./pages/Generator"));
+const GeneratorResults = lazy(() => import("./pages/GeneratorResults"));
+const Trainer = lazy(() => import("./pages/Trainer"));
+const AnalysisTechnical = lazy(() => import("./pages/AnalysisTechnical"));
+const LabPage = lazy(() => import("./features/lab/LabPage"));
+const TrainingSessionPage = lazy(() => import("./features/trainer/TrainingSessionPage"));
+const LegacyTrainerAnalysisRedirect = lazy(() =>
+  import("./features/trainer/TrainingSessionPage").then((m) => ({ default: m.LegacyTrainerAnalysisRedirect })),
+);
+const Backtester = lazy(() => import("./pages/Backtester"));
+const BacktesterResults = lazy(() => import("./pages/BacktesterResults"));
+const Deploy = lazy(() => import("./pages/tools/Deploy"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const DashboardDemo = lazy(() => import("./pages/DashboardDemo"));
+const DashboardBotsDirectory = lazy(() => import("./pages/DashboardBotsDirectory"));
+const DashboardPortfolio = lazy(() => import("./pages/DashboardPortfolio"));
+const DashboardTradeHistory = lazy(() => import("./pages/DashboardTradeHistory"));
+const DashboardCommunityRanking = lazy(() => import("./pages/DashboardCommunityRanking"));
+const FeedbackPage = lazy(() => import("./features/feedback/FeedbackPage"));
+const CitationReviewPage = lazy(() => import("./features/rewards/CitationReviewPage"));
+const LiveBotDetail = lazy(() => import("./pages/LiveBotDetail"));
 
 const queryClient = new QueryClient();
 
@@ -117,7 +124,6 @@ function AppShell() {
   const isMarketing2 =
     pathname === "/" ||
     pathname === "/about" ||
-    pathname === "/pricing" ||
     pathname === "/products" ||
     pathname === "/help" ||
     isLegalPath(pathname);
@@ -194,6 +200,7 @@ function AppShell() {
           paddingTop: isCompactHeaderPathname(pathname) ? 0 : headerContentPushPx,
         }}
       >
+        <Suspense fallback={<div className="min-h-[60vh] flex-1 bg-black" aria-busy="true" />}>
         <Routes>
           {/* Main pages */}
           <Route path="/" element={<PageWrapper><Home2Page /></PageWrapper>} />
@@ -203,13 +210,15 @@ function AppShell() {
           <Route path="/founder" element={<Navigate to="/about" replace />} />
           <Route path="/about" element={<PageWrapper><About2Page /></PageWrapper>} />
           <Route path="/about2" element={<KeepHashRedirect to="/about" />} />
-          <Route path="/pricing" element={<PageWrapper><PricingPage /></PageWrapper>} />
+          <Route path="/pricing" element={<Navigate to="/products#pricing" replace />} />
           <Route path="/products2" element={<KeepHashRedirect to="/products" />} />
           <Route path="/contact" element={<PageWrapper><Contact /></PageWrapper>} />
           <Route path="/help" element={<PageWrapper><HelpPage /></PageWrapper>} />
           <Route path="/privacy" element={<PageWrapper><PrivacyPage /></PageWrapper>} />
           <Route path="/datenschutz" element={<Navigate to="/privacy" replace />} />
           <Route path="/terms" element={<PageWrapper><TermsPage /></PageWrapper>} />
+          <Route path="/subscription-terms" element={<PageWrapper><SubscriptionTermsPage /></PageWrapper>} />
+          <Route path="/refunds" element={<PageWrapper><RefundPolicyPage /></PageWrapper>} />
           <Route path="/risk-disclosure" element={<PageWrapper><RiskDisclosurePage /></PageWrapper>} />
           <Route path="/cookies" element={<PageWrapper><CookiesPage /></PageWrapper>} />
           <Route path="/legal" element={<PageWrapper><LegalNoticePage /></PageWrapper>} />
@@ -441,6 +450,26 @@ function AppShell() {
             }
           />
           <Route
+            path="/dashboard/feedback"
+            element={
+              <PageWrapper>
+                <TechnicalLayout variant="dashboard">
+                  <FeedbackPage />
+                </TechnicalLayout>
+              </PageWrapper>
+            }
+          />
+          <Route
+            path="/dashboard/admin/citations"
+            element={
+              <PageWrapper>
+                <TechnicalLayout variant="dashboard">
+                  <CitationReviewPage />
+                </TechnicalLayout>
+              </PageWrapper>
+            }
+          />
+          <Route
             path="/dashboard/community-ranking"
             element={
               <PageWrapper>
@@ -477,10 +506,15 @@ function AppShell() {
           {/* Fallback */}
           <Route path="*" element={<PageWrapper><NotFound /></PageWrapper>} />
         </Routes>
+        </Suspense>
       </main>
       {showFooter ? <Footer /> : null}
       <CreditGuardModal />
       <RunConfirmModal />
+      <BillingBlockModal />
+      <RunRefusedModal />
+      <RouteSeo />
+      <ReferralClaimer />
       <OnboardingHost active={isProtectedAppPath(pathname)} />
       <ExplainLayer />
     </div>

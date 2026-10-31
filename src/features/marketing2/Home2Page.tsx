@@ -15,6 +15,7 @@ import { ProductStack } from "./visuals/ProductStack";
 import { QuickStart } from "./visuals/QuickStart";
 import { Showcase } from "./visuals/Showcase";
 import { Workflow } from "./visuals/Workflow";
+import { BetaOfferNote } from "@/features/beta/BetaUI";
 
 
 function Hero() {
@@ -68,6 +69,9 @@ function Hero() {
               <SecondaryCta href="#workflow" size="lg">
                 See how it works
               </SecondaryCta>
+            </motion.div>
+            <motion.div {...enter(0.65)}>
+              <BetaOfferNote className="mt-6 max-w-[26rem]" />
             </motion.div>
             <motion.a
               href="#workflow"
@@ -186,33 +190,59 @@ function Closing() {
 
 /** What a CNN is, shown on two images rather than explained in paragraphs. */
 function TechnologySection() {
+  const pin = usePinEnabled(860);
+  const head = (
+    <SectionHead
+      index="01"
+      label="The technology"
+      title={
+        <>
+          The technology behind image recognition. <span className="text-white/45">Applied to financial markets.</span>
+        </>
+      }
+      intro="Convolutional neural networks learn to recognise patterns in images. They read medical scans; Convolve trains them on price charts."
+    />
+  );
+  const aside = (
+    <>
+      <p className="text-balance text-[clamp(1.35rem,1.7vw,1.75rem)] leading-[1.25] tracking-[-0.02em] text-white/90">
+        Don't just analyse the chart. <span className="text-white/45">Train a model to analyse it.</span>
+      </p>
+      <p className={cn(TYPE.small, "mt-5")}>
+        An indicator is a formula someone chose. A CNN learns its own features from the data, and they need not have a name.
+      </p>
+    </>
+  );
+  if (!pin)
+    return (
+      <section id="technology" className="scroll-mt-20 pb-24 pt-20 lg:pb-32">
+        <Container>
+          {head}
+          <div className="mt-14 grid gap-12 lg:grid-cols-12 lg:items-end lg:gap-10">
+            <ScrollIn className="lg:col-span-8">
+              <DomainFigure />
+            </ScrollIn>
+            <Reveal className="border-t border-white/[0.08] pt-6 lg:col-span-3 lg:col-start-10 lg:mb-[4.5rem]">{aside}</Reveal>
+          </div>
+        </Container>
+      </section>
+    );
   return (
-    <section id="technology" className="scroll-mt-20 pb-24 pt-20 lg:pb-32">
-      <Container>
-        <SectionHead
-          index="01"
-          label="The technology"
-          title={
-            <>
-              The technology behind image recognition. <span className="text-white/45">Applied to financial markets.</span>
-            </>
-          }
-          intro="Convolutional neural networks learn to recognise patterns in images. They read medical scans; Convolve trains them on price charts."
-        />
-        <div className="mt-14 grid gap-12 lg:grid-cols-12 lg:items-end lg:gap-10">
-          <ScrollIn className="lg:col-span-8">
-            <DomainFigure />
-          </ScrollIn>
-          <Reveal className="border-t border-white/[0.08] pt-6 lg:col-span-3 lg:col-start-10 lg:mb-[4.5rem]">
-            <p className="text-balance text-[clamp(1.35rem,1.7vw,1.75rem)] leading-[1.25] tracking-[-0.02em] text-white/90">
-              Don't just analyse the chart. <span className="text-white/45">Train a model to analyse it.</span>
-            </p>
-            <p className={cn(TYPE.small, "mt-5")}>
-              An indicator is a formula someone chose. A CNN learns its own features from the data, and they need not have a name.
-            </p>
-          </Reveal>
-        </div>
-      </Container>
+    <section id="technology" className="scroll-mt-20">
+      <Pinned length="220vh">
+        {(p) => (
+          <Container>
+            {head}
+            <div className="mt-8 grid grid-cols-12 items-end gap-10">
+              {/* Image height follows column width; the cap keeps the pinned frame inside short viewports. */}
+              <div className="col-span-8" style={{ maxWidth: "calc(250svh - 1420px)" }}>
+                <DomainFigure progress={p} compact />
+              </div>
+              <div className="col-span-3 col-start-10 mb-[4rem] border-t border-white/[0.08] pt-6">{aside}</div>
+            </div>
+          </Container>
+        )}
+      </Pinned>
     </section>
   );
 }
@@ -326,9 +356,6 @@ function SystemSection() {
 
 export default function Home2Page() {
   const { hash } = useLocation();
-  useEffect(() => {
-    document.title = "convolve. | Build your own AI that reads charts";
-  }, []);
   useEffect(() => {
     if (!hash) return;
     const id = window.setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView(), 60);

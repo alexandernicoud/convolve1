@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Fact, LegalLayout, List, Placeholder, Section, Table } from "./LegalLayout";
-import { OPERATOR } from "./meta";
+import { DATA_SOURCE, OPERATOR } from "./meta";
 
 const SECTIONS = [
   { id: "controller", title: "Who is responsible" },
@@ -22,7 +22,7 @@ export default function PrivacyPage() {
       sections={SECTIONS}
       intro={
         <p>
-          This policy explains which personal data {OPERATOR.name} processes through Convolve when you visit the website or use the research
+          This policy explains which personal data {OPERATOR.owner} processes through Convolve when you visit the website or use the research
           workspace, why, where it is stored and which rights you have. It describes the service as it operates today.
         </p>
       }
@@ -30,11 +30,11 @@ export default function PrivacyPage() {
       <Section id="controller" title="1. Who is responsible">
         <p>The controller responsible for processing personal data on this website and in the Convolve workspace is:</p>
         <p>
-          {OPERATOR.name}
+          {OPERATOR.owner}, {OPERATOR.form.charAt(0).toLowerCase() + OPERATOR.form.slice(1)}
           <br />
-          <Fact value={OPERATOR.contractingParty} />
+          UID {OPERATOR.uid}
           <br />
-          <Fact value={OPERATOR.address} />
+          {OPERATOR.address}
           <br />
           Email: <Fact value={OPERATOR.privacyEmail} />
         </p>
@@ -79,8 +79,28 @@ export default function PrivacyPage() {
           error information in server logs.
         </p>
         <p>
-          <strong>Contact messages.</strong> If you use the contact form we process your name, email address and
-          message.
+          <strong>Contact messages.</strong> If you use the contact form we store your name, email address and message
+          in our database so that we can reply. To protect the form against spam we also store a keyed, one-way hash of
+          your IP address (not the address itself) and use it only to limit how many messages can be sent per hour.
+          Messages are read only by the founder.
+        </p>
+        <p>
+          <strong>Feedback questionnaire.</strong> During the free public beta, the questionnaire is needed once before
+          starting new experiments after your first successful ones; it never limits access to your results, account
+          settings, data export or account deletion. When you complete it we store your answers (ratings, choices and an
+          optional free-text comment), the questionnaire version and the time, linked to your account, together with the
+          record of the bonus credits granted. Answers are used only to improve Convolve and are read only by the founder,
+          who sees them under a pseudonymous respondent code without your name, email or account identifier. They are not
+          shared, sold or used for marketing, and are included in your data export. Please do not include sensitive
+          personal information in free-text answers.
+        </p>
+        <p>
+          <strong>Citations and invites.</strong> If you claim the citation bonus we store the address and any file you
+          send, your note and the review outcome, linked to your account, and use them only to review the claim. If you
+          create an invite code we store it, and when someone signs up with it we record that their account was invited by
+          yours, the plan of the invited account&apos;s first payment, which rewards were granted and whether they were
+          withdrawn after a refund or payment dispute. Neither side sees the other&apos;s email address or activity; the inviting
+          account sees only counts. This data is included in your export and deleted with your account.
         </p>
         <p>
           <strong>Browser storage.</strong> The website stores your sign-in session and workspace preferences in your
@@ -93,8 +113,16 @@ export default function PrivacyPage() {
           and included in your data export.
         </p>
         <p>
-          We do <strong>not</strong> use analytics, advertising or social-media tracking, do not send marketing emails,
-          and do not process payment data, because Convolve currently has no paid plans and no payment processing.
+          <strong>Subscriptions, payments and refunds.</strong> Once paid plans are offered, card and other payment details
+          are entered on Stripe&apos;s page and never reach our servers. We receive and keep Stripe&apos;s customer,
+          subscription, payment and refund references, the plan or credit pack bought, the amount and currency, the
+          country you declare, the country of your billing address and the country that issued your card (used to apply
+          consumer rights, taxes and country restrictions), the subscription period and status, whether you asked for
+          immediate access to purchased credits, and the status of any refund or payment dispute. Until paid plans are
+          launched none of this is processed.
+        </p>
+        <p>
+          We do <strong>not</strong> use analytics, advertising or social-media tracking and do not send marketing emails.
         </p>
       </Section>
 
@@ -107,7 +135,11 @@ export default function PrivacyPage() {
             ["Keeping each account's data separate and the service secure; detecting abuse", "Account data, technical data", "Legitimate interests in a secure service (Art. 6(1)(f))"],
             ["Sending service emails such as verification, password reset and email-change confirmations", "Email address", "Performance of a contract (Art. 6(1)(b))"],
             ["Showing your usage, keeping your credit balance and enforcing plan limits", "Usage and credits", "Performance of a contract (Art. 6(1)(b))"],
-            ["Answering contact requests", "Contact messages", "Legitimate interests / pre-contractual steps (Art. 6(1)(f), (b))"],
+            ["Selling subscriptions and credit packs, processing cancellations and refunds, handling payment disputes", "Payment and billing data", "Performance of a contract (Art. 6(1)(b))"],
+            ["Keeping accounting and tax records; determining the applicable consumer rights and taxes from your billing country", "Payment and billing data", "Legal obligation (Art. 6(1)(c))"],
+            ["Answering contact requests and protecting the form against spam", "Contact messages, hashed IP address", "Legitimate interests / pre-contractual steps (Art. 6(1)(f), (b))"],
+            ["Evaluating feedback to improve Convolve and granting the promised bonus credits", "Feedback answers, credit ledger", "Performance of a contract for the bonus (Art. 6(1)(b)); legitimate interests in improving the service (Art. 6(1)(f))"],
+            ["Enforcing the restriction of paid plans to permitted countries", "Declared, billing-address and card-issuing country", "Legal obligation and legitimate interests (Art. 6(1)(c), (f))"],
             ["Recording acceptance of the Terms of Service", "Terms version and time", "Legitimate interests in proving the agreement (Art. 6(1)(f))"],
             ["Complying with legal obligations", "As required", "Legal obligation (Art. 6(1)(c))"],
           ]}
@@ -125,13 +157,25 @@ export default function PrivacyPage() {
             ["Vercel", "Hosting and delivery of the website", "Global edge network; Vercel Inc. is based in the USA"],
             ["Google (sign-in)", "Optional sign-in with a Google account (independent controller for your Google account)", "Global"],
             ["Google Fonts", "Typefaces loaded by your browser; Google receives your IP address", "Global"],
-            ["Web3Forms", "Delivery of contact-form messages by email, where enabled", <Placeholder key="w">[to be confirmed]</Placeholder>],
+            [
+              <Placeholder key="cn">[Email notification provider for contact messages, if enabled — e.g. Resend]</Placeholder>,
+              "Forwarding new contact-form messages to the founder's inbox",
+              <Placeholder key="cnl">[location to be confirmed]</Placeholder>,
+            ],
             [<>Email delivery for account emails</>, "Verification, password-reset and email-change messages", <Placeholder key="e">[provider and location to be confirmed]</Placeholder>],
+            [
+              "Stripe",
+              "Payment processing, subscriptions, refunds and dispute handling once paid plans launch; for its own anti-fraud and regulatory duties it acts as an independent controller",
+              <>
+                EU (Stripe Payments Europe, Ireland) and USA (Stripe, Inc.){" "}
+                <Placeholder key="ppl">[confirm the contracting entity in the live Stripe account]</Placeholder>
+              </>,
+            ],
           ]}
         />
         <p>
-          Market prices are retrieved by our servers from public market-data sources (currently Yahoo Finance). No
-          personal data is sent to them.
+          Market prices are retrieved by our servers from {DATA_SOURCE}. Only the requested symbols and date ranges are
+          sent; no personal data is sent to Yahoo.
         </p>
       </Section>
 
@@ -153,13 +197,21 @@ export default function PrivacyPage() {
             "Application server logs at Google Cloud are kept for 30 days; Google Cloud audit logs, which record administrative changes to our infrastructure, for 400 days.",
             <>Authentication logs are kept according to our authentication provider&apos;s log retention, <Placeholder>[retention period to be confirmed]</Placeholder>.</>,
             <>Database backups are kept by our database provider for <Placeholder>[backup retention to be confirmed]</Placeholder>.</>,
-            "Contact messages are kept as long as needed to answer them and for any follow-up.",
+            <>
+              Contact messages are kept as long as needed to answer them and for any follow-up, and are deleted on request{" "}
+              <Placeholder key="cr">[maximum retention period to be decided, e.g. 24 months]</Placeholder>.
+            </>,
+            "Feedback answers are kept for as long as your account exists and are deleted with it.",
+            <>
+              Payment, refund and invoice records are kept for as long as accounting and tax law requires, also after an
+              account is deleted <Placeholder>[retention period to be confirmed by counsel; Swiss accounting law generally requires ten years]</Placeholder>.
+            </>,
           ]}
         />
         <p>
           <strong>Deleting your account.</strong> You can delete your account in Account settings. This removes your
           account, profile, research runs, datasets, models, stored files, analyses, backtests, bots and their
-          paper-trading history from our active systems. Copies can remain in backups until those backups expire. We keep
+          paper-trading history, and your feedback answers from our active systems. Copies can remain in backups until those backups expire. We keep
           a minimal record that a deletion took place (account identifier and time) in server logs, and we keep
           information we are legally required to retain. <Placeholder>[Confirm retention of deletion records.]</Placeholder>
         </p>

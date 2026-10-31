@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { acceptanceRecord, hasAcceptedCurrentTerms, isPending, OPERATOR, TERMS_VERSION, termsGateState } from "./meta";
+import { acceptanceRecord, hasAcceptedCurrentTerms, isPending, OPERATOR, OPERATOR_LINE, TERMS_VERSION, termsGateState } from "./meta";
 import { isLegalPath } from "./paths";
 
 test("terms acceptance requires the current version", () => {
@@ -37,12 +37,21 @@ test("legal paths are recognised", () => {
   assert.equal(isLegalPath("/account"), false);
 });
 
-test("the operator name is set; facts that were not supplied stay marked as placeholders", () => {
-  assert.equal(OPERATOR.name, "Nicoud Convolutional Strategies");
-  assert.equal(isPending(OPERATOR.name), false);
-  for (const key of ["contractingParty", "form", "address", "email", "privacyEmail", "register", "uid", "representative"] as const) {
-    assert.ok(isPending(OPERATOR[key]), `${key} must stay a placeholder until it is supplied`);
+test("confirmed operator facts are set; facts still to be verified stay marked as placeholders", () => {
+  for (const key of ["owner", "contractingParty", "form", "address", "uid", "status", "email", "privacyEmail", "representative"] as const) {
+    assert.equal(isPending(OPERATOR[key]), false, `${key} is confirmed`);
   }
+  assert.ok(OPERATOR.form.includes("Einzelfirma"));
+  assert.ok(OPERATOR.address.includes("5212 Hausen AG"));
+  assert.equal(OPERATOR.uid, "CHE-374.029.268");
+  assert.match(OPERATOR.email, /^[^@\s]+@[^@\s]+\.[a-z]+$/);
+  assert.ok(OPERATOR_LINE.includes(OPERATOR.uid) && OPERATOR_LINE.includes(OPERATOR.address));
+  assert.ok(isPending(OPERATOR.euRepresentative), "euRepresentative must stay a placeholder until it is verified");
+});
+
+test("the operator is never presented as an incorporated company or as VAT-registered", () => {
+  const text = [...Object.values(OPERATOR), OPERATOR_LINE].join(" ").split(OPERATOR.address).join("");
+  assert.doesNotMatch(text, /\b(GmbH|AG|Ltd|Inc|SA|MWST|VAT)\b/);
 });
 
 test("the cookie notice lists every key the app writes to browser storage", () => {

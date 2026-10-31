@@ -1,5 +1,15 @@
 import { create } from "zustand";
-import { fetchApi, INSUFFICIENT_CREDITS_EVENT } from "@/lib/api";
+import { BILLING_BLOCK_EVENT, fetchApi, INSUFFICIENT_CREDITS_EVENT, RUN_REFUSED_EVENT } from "@/lib/api";
+import { asBillingBlock, type BillingBlock, type Pack } from "@/features/billing/model";
+import {
+  asBetaLimits,
+  asMarketData,
+  runRefusal,
+  type BetaLimits,
+  type FoundingOffer,
+  type MarketDataState,
+  type RunRefusal,
+} from "@/features/beta/model";
 import {
   costFor,
   costMap,
@@ -31,17 +41,32 @@ interface CreditsState {
   pendingTool: string | null;
   /** Cost and balance from the server's 402 response, when that is what opened the dialog. */
   shortfall: { cost: number; balance: number } | null;
+  /** Credit packs offered by a 402 while billing is on. */
+  packs: Pack[] | null;
   /** Quote awaiting the user's decision in the confirmation dialog. */
   confirming: QuoteResponse | null;
+  /** Subscription, plan feature, quota or country refusal from the server. */
+  block: BillingBlock | null;
+  /** Free beta limits from /api/plans; null when the beta is off or not loaded yet. */
+  beta: BetaLimits | null;
+  foundingOffer: FoundingOffer | null;
+  /** Market-data tools limited to an invited group, and whether this account belongs to it. */
+  marketData: MarketDataState | null;
+  marketDataAccess: boolean;
+  /** Beta limit, capacity, duplicate or questionnaire refusal of a run start. */
+  refusal: RunRefusal | null;
 }
 
 interface CreditsActions {
   refresh: () => Promise<void>;
   costOf: (tool: string) => number;
   requestRun: (tool: string) => boolean;
-  openInsufficient: (tool?: string, shortfall?: { cost: number; balance: number } | null) => void;
+  openInsufficient: (tool?: string, shortfall?: { cost: number; balance: number } | null, packs?: Pack[] | null) => void;
   closeInsufficient: () => void;
   resolveConfirm: (ok: boolean) => void;
+  openBlock: (block: BillingBlock) => void;
+  closeBlock: () => void;
+  closeRefusal: () => void;
 }
 
 export type CreditsStore = CreditsState & CreditsActions;
@@ -63,7 +88,14 @@ export const useCreditsStore = create<CreditsStore>((set, get) => ({
   insufficientOpen: false,
   pendingTool: null,
   shortfall: null,
+  packs: null,
   confirming: null,
+  block: null,
+  beta: null,
+  foundingOffer: null,
+  marketData: null,
+  marketDataAccess: true,
+  refusal: null,
 
   refresh: () => {
     if (inflight) return inflight;
@@ -71,7 +103,18 @@ export const useCreditsStore = create<CreditsStore>((set, get) => ({
       try {
         const [plansRes, creditsRes] = await Promise.all([fetchApi("/api/plans"), fetchApi("/api/credits")]);
         const next: Partial<CreditsState> = { loaded: true };
-        if (plansRes.ok) next.costs = costMap(((await plansRes.json()) as PlanCatalogue).run_costs);
+        if (plansRes.ok) {
+          const plans = (await plansRes.json()) as PlanCatalogue;
+          next.costs = costMap(plans.run_costs);
+          next.beta = asBetaLimits(plans.beta);
+          next.foundingOffer = plans.founding_offer ?? null;
+          next.marketData = asMarketData(plans.market_data);
+          if (next.marketData?.access === "cohort") {
+            const meRes = await fetchApi("/api/me");
+            const me = meRes.ok ? ((await meRes.json()) as { market_data_access?: boolean }) : null;
+            next.marketDataAccess = me?.market_data_access === true;
+          }
+        }
         if (creditsRes.ok) {
           const body = (await creditsRes.json()) as { mode: CreditsMode; balance: number };
           next.mode = body.mode;
@@ -97,8 +140,12 @@ export const useCreditsStore = create<CreditsStore>((set, get) => ({
     return false;
   },
 
-  openInsufficient: (tool, shortfall = null) => set({ insufficientOpen: true, pendingTool: tool ?? null, shortfall }),
-  closeInsufficient: () => set({ insufficientOpen: false, pendingTool: null, shortfall: null }),
+  openInsufficient: (tool, shortfall = null, packs = null) =>
+    set({ insufficientOpen: true, pendingTool: tool ?? null, shortfall, packs }),
+  closeInsufficient: () => set({ insufficientOpen: false, pendingTool: null, shortfall: null, packs: null }),
+  openBlock: (block) => set({ block }),
+  closeBlock: () => set({ block: null }),
+  closeRefusal: () => set({ refusal: null }),
 
   resolveConfirm: (ok) => {
     set({ confirming: null });
@@ -110,13 +157,22 @@ export const useCreditsStore = create<CreditsStore>((set, get) => ({
 
 if (typeof window !== "undefined") {
   window.addEventListener(INSUFFICIENT_CREDITS_EVENT, (event) => {
-    const detail = (event as CustomEvent).detail as { cost?: number; balance?: number } | null;
+    const detail = (event as CustomEvent).detail as { cost?: number; balance?: number; packs?: Pack[] } | null;
     const shortfall =
       detail && typeof detail.cost === "number" && typeof detail.balance === "number"
         ? { cost: detail.cost, balance: detail.balance }
         : null;
-    useCreditsStore.getState().openInsufficient(undefined, shortfall);
+    useCreditsStore.getState().openInsufficient(undefined, shortfall, Array.isArray(detail?.packs) ? detail.packs : null);
     void useCreditsStore.getState().refresh();
+  });
+  window.addEventListener(BILLING_BLOCK_EVENT, (event) => {
+    const block = asBillingBlock((event as CustomEvent).detail);
+    if (block) useCreditsStore.getState().openBlock(block);
+  });
+  window.addEventListener(RUN_REFUSED_EVENT, (event) => {
+    const { status, detail } = ((event as CustomEvent).detail ?? {}) as { status?: number; detail?: unknown };
+    const refusal = typeof status === "number" ? runRefusal(status, detail) : null;
+    if (refusal) useCreditsStore.setState({ refusal });
   });
 }
 
@@ -164,6 +220,11 @@ export async function confirmRun(tool: string, params: RunParams = {}): Promise<
   if (!store.loaded) void store.refresh();
   const quote = await fetchRunQuote(tool, params);
   if (!quote) return store.requestRun(tool);
+  const block = asBillingBlock(quote.blocked);
+  if (block) {
+    store.openBlock(block);
+    return false;
+  }
   if (quote.mode === "enforce" && !quote.sufficient) {
     store.openInsufficient(tool, quote.balance != null ? { cost: quote.cost, balance: quote.balance } : null);
     return false;

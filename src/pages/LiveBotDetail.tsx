@@ -7,6 +7,7 @@ import { SingleBotEquityChart } from "@/components/dashboard/SingleBotEquityChar
 import { botStatusBadgeDetailClass } from "@/components/dashboard/botStatusStyles";
 import { formatConfidence, formatSignal } from "@/components/dashboard/dashboardMetrics";
 import { cn } from "@/lib/utils";
+import { LoadingRegion, SkeletonChart, SkeletonPanel, SkeletonStatGrid } from "@/components/skeleton/Skeleton";
 import Button from "@/components/ui/button";
 
 function fmtMoney(n: number) {
@@ -152,7 +153,13 @@ export default function LiveBotDetail() {
 
       {notice && <div className="mb-3 border border-white/15 bg-white/[0.04] px-4 py-2 text-sm text-white/80">{notice}</div>}
 
-      {loading && !data && <p className="text-white/80">Loading…</p>}
+      {loading && !data && (
+        <LoadingRegion label="Loading bot" className="mx-auto w-full max-w-5xl space-y-4">
+          <SkeletonPanel rows={2} />
+          <SkeletonStatGrid />
+          <SkeletonChart height={220} />
+        </LoadingRegion>
+      )}
 
       {data && summary && perf && cfg && bot && (
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-8">

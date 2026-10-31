@@ -290,8 +290,8 @@ export function M2Footer() {
   const links: [string, string][] = [
     ["Home", "/"],
     ["About", "/about"],
-    ["Pricing", "/pricing"],
     ["Products", "/products"],
+    ["Pricing", "/products#pricing"],
     ["Contact", "/contact"],
     ["Sign in", "/login"],
   ];
@@ -317,7 +317,7 @@ export function M2Footer() {
         </nav>
       </Container>
       <Container className="flex flex-col gap-4 pb-10 sm:flex-row sm:items-center sm:justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/25">© {new Date().getFullYear()} {OPERATOR.name}</span>
+        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/25">© {new Date().getFullYear()} {OPERATOR.owner}</span>
         <nav className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-white/40" aria-label="Legal">
           {LEGAL_LINKS.map((l) => (
             <Link key={l.href} to={l.href} className="transition-colors hover:text-white">

@@ -44,7 +44,7 @@ JWT_SECRET = os.environ["SUPABASE_JWT_SECRET"]
 AUDIENCE = "authenticated"
 
 
-def mint_token(user_id: uuid.UUID, *, expired: bool = False, secret: str = JWT_SECRET) -> str:
+def mint_token(user_id: uuid.UUID, *, expired: bool = False, secret: str = JWT_SECRET, **claims) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
@@ -54,7 +54,8 @@ def mint_token(user_id: uuid.UUID, *, expired: bool = False, secret: str = JWT_S
         "iat": int(now.timestamp()),
         "exp": int((now - timedelta(hours=1) if expired else now + timedelta(hours=1)).timestamp()),
     }
-    return jwt.encode(payload, secret, algorithm="HS256")
+    payload.update(claims)
+    return jwt.encode({k: v for k, v in payload.items() if v is not None}, secret, algorithm="HS256")
 
 
 @pytest.fixture(scope="session", autouse=True)

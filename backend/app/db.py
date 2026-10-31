@@ -29,7 +29,8 @@ def get_connect_args(url: str | None = None) -> dict[str, Any]:
     """DB-API connect args. SQLite needs check_same_thread=False for FastAPI."""
     u = url or DATABASE_URL
     if str(u).startswith("sqlite"):
-        return {"check_same_thread": False}
+        # Research workers (RESEARCH_EXECUTION=local_process) write from other processes.
+        return {"check_same_thread": False, "timeout": 30}
     return {}
 
 
@@ -197,6 +198,14 @@ def _sqlite_migrate(engine: Engine) -> None:
         ("bot_trades", "decision_bar_at", "TIMESTAMP"),
         ("bot_trades", "outcome_flags", "TEXT"),
         ("bot_trades", "bars_held", "INTEGER"),
+        ("user_plans", "provider", "TEXT"),
+        ("user_plans", "provider_customer_id", "TEXT"),
+        ("user_plans", "provider_subscription_id", "TEXT"),
+        ("user_plans", "cancel_at_period_end", "BOOLEAN NOT NULL DEFAULT 0"),
+        ("user_plans", "canceled_at", "TIMESTAMP"),
+        ("user_plans", "ended_at", "TIMESTAMP"),
+        ("user_plans", "billing_country", "TEXT"),
+        ("user_plans", "pending_plan_id", "TEXT"),
     ]
 
     with engine.begin() as conn:

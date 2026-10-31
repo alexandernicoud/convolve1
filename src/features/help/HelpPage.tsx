@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { fetchApi } from "@/lib/api";
+import { LoadingRegion, SkeletonTable } from "@/components/skeleton/Skeleton";
 import type { PlanCatalogue } from "@/features/credits/model";
 import { Container, M2Footer } from "@/features/marketing2/ui";
 import { PipelineVisual } from "@/features/onboarding/OnboardingHost";
@@ -141,7 +142,13 @@ function PricingTable() {
   }, []);
 
   if (failed) return <p className="text-white/45">The price list could not be loaded. Every run still shows its estimate before it starts.</p>;
-  if (!catalogue) return <div className="h-40 animate-pulse rounded-xl bg-white/[0.03]" aria-hidden />;
+  if (!catalogue) {
+    return (
+      <LoadingRegion label="Loading the price list">
+        <SkeletonTable rows={5} cols={3} />
+      </LoadingRegion>
+    );
+  }
   return (
     <div className="overflow-x-auto rounded-xl border border-white/[0.08]">
       <table className="w-full min-w-[34rem] text-left text-[13.5px]">
@@ -177,10 +184,6 @@ function PricingTable() {
 export default function HelpPage() {
   const { hash } = useLocation();
   const { session } = useAuth();
-
-  useEffect(() => {
-    document.title = "Help | convolve.";
-  }, []);
 
   useEffect(() => {
     if (!hash) return;

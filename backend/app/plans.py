@@ -93,12 +93,19 @@ def run_cost(tool: str) -> int:
 
 def public_catalogue() -> Dict[str, Any]:
     from app import config
+    from app.billing import founding
+    from app.services import beta_limits, market_data_access
 
+    billing = config.BILLING_MODE != "off"
     return {
-        "charging_enabled": config.CREDITS_MODE == "enforce",
+        "charging_enabled": config.CREDITS_MODE == "enforce" or billing,
         "plans": PLANS,
         "default_plan_id": DEFAULT_PLAN_ID,
         "pricing_version": PRICING_VERSION,
         "run_costs": price_catalogue(),
-        "billing_available": False,
+        # With billing on, the paid tiers and packs are served by /api/billing/catalog.
+        "billing_available": billing,
+        "beta": beta_limits.public_limits(),
+        "founding_offer": founding.public_offer(),
+        "market_data": market_data_access.public_state(),
     }

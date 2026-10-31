@@ -1,8 +1,33 @@
 {
   "rewrites": [
+    { "source": "/products", "destination": "/seo/products.html" },
+    { "source": "/about", "destination": "/seo/about.html" },
+    { "source": "/help", "destination": "/seo/help.html" },
+    { "source": "/contact", "destination": "/seo/contact.html" },
+    { "source": "/signup", "destination": "/seo/signup.html" },
+    { "source": "/privacy", "destination": "/seo/privacy.html" },
+    { "source": "/terms", "destination": "/seo/terms.html" },
+    { "source": "/subscription-terms", "destination": "/seo/subscription-terms.html" },
+    { "source": "/refunds", "destination": "/seo/refunds.html" },
+    { "source": "/risk-disclosure", "destination": "/seo/risk-disclosure.html" },
+    { "source": "/cookies", "destination": "/seo/cookies.html" },
+    { "source": "/legal", "destination": "/seo/legal.html" },
+    { "source": "/products/:path*", "destination": "/index.html" },
+    { "source": "/tools/:path*", "destination": "/index.html" },
+    { "source": "/dashboard", "destination": "/index.html" },
+    { "source": "/dashboard/:path*", "destination": "/index.html" },
+    { "source": "/account", "destination": "/index.html" },
+    { "source": "/auth/:path*", "destination": "/index.html" },
+    { "source": "/(login|forgot-password|reset-password|credits|docs|vision|home2|home3|about2|products2|founder|pricing|datenschutz|impressum)", "destination": "/index.html" }
+  ],
+  "headers": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/(dashboard|account|tools|auth|login|forgot-password|reset-password|credits|docs|vision|home3|seo)(/.*)?",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
+    },
+    {
+      "source": "/products/(.+)",
+      "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
     }
   ]
 }

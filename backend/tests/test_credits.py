@@ -77,7 +77,7 @@ def test_initial_grant_once_and_charge(enforce, client, user_a):
     register_run(run_id, "trainer", "/x", user_id=str(user_a))  # same run again: not charged twice
     assert _ledger(user_a) == [("grant", 50), ("charge", -COST)]
     body = client.get("/api/credits", headers=h).json()
-    assert body["totals"] == {"allocated": 50, "consumed": COST, "charged": COST, "refunded": 0}
+    assert body["totals"] == {"allocated": 50, "consumed": COST, "charged": COST, "refunded": 0, "expired": 0, "cashed_out": 0}
     assert body["by_tool"][0]["tool"] == "trainer" and body["by_tool"][0]["runs"] == 1
     assert sum(d["credits"] for d in body["daily"]) == COST
 

@@ -25,7 +25,8 @@ htmlcov/
 
 # --- Secrets & local-only env (set in Cloud Run / Secret Manager) ---
 .env
-.env.local
+.env.*
+!.env.example
 
 # --- Local databases ---
 *.db

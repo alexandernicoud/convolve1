@@ -161,6 +161,41 @@ TRAINER_CHECKPOINT_RETENTION_DAYS = 14
 # Must equal the job's maxRetries: an interrupted attempt below it leaves the run to the retry.
 TRAINER_JOB_MAX_RETRIES = max(0, _env_int("TRAINER_JOB_MAX_RETRIES", 0))
 
+# --- Research tools (Generator, Labeling Optimizer, test data) ---
+# "inprocess": BackgroundTasks in the API process; progress and cancellation work only on the
+#   instance that started the run (the historical behaviour and the default).
+# "local_process": durable queue in pipeline_runs; each run is a detached, lower-priority
+#   `python -m app.jobs.research_worker` process on the same machine. Survives API restarts.
+# "cloud_run_job": durable queue; each run is one execution of RESEARCH_JOB_NAME (same image).
+_raw_research_execution = os.getenv("RESEARCH_EXECUTION", "inprocess").strip().lower()
+RESEARCH_EXECUTION = (
+    _raw_research_execution
+    if _raw_research_execution in ("inprocess", "local_process", "cloud_run_job")
+    else "inprocess"
+)
+RESEARCH_JOB_NAME = os.getenv("RESEARCH_JOB_NAME", "convolve-research").strip()
+RESEARCH_JOB_PROJECT = (os.getenv("RESEARCH_JOB_PROJECT") or TRAINER_JOB_PROJECT).strip()
+RESEARCH_JOB_REGION = (os.getenv("RESEARCH_JOB_REGION") or TRAINER_JOB_REGION).strip()
+# Cost and capacity caps. 0 means no limit. Runs over an active cap wait (status queued).
+RESEARCH_MAX_ACTIVE_JOBS = max(0, _env_int("RESEARCH_MAX_ACTIVE_JOBS", 4))
+RESEARCH_MAX_ACTIVE_JOBS_PER_USER = max(0, _env_int("RESEARCH_MAX_ACTIVE_JOBS_PER_USER", 1))
+RESEARCH_MAX_QUEUED_JOBS_PER_USER = max(0, _env_int("RESEARCH_MAX_QUEUED_JOBS_PER_USER", 3))
+# Started research and training runs per user in a rolling 24 hours (abuse protection).
+RESEARCH_MAX_RUNS_PER_DAY = max(0, _env_int("RESEARCH_MAX_RUNS_PER_DAY", 0))
+# A running worker writes a heartbeat every RESEARCH_HEARTBEAT_SECONDS. A run silent for
+# RESEARCH_JOB_STALE_SECONDS is failed once its execution has ended (or after 3x that when
+# the execution state cannot be read), so its slot is released.
+RESEARCH_HEARTBEAT_SECONDS = max(2, _env_int("RESEARCH_HEARTBEAT_SECONDS", 15))
+RESEARCH_JOB_STALE_SECONDS = max(10, _env_int("RESEARCH_JOB_STALE_SECONDS", 120))
+# Must equal the job's maxRetries. A retry re-runs the tool from the start (no checkpoints).
+RESEARCH_JOB_MAX_RETRIES = max(0, _env_int("RESEARCH_JOB_MAX_RETRIES", 1))
+# Runs that still compute inside the API process (Backtester, Analysis, and the research tools
+# in inprocess mode) are refused over these caps instead of overloading the instance. 0 = off.
+INPROCESS_MAX_ACTIVE_RUNS = max(0, _env_int("INPROCESS_MAX_ACTIVE_RUNS", 0))
+INPROCESS_MAX_ACTIVE_RUNS_PER_USER = max(0, _env_int("INPROCESS_MAX_ACTIVE_RUNS_PER_USER", 0))
+# local_process only: niceness of worker processes so API requests keep priority.
+RESEARCH_WORKER_NICE = max(0, min(19, _env_int("RESEARCH_WORKER_NICE", 10)))
+
 # The scheduled bots job (`python -m app.jobs.run_due_bots`). When set, the API starts one
 # execution right after a bot is deployed so its first evaluation does not wait for the next
 # Cloud Scheduler tick. Unset (local): the in-process scheduler picks the bot up.
@@ -184,6 +219,66 @@ SCHEDULED_BOTS_ENABLED = _env_bool("SCHEDULED_BOTS_ENABLED", _local_live_default
 # enough credits. Turn on only once pricing and allocations are final.
 _raw_credits_mode = os.getenv("CREDITS_MODE", "off").strip().lower()
 CREDITS_MODE = _raw_credits_mode if _raw_credits_mode in ("off", "enforce") else "off"
+
+# --- Billing (subscriptions, top-ups, cash refunds) ---
+# "off": no paywall, no entitlements, no payments (current production).
+# "sandbox": paid-only access, entitlements and quotas enforced; payments go to the provider's
+#            test mode (or the built-in simulator) and never move real money. Implies charging.
+# "live": real payments. Refused unless BILLING_LIVE_APPROVED=1 is also set.
+_raw_billing_mode = os.getenv("BILLING_MODE", "off").strip().lower()
+BILLING_MODE = _raw_billing_mode if _raw_billing_mode in ("off", "sandbox", "live") else "off"
+BILLING_LIVE_APPROVED = _env_bool("BILLING_LIVE_APPROVED", False)
+if BILLING_MODE == "live" and not BILLING_LIVE_APPROVED:
+    BILLING_MODE = "off"
+# Free beta: research is free and limited for signed-in accounts. No checkout, no charging,
+# whatever BILLING_MODE / CREDITS_MODE say. Limits come from the RESEARCH_* and TRAINER_* caps
+# and the BETA_* size limits below. Turning it off later restores the configured paid modes.
+FREE_BETA = _env_bool("FREE_BETA", False)
+if FREE_BETA:
+    BILLING_MODE = "off"
+    CREDITS_MODE = "off"
+# After this many successful research runs, an account must answer the feedback questionnaire
+# (once) before starting another. 0 = never required. Defaults to 2 in the free beta.
+FEEDBACK_REQUIRED_AFTER_RUNS = max(0, _env_int("FEEDBACK_REQUIRED_AFTER_RUNS", 2 if FREE_BETA else 0))
+# Founding beta members: accounts created in [BETA_WINDOW_START, BETA_WINDOW_END) get
+# FOUNDING_DISCOUNT_PERCENT off their first subscription invoice once paid plans launch.
+# Unset start = no account is eligible. Unset end = the window is still open.
+BETA_WINDOW_START = os.getenv("BETA_WINDOW_START", "").strip()
+BETA_WINDOW_END = os.getenv("BETA_WINDOW_END", "").strip()
+FOUNDING_DISCOUNT_PERCENT = max(0, min(100, _env_int("FOUNDING_DISCOUNT_PERCENT", 20)))
+# Per-run size limits in free beta (0 = no limit).
+BETA_MAX_SYMBOLS = max(0, _env_int("BETA_MAX_SYMBOLS", 5))
+BETA_MAX_CHARTS_PER_LABEL = max(0, _env_int("BETA_MAX_CHARTS_PER_LABEL", 500))
+BETA_MAX_IMAGE_DIMENSION = max(0, _env_int("BETA_MAX_IMAGE_DIMENSION", 224))
+BETA_MAX_OPTIMIZER_YEARS = max(0, _env_int("BETA_MAX_OPTIMIZER_YEARS", 15))
+# Tools that download market prices (Yahoo Finance via yfinance, no commercial licence yet).
+# "open": every signed-in account. "cohort": only the account ids in MARKET_DATA_COHORT.
+_raw_market_data_access = os.getenv("MARKET_DATA_ACCESS", "open").strip().lower()
+MARKET_DATA_ACCESS = _raw_market_data_access if _raw_market_data_access in ("open", "cohort") else "cohort"
+MARKET_DATA_COHORT = frozenset(
+    s.strip().lower() for s in os.getenv("MARKET_DATA_COHORT", "").split(",") if s.strip()
+)
+# "simulator" (in-process, tests and local demos) | "stripe" (test-mode keys only unless live).
+BILLING_PROVIDER = os.getenv("BILLING_PROVIDER", "simulator").strip().lower()
+# JSON object merged over app.billing.catalog defaults (tier prices, credits, packs, quotas).
+BILLING_CATALOG_OVERRIDES = os.getenv("BILLING_CATALOG_OVERRIDES", "").strip()
+# ISO 3166 countries where paid plans cannot be bought (US and its territories pending legal
+# review). Checked against the declared, billing-address and card-issuing country.
+BILLING_BLOCKED_COUNTRIES = frozenset(
+    c.strip().upper() for c in os.getenv("BILLING_BLOCKED_COUNTRIES", "US,PR,GU,VI,AS,MP,UM").split(",") if c.strip()
+)
+BILLING_RETURN_URL = os.getenv("BILLING_RETURN_URL", "http://localhost:5173/account?tab=plan").strip()
+
+# --- Administration ---
+# Supabase user IDs allowed to read feedback responses and contact messages. Empty = nobody.
+ADMIN_USER_IDS = frozenset(u.strip().lower() for u in os.getenv("ADMIN_USER_IDS", "").split(",") if u.strip())
+
+# --- Contact form ---
+# Optional email notification for new contact messages (Resend). Messages are always stored.
+CONTACT_NOTIFY_EMAIL = os.getenv("CONTACT_NOTIFY_EMAIL", "").strip()
+CONTACT_FROM_EMAIL = os.getenv("CONTACT_FROM_EMAIL", "").strip()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+CONTACT_MAX_PER_HOUR = max(1, _env_int("CONTACT_MAX_PER_HOUR", 5))
 
 # Poll for due bots inside the API process. Local development only: in cloud, Cloud Scheduler
 # triggers the `run_due_bots` Cloud Run job and API instances must not poll.

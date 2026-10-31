@@ -9,7 +9,7 @@ import jwt
 import pytest
 from fastapi.routing import APIRoute
 
-from app.auth import PUBLIC_PATHS
+from app.auth import PUBLIC_PATHS, PUBLIC_PREFIXES
 from app.main import app
 from tests.conftest import AUDIENCE, JWT_SECRET
 
@@ -22,7 +22,7 @@ def _concrete(path: str) -> str:
 
 def _routes():
     for route in app.routes:
-        if not isinstance(route, APIRoute) or route.path in PUBLIC:
+        if not isinstance(route, APIRoute) or route.path in PUBLIC or route.path.startswith(PUBLIC_PREFIXES):
             continue
         for method in sorted(route.methods - {"HEAD", "OPTIONS"}):
             yield method, _concrete(route.path)
@@ -63,3 +63,12 @@ def test_every_private_route_rejects_bad_tokens(client, kind):
 def test_public_routes_stay_public(client):
     assert client.get("/").status_code == 200
     assert client.get("/api/plans").status_code == 200
+    assert client.get("/api/billing/catalog").status_code == 200
+    # Public, but validated: an empty submission is refused without a token being needed.
+    assert client.post("/api/contact", json={"elapsed_ms": 10_000}).status_code == 422
+
+
+def test_unsigned_provider_webhooks_are_refused(client):
+    # Token-free by design; without billing (or a valid signature) nothing is accepted.
+    assert client.post("/api/billing/webhook/stripe", content=b"{}").status_code in (400, 404)
+    assert client.post("/api/billing/webhook/simulator", content=b"{}").status_code == 404

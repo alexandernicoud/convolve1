@@ -515,9 +515,9 @@ def _generator_files(root: Path) -> Optional[List[Path]]:
     if not zips:
         return None
     files = list(zips)
-    stats = root / "artifacts" / "dataset_stats.json"
-    if stats.is_file():
-        files.append(stats)
+    for extra in (root / "artifacts" / "dataset_stats.json", root / "generator_config.json", root / "generation_report.json"):
+        if extra.is_file():
+            files.append(extra)
     return files
 
 
@@ -530,6 +530,9 @@ def _labeling_files(root: Path) -> Optional[List[Path]]:
         for p in art.iterdir()
         if p.is_file() and p.suffix.lower() in {".png", ".svg", ".json"}
     ]
+    config = root / "optimizer_config.json"
+    if files and config.is_file():
+        files.append(config)
     return files or None
 
 

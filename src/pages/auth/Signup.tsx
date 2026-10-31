@@ -1,10 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AuthDivider, AuthField, AuthGoogleButton, AuthShell, AuthSubmit } from "@/components/auth/AuthShell";
 import { useAuth } from "@/context/AuthContext";
 import { TermsConsent, rememberPendingAcceptance } from "@/components/auth/TermsConsent";
 import { acceptanceRecord } from "@/features/legal/meta";
 import { safeAppPath } from "@/lib/authRedirect";
+import { checkReferralCode } from "@/features/rewards/api";
+import { REFERRAL_PARAM, friendRewardText, normaliseCode, rememberReferral } from "@/features/rewards/model";
+import { BetaOfferNote } from "@/features/beta/BetaUI";
 
 export default function Signup() {
   const { signUp, signInWithGoogle, resendConfirmation, configured } = useAuth();
@@ -18,6 +21,25 @@ export default function Signup() {
   const [busy, setBusy] = useState(false);
   const [checkEmail, setCheckEmail] = useState(false);
   const [accepted, setAccepted] = useState(false);
+  const refCode = useMemo(() => normaliseCode(params.get(REFERRAL_PARAM)), [params]);
+  const [invite, setInvite] = useState<{ bonus: string } | null>(null);
+
+  useEffect(() => {
+    if (!refCode) return;
+    let live = true;
+    void checkReferralCode(refCode).then((r) => {
+      if (!live || !r.valid) return;
+      try {
+        rememberReferral(localStorage, refCode);
+      } catch {
+        /* storage unavailable: the invite cannot be carried through sign-up */
+      }
+      setInvite({ bonus: r.rewards?.length ? friendRewardText(r.rewards) : `${r.credits_on_subscribe} credits` });
+    });
+    return () => {
+      live = false;
+    };
+  }, [refCode]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,7 +107,14 @@ export default function Signup() {
   }
 
   return (
-    <AuthShell title="Create account" subtitle="You’ll use this identity across every tool.">
+    <AuthShell
+      title={invite ? "Welcome to Convolve" : "Create account"}
+      subtitle={
+        invite
+          ? `You were invited by a Convolve ambassador. Create your account and start a plan to get bonus credits: ${invite.bonus}.`
+          : "You’ll use this identity across every tool."
+      }
+    >
       <TermsConsent checked={accepted} onChange={setAccepted} />
       <AuthGoogleButton busy={busy || !accepted} onClick={() => void onGoogle()} />
       {error ? <p className="mt-3 text-center text-sm text-red-300">{error}</p> : null}
@@ -107,6 +136,7 @@ export default function Signup() {
           Sign in
         </Link>
       </p>
+      <BetaOfferNote className="mt-5 border-t border-white/[0.08] pt-4 text-center text-[12.5px]" />
     </AuthShell>
   );
 }

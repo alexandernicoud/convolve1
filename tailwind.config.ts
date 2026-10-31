@@ -114,6 +114,11 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.7" },
         },
+        /** Loading placeholders: a slow, shallow opacity breath (no sweep, no colour). */
+        skeleton: {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.55" },
+        },
         /** Seamless horizontal loop — two identical halves; -50% shifts one full copy left so the tail re-enters from the right */
         "demo-marquee": {
           "0%": { transform: "translate3d(0,0,0)" },
@@ -128,6 +133,7 @@ export default {
         "fade-in": "fade-in 0.5s ease-out forwards",
         "slide-in-right": "slide-in-right 0.4s ease-out forwards",
         "pulse-subtle": "pulse-subtle 2s ease-in-out infinite",
+        skeleton: "skeleton 1.8s ease-in-out infinite",
         "demo-marquee": "demo-marquee 90s linear infinite",
       },
       backgroundImage: {

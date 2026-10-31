@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { REASON_LABELS, type CreditSummary, type PlanCatalogue } from "@/features/credits/model";
 import { runHref, type Loadable, type RunSummary, type Usage } from "./data";
 import { BarChart, Card, Empty, Notice, Stat, formatDateTime, formatDuration } from "./ui";
+import { LoadingRegion, SkeletonChart, SkeletonStatGrid } from "@/components/skeleton/Skeleton";
 
 const STATUS_STYLE: Record<string, string> = {
   succeeded: "text-[#a6ecc8]",
@@ -69,12 +70,17 @@ function CreditsSection({ credits, plans }: { credits: Loadable<CreditSummary>; 
               : "Runs are not charged yet. When charging starts, each run's cost below is deducted from a server-held balance."
         }
         action={
-          <Link to="/pricing" className="shrink-0 text-sm text-white/55 underline-offset-4 hover:text-white hover:underline">
+          <Link to="/products#pricing" className="shrink-0 text-sm text-white/55 underline-offset-4 hover:text-white hover:underline">
             Plans
           </Link>
         }
       >
         {credits.error && <Notice kind="error">{credits.error}</Notice>}
+        {!c && !credits.error && (
+          <LoadingRegion label="Loading credit balance">
+            <SkeletonStatGrid />
+          </LoadingRegion>
+        )}
         {c && (
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Available" value={enforced ? c.balance.toLocaleString() : "—"} hint={enforced ? undefined : "Not charged yet"} />
@@ -180,7 +186,16 @@ function ActivitySection({ usage }: { usage: Loadable<Usage> }) {
       </Card>
     );
   }
-  if (!u) return null;
+  if (!u) {
+    return (
+      <Card title="Research activity">
+        <LoadingRegion label="Loading research activity" className="space-y-6">
+          <SkeletonStatGrid />
+          <SkeletonChart height={120} />
+        </LoadingRegion>
+      </Card>
+    );
+  }
   return (
     <>
       <Card title="Research activity" description="Counted from the runs stored under your account.">

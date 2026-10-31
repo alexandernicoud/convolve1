@@ -129,7 +129,8 @@ export function AboutMethod({ label }: { label: ReactNode }) {
             </Op>
             <Op name="Backtesting">
               The locked model then trades the test period once, after costs, next to buy-and-hold and a passive mix with the same exposure.
-              Classification accuracy and trading return are measured separately, because they can disagree.
+              Classification accuracy and trading return are measured separately, because they can disagree. A strong backtest alone proves
+              little: run enough variants over the same history and one will look excellent by chance.
             </Op>
             <Op name="Interpretability">
               Grad-CAM, saliency and occlusion show which pixels moved a prediction, so a learned price formation can be told apart from an

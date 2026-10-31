@@ -31,6 +31,11 @@ export default function RiskDisclosurePage() {
           workspace is an offer, solicitation or recommendation to buy or sell any financial instrument.
         </p>
         <p>
+          A paid subscription or credit pack buys access to software and computation for your own research. It is not a
+          fee for advice, trading signals, model portfolios or the management of assets, and Convolve does not publish
+          its own models, signals or strategies to subscribers.
+        </p>
+        <p>
           This disclosure explains risks; it does not change the legal or regulatory obligations that may apply to you
           or to us.
         </p>
@@ -65,7 +70,7 @@ export default function RiskDisclosurePage() {
             "Testing many label rules, thresholds or models on the same history increases the chance that a good result is luck (overfitting and data snooping).",
             "Information leaking from the future into training or threshold selection can make results look better than they could have been.",
             "Assumed commissions and slippage are simplifications. Real costs, spreads, liquidity, taxes and market impact can be higher and can turn a profitable backtest into a loss.",
-            "Historical data can contain errors, gaps, survivorship bias and adjustments.",
+            "Historical data can contain errors, gaps, survivorship bias and adjustments. Convolve currently uses free, unlicensed data from Yahoo Finance (via yfinance), which is provided without any warranty of accuracy or availability.",
           ]}
         />
       </Section>

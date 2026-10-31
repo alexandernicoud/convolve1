@@ -5,6 +5,7 @@ import { fmtNum, fmtPct, fmtPp, MISSING } from "@/lib/viz/format";
 import { labApi, type ExplainResult, type InterveneResult, type LabImage, type Method } from "./api";
 import { btnSm, Field, inputCls, LayerSelect, MiniKV, ProbBars, Select, Thumb, useLab } from "./components";
 import { BackdropToggle, ChartBackdropCtx, MapCanvas, MapScale, useAuthedObjectUrl, type ChartBackdrop, type Rect } from "./maps";
+import { LoadingRegion, SkeletonText } from "@/components/skeleton/Skeleton";
 
 const METHODS: { id: Method; label: string }[] = [
   { id: "gradcam", label: "Grad-CAM" },
@@ -232,7 +233,7 @@ function Viewer({ imageId, className }: { imageId: string; className?: string })
         </div>
       </Panel>
       <div className="space-y-5 lg:col-span-4">
-        <PredictionPanel res={main} />
+        <PredictionPanel res={main} error={va.err} />
         <MaskPanel imageId={imageId} base={baseUrl} />
       </div>
     </div>
@@ -361,7 +362,7 @@ function FeatureGrid({ res, loading }: { res: ExplainResult | null; loading: boo
   );
 }
 
-function PredictionPanel({ res }: { res: ExplainResult | null }) {
+function PredictionPanel({ res, error }: { res: ExplainResult | null; error: string | null }) {
   const { context } = useLab();
   const img = res?.image;
   const splitText = img?.split === "validation" ? "Validation (held out from training)" : img?.split === "training" ? "Training (seen during training)" : "Not available";
@@ -382,8 +383,13 @@ function PredictionPanel({ res }: { res: ExplainResult | null }) {
             measured here.
           </p>
         </div>
+      ) : error ? (
+        <p role="alert" className="text-[13px] text-red-200/85">{error}</p>
       ) : (
-        <div className="h-40 animate-pulse rounded-lg bg-white/[0.04]" />
+        <LoadingRegion label="Loading prediction" className="space-y-4">
+          <SkeletonText lines={3} />
+          <SkeletonText lines={4} />
+        </LoadingRegion>
       )}
     </Panel>
   );

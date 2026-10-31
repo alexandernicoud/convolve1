@@ -9,7 +9,7 @@ import SymbolBasket from "@/components/generator/SymbolBasket";
 import { TIMESPAN_PRESETS } from "@/components/generator/timespanPresets";
 import { trainingChartGeneratorApi, ApiError, type ChartPreviewResult } from "@/lib/api";
 import { useRunsStore } from "@/state/runsStore";
-import { confirmRun, chargeRunCredits } from "@/state/creditsStore";
+import { confirmRun, chargeRunCredits, useCreditsStore } from "@/state/creditsStore";
 import { RunCost, RunCostHint } from "@/components/RunCostHint";
 import {
   computeEndOffsetFromReferenceEnd,
@@ -149,6 +149,16 @@ export default function Generator() {
   useEffect(() => {
     setConfig((c) => ({ ...c, symbols: selectedSymbols.join(",") }));
   }, [selectedSymbols]);
+
+  const betaChartCap = useCreditsStore((s) => s.beta?.max_charts_per_label ?? 0);
+  useEffect(() => {
+    if (betaChartCap <= 0) return;
+    setConfig((c) =>
+      c.chartsPerLabel === defaultConfig.chartsPerLabel && c.chartsPerLabel > betaChartCap
+        ? { ...c, chartsPerLabel: betaChartCap }
+        : c,
+    );
+  }, [betaChartCap]);
 
   useEffect(() => {
     if (useRawEndOffset) return;

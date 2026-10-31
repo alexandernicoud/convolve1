@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import type { ReviewAssetDetail, ReviewBot, ReviewDataset, ReviewModel, ReviewRun } from "@/lib/api";
 import { AuthorizedImage } from "@/components/AuthorizedImage";
+import { LoadingRegion, SkeletonText } from "@/components/skeleton/Skeleton";
 import { useReview } from "../ReviewContext";
 import {
   formatDate,
@@ -22,7 +23,11 @@ import { ConfigKV, Section, TrainingMetricsBlock, TrainingSetupKV } from "./sect
 
 function Loading({ loading, error }: { loading: boolean; error: string | null }) {
   if (error) return <p className="text-[13px] text-red-300/70">{error}</p>;
-  return loading ? <p className="text-[13px] text-white/35">Loading…</p> : null;
+  return loading ? (
+    <LoadingRegion label="Loading details">
+      <SkeletonText lines={3} />
+    </LoadingRegion>
+  ) : null;
 }
 
 // ------------------------------------------------------------------ model

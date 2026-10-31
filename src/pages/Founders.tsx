@@ -124,8 +124,8 @@ export default function Founders() {
                 <div className="space-y-6">
                   <p className={bodyLg}>
                     Convolve is built by{" "}
-                    <span className="text-white">Alexander Nicoud</span>, a 19-year-old Swiss
-                    student in applied mathematics.
+                    <span className="text-white">Alexander Nicoud</span>, who completed his Matura at
+                    Kantonsschule Wettingen with a focus on applied mathematics and physics.
                   </p>
                   <p className={bodyMd}>
                     The focus is not on ideas, but on building and testing full systems — from
@@ -138,11 +138,9 @@ export default function Founders() {
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[12px] uppercase tracking-[0.16em] text-white/55">
                     <span className="text-white/85">Alexander Nicoud</span>
                     <span className="text-white/25">·</span>
-                    <span>19</span>
-                    <span className="text-white/25">·</span>
                     <span>Switzerland</span>
                     <span className="text-white/25">·</span>
-                    <span>Applied Mathematics</span>
+                    <span>Applied Mathematics &amp; Physics</span>
                   </div>
                   <a
                     href={LINKEDIN}

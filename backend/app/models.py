@@ -8,6 +8,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -197,7 +198,9 @@ class CreditAccount(Base):
 
 
 class CreditLedgerEntry(Base):
-    """Append-only. ``reason`` is grant | allocation | charge | refund | adjustment."""
+    """Append-only. ``reason`` is grant | allocation | charge | refund | adjustment |
+    subscription (monthly credits) | purchase (top-up) | expiry | credit_refund (purchased
+    credits cashed out) | credit_refund_reversal (a failed cash refund put back) | chargeback."""
 
     __tablename__ = "credit_ledger"
     __table_args__ = (UniqueConstraint("idempotency_key", name="uq_credit_ledger_idempotency_key"),)
@@ -217,7 +220,10 @@ class CreditLedgerEntry(Base):
 
 
 class UserPlan(Base):
-    """Which plan a user is on. Holds no payment data; billing is not implemented."""
+    """A user's subscription state. Card data never reaches Convolve; only provider references.
+
+    ``status``: active | past_due | canceled (still inside a paid period) | expired | incomplete.
+    """
 
     __tablename__ = "user_plans"
 
@@ -227,6 +233,15 @@ class UserPlan(Base):
     source = Column(String, nullable=False, default="default")
     current_period_start = Column(DateTime(timezone=True), nullable=True)
     current_period_end = Column(DateTime(timezone=True), nullable=True)
+    provider = Column(String, nullable=True)
+    provider_customer_id = Column(String, nullable=True)
+    provider_subscription_id = Column(String, nullable=True, index=True)
+    cancel_at_period_end = Column(Boolean, nullable=False, default=False)
+    canceled_at = Column(DateTime(timezone=True), nullable=True)
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+    billing_country = Column(String(2), nullable=True)
+    # A downgrade scheduled for the next renewal; the current tier stays until the period ends.
+    pending_plan_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
@@ -234,6 +249,233 @@ class UserPlan(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class BillingPayment(Base):
+    """One successful (or attempted) charge at the payment provider: a renewal or a top-up."""
+
+    __tablename__ = "billing_payments"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_payment_id", name="uq_billing_payments_provider_ref"),
+        CheckConstraint("amount_minor >= 0", name="ck_billing_payments_amount_nonnegative"),
+        CheckConstraint("refunded_minor >= 0 AND refunded_minor <= amount_minor", name="ck_billing_payments_refund_bounds"),
+    )
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider = Column(String, nullable=False)
+    provider_payment_id = Column(String, nullable=False)
+    kind = Column(String, nullable=False)  # subscription | topup
+    item_id = Column(String, nullable=False)  # tier id or credit pack id
+    amount_minor = Column(Integer, nullable=False)
+    currency = Column(String(3), nullable=False)
+    refunded_minor = Column(Integer, nullable=False, default=0)
+    # succeeded | failed | refunded | partially_refunded | disputed
+    status = Column(String, nullable=False)
+    country = Column(String(2), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class CreditLot(Base):
+    """A block of credits from one source. Charges draw from lots; cash refunds are per lot.
+
+    ``kind``: subscription (expires at ``expires_at``) | purchase (no routine expiry) | grant.
+    Invariant: remaining + refunded <= total, so a credit can be refunded at most once.
+    """
+
+    __tablename__ = "credit_lots"
+    __table_args__ = (
+        CheckConstraint("credits_remaining >= 0", name="ck_credit_lots_remaining_nonnegative"),
+        CheckConstraint("credits_refunded >= 0", name="ck_credit_lots_refunded_nonnegative"),
+        CheckConstraint("credits_remaining + credits_refunded <= credits_total", name="ck_credit_lots_conservation"),
+        UniqueConstraint("source_key", name="uq_credit_lots_source_key"),
+    )
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String, nullable=False)
+    source_key = Column(Text, nullable=False)
+    item_id = Column(String, nullable=True)
+    credits_total = Column(Integer, nullable=False)
+    credits_remaining = Column(Integer, nullable=False)
+    credits_refunded = Column(Integer, nullable=False, default=0)
+    payment_id = Column(Uuid(as_uuid=True), ForeignKey("billing_payments.id", ondelete="SET NULL"), nullable=True, index=True)
+    amount_minor = Column(Integer, nullable=True)
+    currency = Column(String(3), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    expired_at = Column(DateTime(timezone=True), nullable=True)
+    # Consumer acknowledged at checkout that delivery starts at once (withdrawal right waiver).
+    withdrawal_waived = Column(Boolean, nullable=False, default=False)
+    # "full" when an operator records that a mandatory full refund applies to this purchase.
+    statutory_override = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class CreditLotMove(Base):
+    """How one ledger entry changed one lot (charges, run refunds, expiries, cash refunds)."""
+
+    __tablename__ = "credit_lot_moves"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lot_id = Column(Uuid(as_uuid=True), ForeignKey("credit_lots.id", ondelete="CASCADE"), nullable=False, index=True)
+    ledger_key = Column(Text, nullable=False, index=True)
+    run_id = Column(String, nullable=True, index=True)
+    delta = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class BillingRefund(Base):
+    """A cash refund of unused purchased credits from one lot. ``status``: pending | succeeded | failed."""
+
+    __tablename__ = "billing_refunds"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_billing_refunds_idempotency_key"),
+        CheckConstraint("amount_minor >= 0", name="ck_billing_refunds_amount_nonnegative"),
+    )
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    request_id = Column(String, nullable=False, index=True)
+    payment_id = Column(Uuid(as_uuid=True), ForeignKey("billing_payments.id", ondelete="SET NULL"), nullable=True, index=True)
+    lot_id = Column(Uuid(as_uuid=True), ForeignKey("credit_lots.id", ondelete="SET NULL"), nullable=True, index=True)
+    credits = Column(Integer, nullable=False)
+    unused_value_minor = Column(Integer, nullable=False)
+    rate_bps = Column(Integer, nullable=False)
+    amount_minor = Column(Integer, nullable=False)
+    currency = Column(String(3), nullable=False)
+    basis = Column(String, nullable=False)  # voluntary | statutory_withdrawal | statutory_override
+    status = Column(String, nullable=False, default="pending")
+    provider = Column(String, nullable=False)
+    provider_refund_id = Column(String, nullable=True)
+    idempotency_key = Column(Text, nullable=False)
+    attempts = Column(Integer, nullable=False, default=0)
+    failure_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class BillingEvent(Base):
+    """Processed provider webhook events, so a redelivered event is applied once."""
+
+    __tablename__ = "billing_events"
+    __table_args__ = (UniqueConstraint("provider", "event_id", name="uq_billing_events_provider_event"),)
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider = Column(String, nullable=False)
+    event_id = Column(String, nullable=False)
+    type = Column(String, nullable=False)
+    user_id = Column(Uuid(as_uuid=True), nullable=True, index=True)
+    outcome = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class FeedbackResponse(Base):
+    """One completed feedback questionnaire per account; its bonus credit lot shares the transaction."""
+
+    __tablename__ = "feedback_responses"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, unique=True)
+    survey_version = Column(String, nullable=False)
+    answers_json = Column(Text, nullable=False)
+    credits_granted = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class FoundingDiscount(Base):
+    """Founding beta member offer: one discounted first subscription invoice per account.
+
+    Eligibility comes from profiles.created_at and the configured beta window; this row only
+    tracks the offer's use. ``redeemed_at`` is set once, when the discounted first subscription
+    payment arrives, and never cleared, so the offer cannot be used twice.
+    """
+
+    __tablename__ = "founding_discounts"
+
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    percent = Column(Integer, nullable=False)
+    checkout_session_id = Column(String, nullable=True)
+    offered_at = Column(DateTime(timezone=True), nullable=True)
+    subscription_ref = Column(String, nullable=True)
+    payment_ref = Column(String, nullable=True)
+    redeemed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ReferralCode(Base):
+    """An ambassador's personal invite code (one per account, created on request)."""
+
+    __tablename__ = "referral_codes"
+
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True)
+    code = Column(String(16), nullable=False, unique=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class Referral(Base):
+    """One invited account. ``status``: pending (signed up) | rewarded (first paid subscription) |
+    reversed (that payment was refunded in full or disputed; unused rewards withdrawn).
+
+    ``referrer_reward``: credits (promotional credits, Starter) | free_month (complimentary Research
+    month) | invoice_credit (credit on the ambassador's next invoices) | limit_reached | unavailable.
+    Rewards are granted at most once per referee, for the payment in ``payment_id``.
+    """
+
+    __tablename__ = "referrals"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    referrer_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    referee_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, unique=True)
+    code = Column(String(16), nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    referee_credits = Column(Integer, nullable=False, default=0)
+    referrer_reward = Column(String, nullable=True)
+    referrer_credits = Column(Integer, nullable=False, default=0)
+    referee_tier = Column(String, nullable=True)
+    payment_id = Column(Uuid(as_uuid=True), ForeignKey("billing_payments.id", ondelete="SET NULL"), nullable=True,
+                        index=True)
+    rewarded_at = Column(DateTime(timezone=True), nullable=True)
+    reversed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class CitationClaim(Base):
+    """A request for the citation bonus. ``status``: pending | approved | rejected.
+
+    The proof file is small (capped on upload) and kept in the row so it survives stateless hosts.
+    """
+
+    __tablename__ = "citation_claims"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    url = Column(String(500), nullable=True)
+    note = Column(Text, nullable=True)
+    file_name = Column(String(200), nullable=True)
+    content_type = Column(String(100), nullable=True)
+    file_bytes = Column(LargeBinary, nullable=True)
+    status = Column(String, nullable=False, default="pending")
+    review_note = Column(Text, nullable=True)
+    reviewed_by = Column(Uuid(as_uuid=True), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    credits_granted = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ContactMessage(Base):
+    """Contact-form submission. ``ip_hash`` is a keyed hash, used only for rate limiting."""
+
+    __tablename__ = "contact_messages"
+
+    id = Column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(200), nullable=False)
+    email = Column(String(320), nullable=False)
+    topic = Column(String(64), nullable=True)
+    message = Column(Text, nullable=False)
+    user_id = Column(Uuid(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True, index=True)
+    ip_hash = Column(String(64), nullable=True, index=True)
+    notified_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
 
 class DeletedAccount(Base):

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { KV, Panel } from "@/features/review/components/primitives";
 import { Chip } from "@/features/review/components/primitives";
-import { axisLabel, axisProps, ChartFrame, ChartPlaceholder, ChartTooltip, gridProps } from "@/components/viz/chartKit";
+import { axisLabel, axisProps, ChartFrame, ChartLoading, ChartPlaceholder, ChartTooltip, gridProps } from "@/components/viz/chartKit";
 import { fmtInt, fmtPct, isFiniteNum, niceScale, paddedDomain } from "@/lib/viz/format";
 import { SEMANTIC, SERIES, VIZ } from "@/lib/viz/tokens";
 import { useWorkspace } from "../BacktestWorkspace";
@@ -13,7 +13,7 @@ const ROLL_WINDOWS = [21, 63, 126] as const;
 const BAR_FILL = "rgba(255,255,255,0.62)";
 
 export default function PerformanceTab() {
-  const { summary, trades, loadTrades } = useWorkspace();
+  const { summary, trades, loadTrades, failed, retry } = useWorkspace();
   const tm = summary.trading_metrics;
   const rows = useEquityRows();
   const [win, setWin] = useState<(typeof ROLL_WINDOWS)[number]>(63);
@@ -65,7 +65,8 @@ export default function PerformanceTab() {
   const hold = (tm.holding_bars?.histogram ?? []) as { bars: number; count: number }[];
   const ddScale = series ? niceScale(paddedDomain([0, ...series.map((r) => r.underwater)], { pad: 0.05, clamp: [-1, 0] }), 5, [-1, 0]) : undefined;
 
-  const loading = <ChartPlaceholder height={220}>Loading…</ChartPlaceholder>;
+  const loading = <ChartLoading height={220} label="Loading equity series" error={failed.equity} onRetry={retry} />;
+  const tradesLoading = <ChartLoading height={220} label="Loading trades" error={failed.trades} onRetry={retry} />;
 
   return (
     <div className="space-y-5">
@@ -176,7 +177,7 @@ export default function PerformanceTab() {
             height={220}
             csv={hist ? { filename: "trade_return_histogram.csv", rows: hist.bins, columns: [{ key: "lo", label: "bin_start" }, { key: "count" }] } : undefined}
           >
-            {!trades ? loading : !hist ? <ChartPlaceholder height={220}>No closed trades.</ChartPlaceholder> : (
+            {!trades ? tradesLoading : !hist ? <ChartPlaceholder height={220}>No closed trades.</ChartPlaceholder> : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={hist.bins} margin={{ top: 6, right: 12, bottom: 16, left: 4 }} barCategoryGap={1}>
                   <CartesianGrid {...gridProps} />

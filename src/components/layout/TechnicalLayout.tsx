@@ -5,6 +5,7 @@ import { useHeaderReveal } from "@/context/HeaderRevealContext";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { DashboardTopBar } from "@/components/dashboard/DashboardTopBar";
 import { getPipelineTitle } from "@/components/layout/pipelineTitle";
+import { BetaLimitsNote } from "@/features/beta/BetaUI";
 
 type Props = {
   children: ReactNode;
@@ -61,6 +62,7 @@ export function TechnicalLayout({ children, variant = "scroll" }: Props) {
                   Free trial compute is shared and substantially slower than a dedicated machine. Generator,
                   training, analysis, and backtests can take much longer here than on localhost.
                 </p>
+                <BetaLimitsNote />
                 {/* Content grows; this column scrolls. Do not use h-full/overflow-hidden traps here. */}
                 <div className="min-w-0">{children}</div>
               </div>

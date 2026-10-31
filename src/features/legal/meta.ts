@@ -1,30 +1,36 @@
 /** Bump when the Terms or Privacy Policy change materially; signed-in users are asked to accept again. */
-export const TERMS_VERSION = "2026-10-24";
-export const PRIVACY_VERSION = "2026-10-24";
-export const LEGAL_UPDATED = "24 October 2026";
+export const TERMS_VERSION = "2026-10-28";
+export const PRIVACY_VERSION = "2026-10-28";
+export const LEGAL_UPDATED = "28 October 2026";
 
 /** The product. The operator below is who provides it. */
 export const PRODUCT = "Convolve";
 
 /**
- * Operator details. Values in square brackets have not been supplied yet and are shown
- * verbatim on the legal pages so they cannot be mistaken for real information.
- * ``name`` is the name the service is operated under; whether it is a registered entity
- * or the trading name of a natural person is not confirmed, so ``contractingParty`` and
- * ``form`` stay open.
+ * Operator details. Convolve is a product operated by Alexander Nicoud as a Swiss sole
+ * proprietorship (Einzelfirma), not an incorporated company; he is personally the contracting
+ * party. VAT registration is unconfirmed, so no VAT number is shown. Values in square brackets
+ * are not confirmed yet and are shown verbatim on the legal pages so they cannot be mistaken
+ * for real information.
  */
 export const OPERATOR = {
-  name: "Nicoud Convolutional Strategies",
-  contractingParty: "[Legal name of the contracting party: the registered entity, or the natural person trading under this name]",
-  form: "[Legal form — to be confirmed]",
-  address: "[Street and number], [Postcode] [City], Switzerland",
-  email: "[contact email address]",
-  privacyEmail: "[privacy contact email address]",
-  register: "[Commercial register entry and number, if registered]",
-  uid: "[UID / VAT number, if registered]",
-  representative: "[Responsible person]",
+  owner: "Alexander Nicoud",
+  contractingParty: "Alexander Nicoud, sole proprietor",
+  form: "Sole proprietorship (Einzelfirma) under Swiss law",
+  address: "Münzentalstrasse 30, 5212 Hausen AG, Switzerland",
+  uid: "CHE-374.029.268",
+  status: "Active",
+  email: "info.convolve@gmail.com",
+  privacyEmail: "info.convolve@gmail.com",
+  representative: "Alexander Nicoud",
   euRepresentative: "[EU representative under Art. 27 GDPR, if required]",
 };
+
+/** One-line identification used wherever a legal document names its provider. */
+export const OPERATOR_LINE = `${OPERATOR.owner}, sole proprietorship (Einzelfirma) under Swiss law, UID ${OPERATOR.uid}, ${OPERATOR.address}`;
+
+/** Market-data source; no commercial licence is held, see the Terms. */
+export const DATA_SOURCE = "Yahoo Finance, accessed through the open-source yfinance library";
 
 /** True while a legal fact is still a bracketed placeholder. */
 export function isPending(value: string): boolean {
@@ -34,6 +40,8 @@ export function isPending(value: string): boolean {
 export const LEGAL_LINKS = [
   { label: "Privacy", href: "/privacy" },
   { label: "Terms", href: "/terms" },
+  { label: "Subscriptions & credits", href: "/subscription-terms" },
+  { label: "Refunds & cancellation", href: "/refunds" },
   { label: "Risk disclosure", href: "/risk-disclosure" },
   { label: "Cookies", href: "/cookies" },
   { label: "Legal notice", href: "/legal" },

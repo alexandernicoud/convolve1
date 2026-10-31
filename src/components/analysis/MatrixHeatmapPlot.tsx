@@ -4,6 +4,7 @@ import { HeatmapPlotCore, heatmapAspectRatio } from "./HeatmapPlotCore";
 import { HeatmapScaleChip } from "./AnalysisChartChrome";
 import type { MatrixJson } from "./analysisTypes";
 import { cn } from "@/lib/utils";
+import { Bone, LoadingRegion } from "@/components/skeleton/Skeleton";
 
 export type { MatrixJson };
 
@@ -34,16 +35,20 @@ export function MatrixHeatmapPlot({
 }: Props) {
   const [data, setData] = useState<MatrixJson | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [empty, setEmpty] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setErr(null);
+    setEmpty(false);
     trainerApi
       .getAnalysisArtifact<unknown>(runId, analysisId, filename)
       .then((raw) => {
         if (cancelled) return;
         const parsed = extract ? extract(raw) : (raw as MatrixJson);
-        setData(parsed && parsed.values?.length ? parsed : null);
+        const ok = parsed && parsed.values?.length;
+        setData(ok ? parsed : null);
+        setEmpty(!ok);
       })
       .catch((e) => {
         if (!cancelled) setErr(e instanceof Error ? e.message : "Load failed");
@@ -62,6 +67,13 @@ export function MatrixHeatmapPlot({
   }
 
   if (!data?.values?.length) {
+    if (!empty) {
+      return (
+        <LoadingRegion label={title ? `Loading ${title}` : "Loading heatmap"}>
+          <Bone className={cn("aspect-square w-full rounded-2xl", className)} />
+        </LoadingRegion>
+      );
+    }
     return (
       <div
         className={cn(
@@ -69,7 +81,7 @@ export function MatrixHeatmapPlot({
           className,
         )}
       >
-        <span className="text-xs text-white/35">Loading…</span>
+        <span className="text-xs text-white/35">No values were recorded for this map.</span>
       </div>
     );
   }

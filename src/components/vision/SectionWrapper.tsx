@@ -22,7 +22,7 @@ export function SectionWrapper({
   delay = 0,
   reducedMotion,
 }: SectionWrapperProps) {
-  const ref = useRef<HTMLSectionElement>(null);
+  const ref = useRef<HTMLElement>(null);
 
   useLayoutEffect(() => {
     const el = ref.current;

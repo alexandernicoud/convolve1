@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Download } from "lucide-react";
-import { btnSm, cx, Panel, StatusPill, surface } from "@/features/review/components/primitives";
+import { btnSm, cx, Panel, StatusPill } from "@/features/review/components/primitives";
+import { LoadingRegion, SkeletonChart, SkeletonPanel, SkeletonStatGrid } from "@/components/skeleton/Skeleton";
 import { fmtDateTime } from "@/lib/viz/format";
 import { backtestApi, isV2, TERMINAL, type BacktestStatus, type EquityPayload, type MetricsPayload, type Summary, type Trade, type V2Summary } from "./api";
 import { EvaluationBadge, MethodologyBadge } from "./ui";
@@ -30,7 +31,13 @@ export interface WorkspaceData {
   trades: Trade[] | null;
   loadTrades: () => void;
   goTab: (t: string) => void;
+  failed: LoadFailures;
+  retry: () => void;
 }
+
+export type LoadFailures = { equity?: string; metrics?: string; trades?: string };
+
+const message = (e: unknown) => (e instanceof Error ? e.message : "Could not reach the server");
 
 const Ctx = createContext<WorkspaceData | null>(null);
 export function useWorkspace(): WorkspaceData {
@@ -54,6 +61,7 @@ export default function BacktestWorkspace() {
   const [metrics, setMetrics] = useState<MetricsPayload | null>(null);
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const tradesRequested = useRef(false);
+  const [failed, setFailed] = useState<LoadFailures>({});
   const [pollNonce, setPollNonce] = useState(0);
 
   // Status polling: stops on any terminal state, and after repeated request failures (no silent retry loop).
@@ -88,6 +96,12 @@ export default function BacktestWorkspace() {
   }, [runId, pollNonce]);
 
   const succeeded = status?.status === "succeeded" && status.result_ready;
+  const loadSeries = useCallback(() => {
+    setFailed((f) => ({ ...f, equity: undefined, metrics: undefined }));
+    backtestApi.equity(runId).then(setEquity).catch((e) => setFailed((f) => ({ ...f, equity: message(e) })));
+    backtestApi.metrics(runId).then(setMetrics).catch((e) => setFailed((f) => ({ ...f, metrics: message(e) })));
+  }, [runId]);
+
   useEffect(() => {
     if (!succeeded) return;
     let alive = true;
@@ -96,22 +110,31 @@ export default function BacktestWorkspace() {
       .then((s) => {
         if (!alive) return;
         setSummary(s);
-        if (isV2(s)) {
-          backtestApi.equity(runId).then((e) => alive && setEquity(e)).catch(() => {});
-          backtestApi.metrics(runId).then((m) => alive && setMetrics(m)).catch(() => {});
-        }
+        if (isV2(s)) loadSeries();
       })
       .catch((e) => alive && setLoadErr(e instanceof Error ? e.message : "Could not load results"));
     return () => {
       alive = false;
     };
-  }, [succeeded, runId]);
+  }, [succeeded, runId, loadSeries]);
 
   const loadTrades = useCallback(() => {
     if (tradesRequested.current) return;
     tradesRequested.current = true;
-    backtestApi.allTrades(runId).then(setTrades).catch(() => (tradesRequested.current = false));
+    setFailed((f) => ({ ...f, trades: undefined }));
+    backtestApi
+      .allTrades(runId)
+      .then(setTrades)
+      .catch((e) => {
+        tradesRequested.current = false;
+        setFailed((f) => ({ ...f, trades: message(e) }));
+      });
   }, [runId]);
+
+  const retry = useCallback(() => {
+    if (!equity || !metrics) loadSeries();
+    if (!trades && failed.trades) loadTrades();
+  }, [equity, metrics, trades, failed.trades, loadSeries, loadTrades]);
 
   const goTab = useCallback((t: string) => setSp((cur) => {
     const n = new URLSearchParams(cur);
@@ -120,8 +143,8 @@ export default function BacktestWorkspace() {
   }), [setSp]);
 
   const data: WorkspaceData | null = useMemo(
-    () => (summary && isV2(summary) ? { runId, summary, equity, metrics, trades, loadTrades, goTab } : null),
-    [runId, summary, equity, metrics, trades, loadTrades, goTab],
+    () => (summary && isV2(summary) ? { runId, summary, equity, metrics, trades, loadTrades, goTab, failed, retry } : null),
+    [runId, summary, equity, metrics, trades, loadTrades, goTab, failed, retry],
   );
 
   return (
@@ -155,7 +178,10 @@ export default function BacktestWorkspace() {
       ) : loadErr ? (
         <p className="rounded-xl border border-red-400/25 bg-red-400/[0.06] px-4 py-3 text-[13.5px] text-red-200/90">{loadErr}</p>
       ) : !summary ? (
-        <div className={cx(surface, "h-40 animate-pulse")} />
+        <LoadingRegion label="Loading backtest results" className="space-y-4">
+          <SkeletonStatGrid />
+          <SkeletonChart height={220} />
+        </LoadingRegion>
       ) : !isV2(summary) ? (
         <LegacyView summary={summary} />
       ) : data ? (
@@ -200,7 +226,13 @@ function RunState({ status, pollError, onRecheck }: { status: BacktestStatus | n
       </Panel>
     );
   }
-  if (!status) return <div className={cx(surface, "h-32 animate-pulse")} />;
+  if (!status) {
+    return (
+      <LoadingRegion label="Loading backtest status">
+        <SkeletonPanel rows={2} />
+      </LoadingRegion>
+    );
+  }
   const live = !TERMINAL.includes(status.status);
   return (
     <Panel title={live ? "Backtest running" : "Backtest did not complete"} aside={<StatusPill status={status.status} progress={status.progress} />}>

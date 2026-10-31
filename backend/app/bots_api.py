@@ -57,6 +57,29 @@ def _require_live_deploy() -> None:
         raise HTTPException(status_code=403, detail=LIVE_DEPLOY_DISABLED_DETAIL)
 
 
+def _require_deployment_slot(db: Session, owner_id: Optional[str], exclude_bot_id: Optional[str] = None) -> None:
+    """Billing: an active subscription with a free paper-deployment slot (no-op while billing is off)."""
+    from app.billing import BillingError, service as billing
+    from app.services import market_data_access
+
+    market_data_access.check(owner_id, "bots")
+    try:
+        billing.check_deployment(db, owner_id, exclude_bot_id=exclude_bot_id)
+    except BillingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+
+def _require_deploy_entitlement(owner_id: Optional[str]) -> None:
+    from app.billing import BillingError, service as billing
+    from app.services import market_data_access
+
+    market_data_access.check(owner_id, "bots")
+    try:
+        billing.require(owner_id, "deploy")
+    except BillingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+
 def _normalize_run_time_hhmm(raw: str) -> str:
     """
     Accept HH:MM or HH.MM (e.g. 22.00) with optional whitespace.
@@ -248,6 +271,7 @@ async def create_bot(
         chart_span_count=chart_span_count,
     )
     schedule_time = _normalize_run_time_hhmm(run_time)
+    _require_deployment_slot(db, owner_id)
     from_library = bool(source_model_id or source_training_run_id)
     supplied = sum((model_file is not None, bool(model_upload_id), from_library))
     if supplied != 1:
@@ -391,6 +415,7 @@ def resume_bot(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depen
         raise HTTPException(status_code=400, detail="Bot is not paused")
     if is_runtime_expired(bot, datetime.now(timezone.utc)):
         raise HTTPException(status_code=400, detail="Runtime expired; cannot resume")
+    _require_deployment_slot(db, owner_id, exclude_bot_id=bot.id)
     bot.lifecycle_state = "active"
     bot.is_active = True
     db.add(bot)
@@ -456,6 +481,7 @@ def toggle_bot(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depen
         _require_live_deploy()
         if is_runtime_expired(bot, datetime.now(timezone.utc)):
             raise HTTPException(status_code=400, detail="Runtime expired; cannot resume")
+        _require_deployment_slot(db, owner_id, exclude_bot_id=bot.id)
         bot.lifecycle_state = "active"
         bot.is_active = True
     else:
@@ -472,6 +498,7 @@ def toggle_bot(bot_id: str, db: Session = Depends(get_db), owner_id: str = Depen
 def _manual_run_response(bot_id: str, db: Session, owner_id: str) -> BotRunOut:
     _require_live_deploy()
     bot = _get_bot(db, bot_id, owner_id)
+    _require_deploy_entitlement(bot.user_id or owner_id)
     _assert_bot_runnable(bot)
     try:
         run, outcome = execute_bot_run(db, bot, trigger="manual")

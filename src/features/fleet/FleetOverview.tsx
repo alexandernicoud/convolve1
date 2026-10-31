@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { dashboardCard } from "@/components/dashboard/dashboardCard";
+import { Bone, LoadingRegion, SkeletonRows, SkeletonStatGrid } from "@/components/skeleton/Skeleton";
 import type { FleetRange } from "./api";
 import { fmtAge, pickLayout, type ChartMode, type SecondaryPanel } from "./lib";
 import { useFleet } from "./useFleet";
@@ -69,7 +70,13 @@ export function FleetOverview() {
   let body: ReactNode;
   if (!p) {
     body = fleet.loading ? (
-      <div className={cn(dashboardCard, "flex h-full items-center justify-center text-[12px] text-white/40")}>Loading fleet…</div>
+      <LoadingRegion label="Loading fleet overview" className="flex flex-col gap-3">
+        <SkeletonStatGrid count={4} />
+        <div className={cn(dashboardCard, "h-[min(45vh,360px)] min-h-[220px] p-4")}>
+          <Bone className="h-full w-full rounded-lg" />
+        </div>
+        <SkeletonRows rows={3} className={cn(dashboardCard, "px-4")} />
+      </LoadingRegion>
     ) : (
       <div role="alert" className={cn(dashboardCard, "flex h-full flex-col items-center justify-center gap-2 text-[12.5px] text-[#FCA5A5]")}>
         Fleet data could not be loaded{error ? `: ${error}` : ""}.

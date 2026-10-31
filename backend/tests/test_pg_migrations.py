@@ -24,8 +24,19 @@ from sqlalchemy.engine import make_url
 BACKEND = Path(__file__).resolve().parents[1]
 ADMIN_URL = os.getenv("CONVOLVE_PG_ADMIN_URL", "").strip()
 BASELINE = "289c17a09fbb"
-HEAD = "d2a7f4c9b351"
+HEAD = "b6e2d9f4a1c7"
 UUID_COLUMNS = {
+    ("founding_discounts", "user_id"),
+    ("referral_codes", "user_id"),
+    ("referrals", "referrer_id"),
+    ("referrals", "referee_id"),
+    ("referrals", "payment_id"),
+    ("citation_claims", "user_id"),
+    ("billing_payments", "user_id"),
+    ("credit_lots", "user_id"),
+    ("billing_refunds", "user_id"),
+    ("feedback_responses", "user_id"),
+    ("contact_messages", "user_id"),
     ("profiles", "id"),
     ("credit_accounts", "user_id"),
     ("credit_ledger", "id"),

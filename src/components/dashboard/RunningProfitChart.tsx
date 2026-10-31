@@ -317,10 +317,10 @@ export function RunningProfitChart({
                 tickLine={{ stroke: "rgba(255,255,255,0.08)" }}
                 width={yAxisMode === "percentReturn" ? 52 : largeHeader ? 60 : 56}
                 tickFormatter={(v) => fmtMoney(Number(v))}
-                domain={([dataMin, dataMax]: [number, number]) => {
+                domain={([dataMin, dataMax]: [number, number]): [number, number] => {
                   const lo = Number(dataMin);
                   const hi = Number(dataMax);
-                  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return ["auto", "auto"];
+                  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [0, 1];
                   if (Math.abs(hi - lo) < 1e-6) {
                     const pad = Math.max(Math.abs(lo) * 0.004, 8);
                     return [lo - pad, hi + pad];

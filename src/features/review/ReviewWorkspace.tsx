@@ -13,6 +13,7 @@ import { RunsView } from "./views/RunsView";
 import { LineageView } from "./views/LineageView";
 import { CompareView } from "./views/CompareView";
 import { Inspector } from "./inspector/Inspector";
+import { LoadingRegion, SkeletonPanel, SkeletonStatGrid, SkeletonTable } from "@/components/skeleton/Skeleton";
 
 const TAB_META: Record<TabId, { label: string; icon: typeof LayoutGrid }> = {
   overview: { label: "Overview", icon: LayoutGrid },
@@ -113,13 +114,13 @@ function Workspace() {
       ) : null}
 
       {loading && !data ? (
-        <div className="space-y-4" aria-busy="true" aria-label="Loading research workspace">
-          <div className={cx(surface, "h-[124px] animate-pulse")} />
+        <LoadingRegion label="Loading research workspace" className="space-y-4">
+          <SkeletonStatGrid />
           <div className="grid gap-4 xl:grid-cols-12">
-            <div className={cx(surface, "h-80 animate-pulse xl:col-span-8")} />
-            <div className={cx(surface, "h-80 animate-pulse xl:col-span-4")} />
+            <SkeletonTable rows={7} cols={4} className="xl:col-span-8" />
+            <SkeletonPanel rows={5} className="xl:col-span-4" />
           </div>
-        </div>
+        </LoadingRegion>
       ) : error && !data ? (
         <div className={cx(surface, "px-6 py-8")}>
           <PanelTitle muted>Review is unavailable</PanelTitle>

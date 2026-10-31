@@ -1,7 +1,7 @@
 import { Bar, BarChart, CartesianGrid, Cell, ErrorBar, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
 import { KV, Panel, cx } from "@/features/review/components/primitives";
 import { IntervalPlot, type IntervalRow } from "@/features/lab/components";
-import { axisLabel, axisProps, ChartFrame, ChartPlaceholder, ChartTooltip, gridProps } from "@/components/viz/chartKit";
+import { axisLabel, axisProps, ChartFrame, ChartLoading, ChartPlaceholder, ChartTooltip, gridProps } from "@/components/viz/chartKit";
 import { fmtInt, fmtNum, fmtPct, isFiniteNum } from "@/lib/viz/format";
 import { SEMANTIC, SERIES, VIZ } from "@/lib/viz/tokens";
 import { useWorkspace } from "../BacktestWorkspace";
@@ -11,8 +11,8 @@ import { fmtVal } from "./PerformanceTab";
 type Group = { group: string; n: number; net_pnl: number; mean_net_return: number | null; win_rate: number | null; win_rate_ci95: [number, number] | null; unstable: boolean };
 
 export default function RobustnessTab() {
-  const { metrics, summary } = useWorkspace();
-  if (!metrics) return <ChartPlaceholder height={240}>Loading…</ChartPlaceholder>;
+  const { metrics, summary, failed, retry } = useWorkspace();
+  if (!metrics) return <ChartLoading height={240} label="Loading robustness metrics" error={failed.metrics} onRetry={retry} />;
   const r = metrics.robustness ?? {};
   const cm = metrics.classification_metrics ?? {};
   const tm = metrics.trading_metrics ?? {};

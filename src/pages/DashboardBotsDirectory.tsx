@@ -5,17 +5,22 @@ import { botsApi, dashboardApi, type Bot, type DashboardEquitySeries } from "@/l
 import { DashboardTopBar } from "@/components/dashboard/DashboardTopBar";
 import { DashboardBotCard } from "@/components/dashboard/DashboardBotCard";
 import { dashboardCard } from "@/components/dashboard/dashboardCard";
+import { LoadFailed, LoadingRegion, SkeletonRows } from "@/components/skeleton/Skeleton";
 
 export default function DashboardBotsDirectory() {
   const [bots, setBots] = useState<Bot[]>([]);
   const [seriesByBot, setSeriesByBot] = useState<DashboardEquitySeries[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const [list, bundle] = await Promise.all([botsApi.listBots(), dashboardApi.getBundle()]);
       setBots(list);
       setSeriesByBot(bundle.equity_by_bot ?? []);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load your bots");
     } finally {
       setLoading(false);
     }
@@ -40,7 +45,17 @@ export default function DashboardBotsDirectory() {
 
         <div className={`min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-xl ${dashboardCard} p-3 md:p-4`}>
           {loading ? (
-            <p className="text-sm text-white/60">Loading…</p>
+            <LoadingRegion label="Loading bots">
+              <SkeletonRows rows={4} />
+            </LoadingRegion>
+          ) : error && bots.length === 0 ? (
+            <LoadFailed
+              message={error}
+              onRetry={() => {
+                setLoading(true);
+                void load();
+              }}
+            />
           ) : bots.length === 0 ? (
             <p className="text-sm text-white/80">No bots yet. Deploy from the toolbar.</p>
           ) : (

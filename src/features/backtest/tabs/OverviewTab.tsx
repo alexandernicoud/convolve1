@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { KV, Panel, cx, surface } from "@/features/review/components/primitives";
-import { axisProps, ChartFrame, ChartPlaceholder, ChartTooltip, gridProps, type LegendItem } from "@/components/viz/chartKit";
+import { axisProps, ChartFrame, ChartLoading, ChartPlaceholder, ChartTooltip, gridProps, type LegendItem } from "@/components/viz/chartKit";
 import { fmtInt, fmtPct, isFiniteNum, niceScale, paddedDomain } from "@/lib/viz/format";
 import { SERIES, VIZ } from "@/lib/viz/tokens";
 import { useWorkspace } from "../BacktestWorkspace";
@@ -24,7 +24,7 @@ export function useEquityRows() {
 }
 
 export default function OverviewTab() {
-  const { summary, equity } = useWorkspace();
+  const { summary, equity, failed, retry } = useWorkspace();
   const tm = summary.trading_metrics;
   const bm = summary.benchmarks.benchmarks;
   const rows = useEquityRows();
@@ -102,7 +102,7 @@ export default function OverviewTab() {
           csv={rows ? { filename: "equity_and_benchmarks.csv", rows, columns: [{ key: "date" }, { key: "equity" }, ...benchKeys.map((k) => ({ key: k, label: bm[k].label }))] } : undefined}
         >
           {!equity ? (
-            <ChartPlaceholder height={320}>Loading equity…</ChartPlaceholder>
+            <ChartLoading height={320} label="Loading equity" error={failed.equity} onRetry={retry} />
           ) : !rows?.length ? (
             <ChartPlaceholder height={320}>No equity series was written.</ChartPlaceholder>
           ) : (

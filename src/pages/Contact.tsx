@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Calendar, Linkedin, Send } from "lucide-react";
 import { toast } from "sonner";
 import { FOUNDER_LINKEDIN_URL } from "@/lib/founderLinks";
@@ -9,21 +9,21 @@ export default function Contact() {
     name: "",
     email: "",
     message: "",
+    website: "",
   });
+  const shownAt = useRef(Date.now());
   const [submitted, setSubmitted] = useState(false);
-  const [submitMode, setSubmitMode] = useState<"web3forms" | "mailto" | null>(null);
   const [sending, setSending] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSending(true);
     try {
-      const result = await submitContact(formState);
-      if (!result.ok) {
+      const result = await submitContact({ ...formState, elapsedMs: Date.now() - shownAt.current });
+      if ("error" in result) {
         toast.error(result.error);
         return;
       }
-      setSubmitMode(result.mode === "web3forms" ? "web3forms" : "mailto");
       setSubmitted(true);
     } finally {
       setSending(false);
@@ -37,11 +37,13 @@ export default function Contact() {
           <div className="mb-8 text-center opacity-0 animate-fade-up md:mb-10">
             <p className="marketing-section-label">Contact</p>
             <h1 className="mt-5 text-[clamp(2rem,4vw,2.75rem)] font-extralight tracking-[-0.03em] text-white">
-              Get in touch
+              Let&apos;s connect!
             </h1>
             <p className="mt-4 text-[clamp(1rem,1.8vw,1.1rem)] text-white/65">
-              Questions, feedback, partnership, or investment.
+              Want to join the team? Interested in investing? Have an idea to improve Convolve, a question, or some
+              criticism?
             </p>
+            <p className="mt-3 text-[clamp(1rem,1.8vw,1.1rem)] text-white/65">I&apos;d love to hear from you. Reach out!</p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-3 md:mt-8">
               <a
                 href="https://calendly.com/alexander-nicoud/30min"
@@ -69,14 +71,8 @@ export default function Contact() {
               <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full border border-white/15 bg-white/[0.06]">
                 <Send className="h-8 w-8 text-white" />
               </div>
-              <h2 className="mb-2 text-lg font-medium tracking-tight text-white">
-                {submitMode === "mailto" ? "Almost there" : "Message sent"}
-              </h2>
-              <p className="text-white/60">
-                {submitMode === "mailto" ?
-                  "If your email app opened, send the message from there to deliver it."
-                : "We'll get back to you as soon as possible."}
-              </p>
+              <h2 className="mb-2 text-lg font-medium tracking-tight text-white">Message sent</h2>
+              <p className="text-white/60">Thank you. I&apos;ll get back to you as soon as possible.</p>
             </div>
           ) : (
             <form
@@ -122,6 +118,27 @@ export default function Contact() {
                   className="input-field w-full resize-none"
                 />
               </div>
+
+              <div aria-hidden="true" className="absolute -left-[10000px] h-px w-px overflow-hidden">
+                <label>
+                  Website
+                  <input
+                    type="text"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={formState.website}
+                    onChange={(e) => setFormState({ ...formState, website: e.target.value })}
+                  />
+                </label>
+              </div>
+
+              <p className="text-[11px] leading-relaxed text-white/40">
+                Your message is stored securely and used only to reply to you. See the{" "}
+                <a href="/privacy" className="underline underline-offset-2 hover:text-white/70">
+                  Privacy Policy
+                </a>
+                .
+              </p>
 
               <button
                 type="submit"

@@ -36,11 +36,12 @@ from app.config import (
     MAX_DATASET_EXTRACTED_BYTES,
     MAX_DATASET_UPLOAD_BYTES,
     MODEL_STORAGE_ROOT,
+    RESEARCH_EXECUTION,
     RUN_BOTS_ON_API_STARTUP,
     SCHEDULED_BOTS_ENABLED,
     configure_logging,
 )
-from app.auth import PUBLIC_PATHS, authenticate_request, get_current_user_id
+from app.auth import PUBLIC_PATHS, PUBLIC_PREFIXES, authenticate_request, get_current_user_id
 from app.ownership import (
     record_pipeline_run,
     require_owned_run,
@@ -75,13 +76,16 @@ from app.paths import (
     datasets_root,
 )
 from app.services.bot_scheduler import start_bot_scheduler
-from app.services import trainer_jobs
+from app.services import beta_limits, research_jobs, trainer_jobs
 from app.db import init_db
 from app.routers.models_upload import router as models_upload_router
 from app.routers.uploads import router as uploads_router
 from app.routers.cnn_lab import router as cnn_lab_router
 from app.routers.account import router as account_router
 from app.routers.credits import router as credits_router
+from app.routers.billing import router as billing_router
+from app.routers.feedback import router as feedback_router
+from app.routers.rewards import router as rewards_router
 from app.services.model_paths import require_existing_model_file
 from app.services import asset_labels
 from app.services import library_models
@@ -107,6 +111,9 @@ app.include_router(uploads_router)
 app.include_router(cnn_lab_router)
 app.include_router(account_router)
 app.include_router(credits_router)
+app.include_router(billing_router)
+app.include_router(feedback_router)
+app.include_router(rewards_router)
 
 logger = logging.getLogger("app.main")
 
@@ -116,7 +123,7 @@ async def supabase_auth_middleware(request: Request, call_next):
     """Require a valid Supabase JWT on every non-public path when AUTH_REQUIRED is on."""
     if not AUTH_REQUIRED:
         return await call_next(request)
-    if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS or request.url.path.startswith("/docs"):
+    if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS or request.url.path.startswith(PUBLIC_PREFIXES):
         return await call_next(request)
     try:
         request.state.user_id = authenticate_request(request)
@@ -161,6 +168,16 @@ def startup() -> None:
             "Marked %s pipeline run(s) interrupted because their worker process is gone",
             interrupted,
         )
+    if research_jobs.enabled():
+        try:
+            failed = research_jobs.reconcile_all()
+            started = research_jobs.pump_queue()
+            logger.info(
+                "Research queue (%s): %s stale run(s) failed, %s waiting run(s) started",
+                RESEARCH_EXECUTION, failed, len(started),
+            )
+        except Exception:
+            logger.exception("Research queue recovery at startup failed")
     logger.info("Startup complete: database initialized.")
     started = start_bot_scheduler()
     if started:
@@ -1225,6 +1242,7 @@ def register_run(
     charge: bool = True,
     price: Optional[Any] = None,
     http_request: Optional[Request] = None,
+    params: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Register a new run in the global registry and persist a lightweight manifest on disk.
 
@@ -1233,7 +1251,8 @@ def register_run(
     server-computed ``app.pricing.Quote`` for this configuration; ``http_request`` supplies
     the optional ``X-Expected-Credits`` and ``Idempotency-Key`` headers.
     """
-    from app.services.credits import DuplicateSubmission, InsufficientCredits, PriceChanged
+    from app.billing import BillingError
+    from app.services.credits import DuplicateSubmission, InsufficientCredits, PriceChanged, billing_enabled
 
     extra = {}
     if trainer_run_id:
@@ -1250,6 +1269,17 @@ def register_run(
             expected_cost = int(raw_expected)
         request_key = (http_request.headers.get("idempotency-key") or "").strip() or None
     download_zip_url = _suggest_download_zip_url(tool, run_id, trainer_run_id, analysis_id)
+    from app.services import feedback as feedback_service
+    from app.services import market_data_access
+
+    market_data_access.check(user_id, tool)
+    feedback_service.check_gate(user_id, tool)
+    try:
+        research_jobs.check_daily_limit(user_id, tool)
+        if status == "running":
+            research_jobs.check_inprocess_capacity(user_id, tool)
+    except research_jobs.AdmissionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     try:
         record_pipeline_run(
             run_id,
@@ -1268,7 +1298,10 @@ def register_run(
             price=price,
             expected_cost=expected_cost,
             request_key=request_key,
+            params=params,
         )
+    except BillingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
     except PriceChanged as exc:
         raise HTTPException(
             status_code=409,
@@ -1289,20 +1322,27 @@ def register_run(
             },
         ) from exc
     except InsufficientCredits as exc:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "code": "insufficient_credits",
-                "message": (
-                    f"This run needs {exc.cost} credits and your balance is {exc.balance}. "
-                    "See plans and usage for options."
-                ),
-                "cost": exc.cost,
-                "balance": exc.balance,
-                "plans_url": "/pricing",
-                "usage_url": "/account?tab=usage",
-            },
-        ) from exc
+        detail: Dict[str, Any] = {
+            "code": "insufficient_credits",
+            "message": (
+                f"This run needs {exc.cost} credits and your balance is {exc.balance}. "
+                "See plans and usage for options."
+            ),
+            "cost": exc.cost,
+            "balance": exc.balance,
+            "plans_url": "/pricing",
+            "usage_url": "/account?tab=usage",
+        }
+        if billing_enabled():
+            from app.billing import catalog as billing_catalog
+
+            detail["message"] = (
+                f"This run needs {exc.cost} credits and your balance is {exc.balance}. "
+                "Buy extra credits or wait for your next monthly allocation."
+            )
+            detail["packs"] = billing_catalog.load()["packs"]
+            detail["buy_url"] = "/account?tab=plan#credits"
+        raise HTTPException(status_code=402, detail=detail) from exc
     now = time.time()
     all_runs[run_id] = GlobalRun(
         id=run_id,
@@ -1465,7 +1505,30 @@ def cancel_run_process(run_id: str, message: str = "Cancelled by user") -> Dict[
     update_run_progress(run_id, 0.0, "cancelled", message, "cancelled")
     if trainer_jobs.is_job_run(run_id):
         trainer_jobs.cancel_execution(run_id)
+    if research_jobs.is_research_run(run_id):
+        research_jobs.cancel(run_id)
     return {"status": "cancelled", "run_id": run_id, "killed": killed}
+
+
+def _queue_research_run(run_id: str, tool: str, payload: Dict[str, Any], user_id: str, register: Callable[[], None]) -> None:
+    """Register (status queued) and enqueue a research run for a worker; see app.services.research_jobs."""
+    fp = research_jobs.fingerprint(tool, payload)
+    try:
+        research_jobs.check_admission(user_id, tool, fp)
+        register()
+        # The worker reports only to the row; a stale copy here would shadow it in run lists.
+        all_runs.pop(run_id, None)
+        research_jobs.save_payload(run_id, tool, payload, fp)
+        ok, detail = research_jobs.submit(run_id)
+    except research_jobs.AdmissionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    if not ok:
+        raise HTTPException(status_code=503, detail={"code": "worker_unavailable", "message": detail, "run_id": run_id})
+
+
+def _research_run_exists(run_id: str, run_dir: str) -> bool:
+    """A queued run, or one executed by a worker elsewhere, has no directory on this instance."""
+    return os.path.exists(run_dir) or research_jobs.is_research_run(run_id)
 
 
 def generate_run_id() -> str:
@@ -1493,7 +1556,10 @@ def get_artifacts_dir(run_id: str) -> str:
     return os.path.join(get_run_dir(run_id), "artifacts")
 
 def read_progress_file(run_id: str) -> Dict[str, Any]:
-    """Safely read progress.json file"""
+    """Safely read progress.json file (from the run's row when a worker elsewhere executes it)."""
+    remote = research_jobs.progress_snapshot(run_id)
+    if remote is not None:
+        return remote
     progress_file = os.path.join(get_run_dir(run_id), "progress.json")
     try:
         if os.path.exists(progress_file):
@@ -1977,7 +2043,9 @@ async def get_me(http_request: Request):
     user_id = get_current_user_id(http_request)
     if AUTH_REQUIRED and not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return {"user_id": user_id}
+    from app.services import market_data_access
+
+    return {"user_id": user_id, "market_data_access": market_data_access.allowed(user_id)}
 
 
 @app.post("/api/labeling-optimizer/run", response_model=RunResponse)
@@ -1988,16 +2056,26 @@ async def start_run(
 ):
     """Start a labeling optimizer run"""
     run_id = generate_run_id()
+    uid = get_current_user_id(http_request)
+    beta_limits.check_optimizer(request.start, request.end)
 
-    # Register run globally
-    register_run(
-        run_id,
-        "labeling-optimizer",
-        f"/products/labeling-optimizer/run/{run_id}",
-        user_id=get_current_user_id(http_request),
-        price=pricing.quote("labeling-optimizer", {"start": request.start, "end": request.end}),
-        http_request=http_request,
-    )
+    def register(status: str = "running") -> None:
+        register_run(
+            run_id,
+            "labeling-optimizer",
+            f"/products/labeling-optimizer/run/{run_id}",
+            user_id=uid,
+            status=status,
+            price=pricing.quote("labeling-optimizer", {"start": request.start, "end": request.end}),
+            http_request=http_request,
+            params={"start": request.start, "end": request.end},
+        )
+
+    if research_jobs.enabled() and uid:
+        _queue_research_run(run_id, "labeling-optimizer", request.dict(), uid, lambda: register("queued"))
+        return RunResponse(run_id=run_id)
+
+    register()
 
     # Start the script in background
     background_tasks.add_task(run_labeling_optimizer, request, run_id)
@@ -2069,8 +2147,11 @@ async def download_visuals(run_id: str = Depends(require_owned_run)):
 
 
 @app.get("/api/yfinance/search")
-async def yfinance_symbol_search(q: str = "", max_results: int = 12):
+async def yfinance_symbol_search(http_request: Request, q: str = "", max_results: int = 12):
     """Lightweight symbol lookup for the chart generator UI (Yahoo Finance via yfinance)."""
+    from app.services import market_data_access
+
+    market_data_access.check(get_current_user_id(http_request))
     query = (q or "").strip()
     if len(query) < 1:
         return {"results": []}
@@ -2113,23 +2194,32 @@ async def start_training_chart_generator(
 ):
     """Start a training chart generator run"""
     run_id = generate_run_id()
+    uid = get_current_user_id(http_request)
+    beta_limits.check_generator(request.symbols, request.chartsPerLabel, request.imageDimension)
 
-    # Register run globally
-    register_run(
-        run_id,
-        "training-chart-generator",
-        f"/tools/generator/runs/{run_id}",
-        user_id=get_current_user_id(http_request),
-        price=pricing.quote(
+    def register(status: str = "running") -> None:
+        register_run(
+            run_id,
             "training-chart-generator",
-            {
-                "symbols": request.symbols,
-                "charts_per_label": request.chartsPerLabel,
-                "image_dimension": request.imageDimension,
-            },
-        ),
-        http_request=http_request,
-    )
+            f"/tools/generator/runs/{run_id}",
+            user_id=uid,
+            status=status,
+            price=pricing.quote(
+                "training-chart-generator",
+                {
+                    "symbols": request.symbols,
+                    "charts_per_label": request.chartsPerLabel,
+                    "image_dimension": request.imageDimension,
+                },
+            ),
+            http_request=http_request,
+        )
+
+    if research_jobs.enabled() and uid:
+        _queue_research_run(run_id, "training-chart-generator", request.dict(), uid, lambda: register("queued"))
+        return RunResponse(run_id=run_id)
+
+    register()
 
     # Create run directory and initial progress file immediately
     run_dir = get_run_dir(run_id)
@@ -2422,14 +2512,16 @@ def estimate_generator_counts(config: Dict[str, Any], load_history) -> Dict[str,
 
 
 @app.post("/api/training-chart-generator/estimate")
-def estimate_training_charts(request: ChartEstimateRequest) -> Dict[str, Any]:
+def estimate_training_charts(request: ChartEstimateRequest, http_request: Request) -> Dict[str, Any]:
     """How many charts the current settings would produce, from actual trading bars.
 
     Uses the same sample walk as generation (``generator_plan``), so balancing, incomplete
     horizons and the permitted period are applied exactly as in a run. Sync endpoint (threadpool).
     """
     from app.services import generator_plan as gplan
+    from app.services import market_data_access
 
+    market_data_access.check(get_current_user_id(http_request))
     if not any(s.strip() for s in (request.symbols or "").split(",")):
         return {"ok": False, "message": "Add a stock to estimate from market data."}
     if request.timeframe not in gplan.TIMEFRAMES:
@@ -2446,7 +2538,7 @@ def estimate_training_charts(request: ChartEstimateRequest) -> Dict[str, Any]:
 
 
 @app.post("/api/training-chart-generator/preview")
-def preview_training_chart(request: ChartPreviewRequest) -> Dict[str, Any]:
+def preview_training_chart(request: ChartPreviewRequest, http_request: Request) -> Dict[str, Any]:
     """Render a single example chart with the current Step-3 settings.
 
     Image matches generation exactly (square, transparent, no chrome). Label /
@@ -2455,6 +2547,10 @@ def preview_training_chart(request: ChartPreviewRequest) -> Dict[str, Any]:
     """
     import pandas as pd
     from dateutil.relativedelta import relativedelta
+
+    from app.services import market_data_access
+
+    market_data_access.check(get_current_user_id(http_request))
 
     symbol = (request.symbols or "").upper().replace(" ", "").split(",")[0].strip()
     if not symbol:
@@ -2610,7 +2706,7 @@ async def cancel_training_chart_generator(run_id: str = Depends(require_owned_ru
     """Cancel a training chart generator run"""
     run_dir = get_run_dir(run_id)
 
-    if not os.path.exists(run_dir):
+    if not _research_run_exists(run_id, run_dir):
         raise HTTPException(status_code=404, detail="Run not found")
 
     return cancel_run_process(run_id, "Generation cancelled by user")
@@ -2620,7 +2716,7 @@ async def cancel_training_chart_generator(run_id: str = Depends(require_owned_ru
 async def cancel_labeling_optimizer(run_id: str = Depends(require_owned_run)):
     """Cancel a labeling optimizer run"""
     run_dir = get_run_dir(run_id)
-    if not os.path.exists(run_dir):
+    if not _research_run_exists(run_id, run_dir):
         raise HTTPException(status_code=404, detail="Run not found")
     return cancel_run_process(run_id, "Optimization cancelled by user")
 
@@ -2677,6 +2773,9 @@ async def upload_dataset(
     (e.g. the Trainer page re-uploading a chart-generator ZIP) for lineage.
     """
     uid = get_current_user_id(http_request) if http_request is not None else None
+    from app.billing.gates import require_feature
+
+    require_feature(uid, "uploads")
     if generator_run_id:
         assert_cross_owned(uid, run_id=generator_run_id)
 
@@ -2711,8 +2810,11 @@ def finalize_dataset_upload(upload_id: str, http_request: Request, body: Optiona
     """Ingest a finished direct upload exactly like POST /datasets/upload."""
     from app.services import direct_uploads
 
+    from app.billing.gates import require_feature
+
     body = body or DatasetFinalizeRequest()
     uid = get_current_user_id(http_request)
+    require_feature(uid, "uploads")
     if body.generator_run_id:
         assert_cross_owned(uid, run_id=body.generator_run_id)
     with direct_uploads.adopt_upload(uid, upload_id, "dataset") as (_, local):
@@ -3515,6 +3617,7 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
     register_run(
         run_id, "trainer", f"/tools/trainer/runs/{run_id}", user_id=uid,
         price=_trainer_price(request, training_folder), http_request=http_request,
+        params=_request_params(request),
     )
 
     run_dir = Path(get_run_dir(run_id))
@@ -3740,12 +3843,20 @@ async def resume_trainer_run(run_id: str = Depends(require_owned_run)):
     configuration). Starting again from scratch is a new run."""
     from starlette.concurrency import run_in_threadpool
 
+    from app.billing.gates import require_feature
+
+    require_feature(lookup_run_owner(run_id), "research.run")
     if not trainer_jobs.job_mode_enabled():
         raise HTTPException(status_code=409, detail="Resuming needs cloud training jobs")
     ok, detail = await run_in_threadpool(trainer_jobs.requeue_for_resume, run_id)
     if not ok:
         raise HTTPException(status_code=409, detail=detail)
     return {"run_id": run_id, "status": "queued" if detail == "queued" else "starting"}
+
+
+def _request_params(request: BaseModel) -> Dict[str, Any]:
+    dump = getattr(request, "model_dump", None)
+    return dump() if callable(dump) else request.dict()
 
 
 def _trainer_price(request: TrainerRequest, images_dir: Optional[str]):
@@ -3795,6 +3906,7 @@ async def _start_trainer_job(
     register_run(
         run_id, "trainer", f"/tools/trainer/runs/{run_id}", user_id=uid, status="queued",
         price=_trainer_price(request, images_dir), http_request=http_request,
+        params=_request_params(request),
     )
     # The job owns progress; a cached registry entry here would hide its updates.
     all_runs.pop(run_id, None)
@@ -5153,30 +5265,37 @@ async def start_testdata_run(
         run_id=request.generator_run_id,
     )
     run_id = generate_run_id()
+    beta_limits.check_testdata(request.symbols, request.img_dim)
 
-    # Register run globally
-    register_run(
-        run_id,
-        "testdata",
-        f"/tools/backtester?runId={run_id}",
-        user_id=uid,
-        price=pricing.quote(
+    def register(status: str = "running") -> None:
+        register_run(
+            run_id,
             "testdata",
-            {
-                "symbols": request.symbols,
-                "period_length_units": request.period_length_units,
-                "img_dim": request.img_dim,
-            },
-        ),
-        http_request=http_request,
-    )
+            f"/tools/backtester?runId={run_id}",
+            user_id=uid,
+            status=status,
+            price=pricing.quote(
+                "testdata",
+                {
+                    "symbols": request.symbols,
+                    "period_length_units": request.period_length_units,
+                    "img_dim": request.img_dim,
+                },
+            ),
+            http_request=http_request,
+        )
+
+    cfg = request.dict()
+    cfg["user_id"] = uid
+    if research_jobs.enabled() and uid:
+        _queue_research_run(run_id, "testdata", cfg, uid, lambda: register("queued"))
+        return RunResponse(run_id=run_id)
+
+    register()
 
     # Create run directory
     run_dir = Path(get_run_dir(run_id))
     run_dir.mkdir(parents=True, exist_ok=True)
-
-    cfg = request.dict()
-    cfg["user_id"] = uid
 
     # Persist request for recovery / linkage (model_id, training_run_id, periods)
     try:
@@ -5263,6 +5382,8 @@ def _maybe_recover_testdata_run(run_id: str, run_dir: Path) -> Optional[Dict[str
             return data if isinstance(data, dict) else None
         except (json.JSONDecodeError, OSError):
             return None
+    if research_jobs.is_research_run(run_id):
+        return None  # its worker finalizes it; finalizing here too would duplicate the dataset
     output_dir = run_dir / "output"
     if not output_dir.is_dir():
         return None
@@ -5305,7 +5426,12 @@ async def cancel_testdata_run(run_id: str = Depends(require_owned_run)):
 @app.get("/runs/testdata/{run_id}/status", response_model=TestDataGeneratorStatusResponse)
 async def get_testdata_status(run_id: str = Depends(require_owned_run)):
     """Get testdata run status (in-memory, with disk fallback after restarts)"""
+    remote = research_jobs.status_view(run_id)
+    if remote is not None and remote["status"] != "succeeded":
+        return TestDataGeneratorStatusResponse(**remote)
     run_dir = Path(get_run_dir(run_id))
+    if remote is not None and not (run_dir / "testdata_results.json").is_file():
+        return TestDataGeneratorStatusResponse(**remote)
     if run_id in testdata_runs:
         run_dir = Path(testdata_runs[run_id]["run_dir"])
 

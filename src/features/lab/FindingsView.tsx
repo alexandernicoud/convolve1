@@ -4,6 +4,7 @@ import { cx, Panel, surface } from "@/features/review/components/primitives";
 import { isFiniteNum, MISSING } from "@/lib/viz/format";
 import { SEMANTIC } from "@/lib/viz/tokens";
 import { labApi, type Finding } from "./api";
+import { LoadingRegion, SkeletonPanel } from "@/components/skeleton/Skeleton";
 import { Limitations, ResultEmpty, useLab } from "./components";
 import { formatMeasurement, groupFindings, MODULE_LABEL, TAB_FOR_KIND } from "./lib";
 
@@ -43,7 +44,14 @@ export default function FindingsView() {
 
   if (!sessionId) return <ResultEmpty>Findings are derived from completed experiments. Run an atlas, masking, faithfulness, feature or projection experiment first.</ResultEmpty>;
   if (err) return <ResultEmpty>{err}</ResultEmpty>;
-  if (!data) return <div className={cx(surface, "h-40 animate-pulse")} />;
+  if (!data) {
+    return (
+      <LoadingRegion label="Loading findings" className="space-y-3">
+        <SkeletonPanel rows={3} />
+        <SkeletonPanel rows={2} />
+      </LoadingRegion>
+    );
+  }
   if (!data.findings.length) return <ResultEmpty>No completed experiments in this session yet.</ResultEmpty>;
   const groups = groupFindings(data.findings);
 

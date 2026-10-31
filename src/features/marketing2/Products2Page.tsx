@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { PricingSection } from "@/features/pricing/PricingPage";
 import { MotionConfig, motion, useInView, useReducedMotion } from "framer-motion";
 import { ArrowRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -141,7 +142,7 @@ function Hero() {
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               <PrimaryCta to={start}>{start === "/dashboard" ? "Open workspace" : "Start building"}</PrimaryCta>
-              <SecondaryCta href="#pipeline">How the tools connect</SecondaryCta>
+              <SecondaryCta href="#pricing">See pricing</SecondaryCta>
             </div>
           </motion.div>
         </div>
@@ -197,13 +198,36 @@ function Node({ id, n }: { id: string; n: number }) {
   );
 }
 
-function Pipeline() {
+function LearnMore() {
+  return (
+    <section aria-label="Learn more about the tools" className="border-t border-white/[0.06]">
+      <Container>
+        <a
+          href="#pipeline"
+          className="group flex flex-col gap-4 py-12 sm:flex-row sm:items-center sm:justify-between lg:py-16"
+        >
+          <span>
+            <span className="block font-mono text-[11px] uppercase tracking-[0.22em] text-white/40">The tools</span>
+            <span className="mt-3 block text-[clamp(1.6rem,2.8vw,2.4rem)] font-light leading-[1.1] tracking-[-0.03em] text-white">
+              Learn more about the tools <span className="text-white/45">and what each one gives you.</span>
+            </span>
+          </span>
+          <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/20 text-white/70 transition-colors group-hover:border-white/50 group-hover:text-white">
+            <ChevronDown className="h-5 w-5 transition-transform group-hover:translate-y-0.5" aria-hidden />
+          </span>
+        </a>
+      </Container>
+    </section>
+  );
+}
+
+function Pipeline({ index }: { index: string }) {
   const hub = stage("dashboard");
   return (
     <section id="pipeline" className="scroll-mt-20 border-t border-white/[0.06] py-20 lg:py-28">
       <Container>
         <SectionHead
-          index="01"
+          index={index}
           label="How the tools connect"
           title="A chain, not a menu."
           intro="Four tools are required to get from prices to a deployed model. Two are optional. All of them can be revisited, and the dashboard records each step."
@@ -264,11 +288,11 @@ function HubBar({ name }: { name: string }) {
   );
 }
 
-function Modules() {
+function Modules({ index }: { index: string }) {
   return (
     <section id="modules" className="scroll-mt-20 border-t border-white/[0.06] py-20 lg:py-28">
       <Container>
-        <SectionHead index="02" label="The tools" title="What each one does, and what it hands on." />
+        <SectionHead index={index} label="The tools" title="What each one does, and what it hands on." />
         <ol className="mt-12 border-t border-white/[0.08]">
           {[...PIPE, "dashboard"].map((id, i) => {
             const s = stage(id);
@@ -336,15 +360,20 @@ function Closing() {
 }
 
 export default function Products2Page() {
+  const { hash } = useLocation();
   useEffect(() => {
-    document.title = "Products | convolve.";
-  }, []);
+    if (!hash) return;
+    const id = window.setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView(), 60);
+    return () => window.clearTimeout(id);
+  }, [hash]);
   return (
     <MotionConfig reducedMotion="user">
       <div className="relative overflow-x-clip bg-[#050506] text-white antialiased">
         <Hero />
-        <Pipeline />
-        <Modules />
+        <PricingSection index="01" />
+        <LearnMore />
+        <Pipeline index="02" />
+        <Modules index="03" />
         <Closing />
         <M2Footer />
       </div>

@@ -8,6 +8,7 @@ import { useCreditSummary, usePlans, useProfile, useUsage, type AccountProfile }
 import { Button, Card, Empty, Input, Notice, Row, Stat, formatDate, readError } from "@/features/account/ui";
 import { PlanTab } from "@/features/account/PlanTab";
 import { RunList, UsageTab } from "@/features/account/UsageTab";
+import { EarnTab } from "@/features/rewards/EarnTab";
 import type { CreditSummary } from "@/features/credits/model";
 
 type DeletionStep = { step: string; ok: boolean; detail: string };
@@ -27,6 +28,7 @@ const TABS = [
   { id: "overview", label: "Overview" },
   { id: "usage", label: "Usage & Credits" },
   { id: "plan", label: "Plan & Billing" },
+  { id: "earn", label: "Earn credits" },
   { id: "security", label: "Security" },
   { id: "privacy", label: "Data & Privacy" },
 ] as const;
@@ -184,6 +186,8 @@ export default function Account() {
               <PlanTab profile={profile} plans={plans} credits={credits} />
             </div>
           )}
+
+          {tab === "earn" && <EarnTab />}
 
           {tab === "security" && (
             <>

@@ -1,4 +1,7 @@
 import { Link } from "react-router-dom";
+import { LoadingRegion, SkeletonPanel } from "@/components/skeleton/Skeleton";
+import { BillingTab } from "@/features/billing/BillingTab";
+import { BetaBenefitsCard } from "@/features/beta/BetaBenefitsCard";
 import { describePlanCredits, formatPrice, type CreditSummary, type PlanCatalogue } from "@/features/credits/model";
 import type { AccountProfile, Loadable } from "./data";
 import { Card, Notice, Row, formatDate } from "./ui";
@@ -16,12 +19,24 @@ export function PlanTab({
   const plan = plans.data?.plans.find((p) => p.id === state?.plan_id);
   const others = plans.data?.plans.filter((p) => p.id !== state?.plan_id) ?? [];
 
+  if (plans.data?.billing_available) return <BillingTab />;
+  if (!plans.data && !plans.error) {
+    return (
+      <LoadingRegion label="Loading plan">
+        <SkeletonPanel rows={4} />
+      </LoadingRegion>
+    );
+  }
+
+  const freeBeta = Boolean(plans.data?.beta && Object.keys(plans.data.beta).length);
+
   return (
     <div className="space-y-6">
+      <BetaBenefitsCard freeBeta={freeBeta} />
       <Card
         title="Current plan"
         action={
-          <Link to="/pricing" className="shrink-0 text-sm text-white/55 underline-offset-4 hover:text-white hover:underline">
+          <Link to="/products#pricing" className="shrink-0 text-sm text-white/55 underline-offset-4 hover:text-white hover:underline">
             Compare plans
           </Link>
         }
@@ -43,7 +58,8 @@ export function PlanTab({
       <Card title="Billing" description="Payment is not available yet.">
         <p className="text-sm leading-relaxed text-white/60">
           Convolve does not process payments and stores no payment details. Paid plans will be announced on the pricing page
-          before anything can be bought. If you need more credits now,{" "}
+          before anything can be bought.{" "}
+          {freeBeta ? "Questions about the beta? " : "If you need more credits now, "}
           <Link to="/contact" className="text-white underline underline-offset-2">
             contact us
           </Link>

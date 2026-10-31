@@ -47,6 +47,11 @@ def canonical_run_status(status: Optional[str]) -> Optional[str]:
     return _STATUS_ALIASES.get(raw, raw)
 
 
+# In-process tools give up after at most an hour (subprocess timeouts); a row from another host
+# quiet for this long has no process behind it.
+_FOREIGN_ORPHAN_SECONDS = 3 * 3600
+
+
 def current_worker_id() -> str:
     """Host and pid of the process that started the run. Not a global lock."""
     return f"{socket.gethostname()}:{os.getpid()}"
@@ -120,6 +125,14 @@ def lookup_run_owner(run_id: str) -> Optional[str]:
         db.close()
 
 
+def _is_uuid(value: Any) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return bool(value)
+    except (ValueError, TypeError):
+        return False
+
+
 def record_pipeline_run(
     run_id: str,
     user_id: Optional[str],
@@ -138,14 +151,20 @@ def record_pipeline_run(
     price: Optional[Any] = None,
     expected_cost: Optional[int] = None,
     request_key: Optional[str] = None,
+    params: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Insert ownership row. No-op when user_id is missing or not a UUID (legacy env).
 
     With ``charge`` the run's credit cost (``price``, an ``app.pricing.Quote``) is debited
-    in the same transaction as the insert; a refused charge leaves nothing behind.
+    in the same transaction as the insert; a refused charge leaves nothing behind. With
+    billing on, the subscription's entitlements and quotas are checked first in that same
+    transaction (``params`` is the raw run request, for feature checks).
     """
+    from app.billing import BillingError, SubscriptionRequired
     from app.services import credits
 
+    if charge and credits.billing_enabled() and not _is_uuid(user_id):
+        raise SubscriptionRequired("Sign in with a subscribed account to run research tools.")
     if not user_id:
         return
     try:
@@ -161,6 +180,10 @@ def record_pipeline_run(
         existing = db.get(PipelineRun, run_id)
         extra_json = json.dumps(extra) if extra else None
         if existing is None:
+            if charge and credits.billing_enabled():
+                from app.billing import service as billing
+
+                billing.authorize_run(db, uid, tool, price.inputs if price is not None else {}, params or {})
             if charge:
                 credits.charge_for_run(
                     db, uid, run_id, tool,
@@ -200,7 +223,7 @@ def record_pipeline_run(
                 existing.extra_json = extra_json
             db.add(existing)
         db.commit()
-    except (credits.InsufficientCredits, credits.PriceChanged, credits.DuplicateSubmission):
+    except (credits.InsufficientCredits, credits.PriceChanged, credits.DuplicateSubmission, BillingError):
         db.rollback()
         raise
     except Exception:
@@ -346,8 +369,9 @@ def list_pipeline_run_states(user_id: Optional[str] = None, limit: int = 500) ->
 def reconcile_orphaned_pipeline_runs() -> int:
     """Mark this host's dead-pid runs interrupted.
 
-    Rows with no worker_id, or a worker_id for another host, are left alone.
-    A different API or a future worker may still be executing them.
+    Rows with no worker_id, or a worker_id of a queue job ("job/..."), are left alone.
+    Another host's in-process row may still be running there, unless it has been quiet for
+    longer than any in-process tool runs (Cloud Run replaces instances, and with them hosts).
     """
     host = socket.gethostname()
     me = os.getpid()
@@ -363,7 +387,21 @@ def reconcile_orphaned_pipeline_runs() -> int:
         for row in rows:
             worker = row.worker_id or ""
             worker_host, sep, pid_s = worker.rpartition(":")
-            if not sep or worker_host != host:
+            if not sep or worker.startswith("job/"):
+                continue
+            if worker_host != host:
+                updated = row.updated_at
+                if updated is not None and updated.tzinfo is None:
+                    updated = updated.replace(tzinfo=timezone.utc)
+                if updated is None or (now - updated).total_seconds() < _FOREIGN_ORPHAN_SECONDS:
+                    continue
+                row.status = "interrupted"
+                row.stage = "interrupted"
+                row.message = "The server instance running this run was replaced before it finished."
+                row.error_summary = row.message
+                row.finished_at = now
+                db.add(row)
+                changed += 1
                 continue
             try:
                 pid = int(pid_s)
@@ -392,6 +430,15 @@ def reconcile_orphaned_pipeline_runs() -> int:
         sweep_refunds()
     except Exception:
         logger.exception("Credit refund sweep failed")
+    from app import config
+
+    if config.BILLING_MODE != "off":
+        from app.billing import service as billing
+
+        try:
+            billing.reconcile()
+        except Exception:
+            logger.exception("Pending cash-refund reconciliation failed")
     return changed
 
 

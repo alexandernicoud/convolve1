@@ -27,11 +27,16 @@ from app.models import (
     BotEquitySnapshot,
     BotRun,
     BotTrade,
+    CitationClaim,
+    ContactMessage,
     CreditAccount,
     CreditLedgerEntry,
     DeletedAccount,
+    FeedbackResponse,
     PipelineRun,
     Profile,
+    Referral,
+    ReferralCode,
     UserDataset,
     UserModel,
     UserPlan,
@@ -42,8 +47,8 @@ logger = logging.getLogger(__name__)
 
 EXPORT_FORMAT = "convolve-account-export/1"
 # Must match TERMS_VERSION / PRIVACY_VERSION in src/features/legal/meta.ts.
-TERMS_VERSION = "2026-10-24"
-PRIVACY_VERSION = "2026-10-24"
+TERMS_VERSION = "2026-10-28"
+PRIVACY_VERSION = "2026-10-28"
 GCS_PREFIXES = ("users/{uid}/", "keras/{uid}/", "uploads/{uid}/")
 
 # Per-process cache only. The durable record is the deleted_accounts table, which
@@ -317,6 +322,8 @@ def update_display_name(user_id: str, display_name: str) -> Dict[str, Any]:
 def export_account(user_id: str) -> Dict[str, Any]:
     """Everything stored about the caller in the database, as JSON-safe dicts."""
     from app.services.credits import ledger_rows_for_export, plan_state
+    from app.services.feedback import export_for as feedback_export
+    from app.services.rewards import export_for as rewards_export
 
     uid = uuid.UUID(user_id)
     db = SessionLocal()
@@ -347,6 +354,11 @@ def export_account(user_id: str) -> Dict[str, Any]:
             "plan": plan_state(db, uid),
             "credit_balance": int(acct.balance) if (acct := db.get(CreditAccount, uid)) else 0,
             "credit_ledger": ledger_rows_for_export(db, uid),
+            "feedback_questionnaire": feedback_export(db, uid),
+            "rewards": rewards_export(db, uid),
+            "contact_messages": [
+                _row(r, exclude=("ip_hash",)) for r in db.query(ContactMessage).filter(ContactMessage.user_id == uid)
+            ],
             "notes": [
                 "Model files, chart images and report files are not embedded; download them from the workspace.",
                 "Workspace preferences kept in your browser's local storage are not included.",
@@ -493,11 +505,15 @@ def delete_account(
                     )
             counts["bots"] = db.query(Bot).filter(Bot.user_id == user_id).delete(synchronize_session=False)
             for model in (
-                AssetLabel, UserModel, UserDataset, PipelineRun, CreditLedgerEntry, CreditAccount, UserPlan,
+                AssetLabel, UserModel, UserDataset, PipelineRun, FeedbackResponse, ContactMessage, CitationClaim,
+                ReferralCode, CreditLedgerEntry, CreditAccount, UserPlan,
             ):
                 counts[model.__tablename__] = (
                     db.query(model).filter(model.user_id == uid).delete(synchronize_session=False)
                 )
+            counts["referrals"] = db.query(Referral).filter(
+                (Referral.referrer_id == uid) | (Referral.referee_id == uid)
+            ).delete(synchronize_session=False)
             counts["profiles"] = db.query(Profile).filter(Profile.id == uid).delete(synchronize_session=False)
             if db.get(DeletedAccount, uid) is None:
                 db.add(DeletedAccount(user_id=uid))

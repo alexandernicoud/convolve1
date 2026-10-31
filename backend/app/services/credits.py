@@ -58,7 +58,12 @@ class DuplicateSubmission(Exception):
 
 
 def enforced() -> bool:
-    return config.CREDITS_MODE == "enforce"
+    """Runs are charged with CREDITS_MODE=enforce, and always while billing is on."""
+    return config.CREDITS_MODE == "enforce" or config.BILLING_MODE != "off"
+
+
+def billing_enabled() -> bool:
+    return config.BILLING_MODE != "off"
 
 
 def _uuid(user_id: Any) -> uuid.UUID:
@@ -82,6 +87,22 @@ def refund_key(run_id: str) -> str:
 
 def plan_state(db: Session, uid: uuid.UUID) -> Dict[str, Any]:
     row = db.get(UserPlan, uid)
+    if billing_enabled():
+        from app.billing import catalog, entitlements
+
+        st = entitlements.state(db, uid)
+        tier = st["tier"]
+        return {
+            "plan_id": tier["id"] if tier else None,
+            "name": tier["name"] if tier else "No subscription",
+            "status": st["status"],
+            "source": row.source if row else "none",
+            "current_period_start": st["period_start"].isoformat() if st["period_start"] else None,
+            "current_period_end": st["period_end"].isoformat() if st["period_end"] else None,
+            "credits": {"amount": tier["monthly_credits"], "cadence": "monthly"} if tier else None,
+            "cancel_at_period_end": st["cancel_at_period_end"],
+            "catalog_version": catalog.CATALOG_VERSION,
+        }
     plan = get_plan(row.plan_id if row else DEFAULT_PLAN_ID)
     return {
         "plan_id": plan["id"],
@@ -142,8 +163,17 @@ def _apply_once(uid: uuid.UUID, delta: int, reason: str, key: str, note: Optiona
 
 
 def ensure_allocations(user_id: Any, now: Optional[datetime] = None) -> None:
-    """Grant the plan's allocation for the current period, at most once per period."""
+    """Grant the plan's allocation for the current period, at most once per period.
+
+    With billing on, monthly credits come only from paid subscription periods
+    (``app.billing``); the legacy free allocation is never granted.
+    """
     uid = _uuid(user_id)
+    if billing_enabled():
+        from app.billing import service
+
+        service.ensure_current(uid, now)
+        return
     db = SessionLocal()
     try:
         credits = plan_state(db, uid).get("credits") or {}
@@ -207,6 +237,9 @@ def charge_for_run(
     except IntegrityError as exc:
         # A concurrent submission with the same request key won the unique index.
         raise DuplicateSubmission(None) from exc
+    from app.billing import lots
+
+    lots.consume(db, uid, cost, key, run_id, int(balance) + cost)
     return cost
 
 
@@ -225,6 +258,14 @@ def refund_run(run_id: str, note: str) -> bool:
         if db.query(CreditLedgerEntry.id).filter(CreditLedgerEntry.idempotency_key == key).first():
             return False
         _credit(db, charge.user_id, -charge.delta, "refund", key, run_id=run_id, tool=charge.tool, note=note)
+        from app.billing import lots
+
+        expired_back = lots.restore(db, charge.idempotency_key, key, run_id)
+        if expired_back:
+            n = lots.debit_balance(db, charge.user_id, expired_back)
+            if n:
+                lots.write_entry(db, charge.user_id, -n, "expiry", f"expiry:{key}", run_id=run_id,
+                                 note="Refunded monthly credits belong to a period that has ended")
         db.commit()
         return True
     except IntegrityError:
@@ -330,9 +371,12 @@ def summary(user_id: str, days: int = 30) -> Dict[str, Any]:
                 or 0
             )
 
-        allocated = total("grant", "allocation", "adjustment")
+        allocated = total("grant", "allocation", "adjustment", "subscription", "purchase")
         charged = -total("charge")
         refunded = total("refund")
+        from app.billing import lots
+
+        buckets = lots.breakdown(db, uid)
 
         by_tool: Dict[str, Dict[str, Any]] = {}
         for tool, reason, delta in (
@@ -361,10 +405,15 @@ def summary(user_id: str, days: int = 30) -> Dict[str, Any]:
                 daily[d] += -delta
 
         return {
-            "mode": config.CREDITS_MODE,
+            "mode": "enforce" if enforced() else "off",
+            "billing_mode": config.BILLING_MODE,
             "balance": int(acct.balance) if acct else 0,
+            "buckets": buckets,
             "plan": plan_state(db, uid),
-            "totals": {"allocated": allocated, "consumed": charged - refunded, "charged": charged, "refunded": refunded},
+            "totals": {
+                "allocated": allocated, "consumed": charged - refunded, "charged": charged, "refunded": refunded,
+                "expired": -total("expiry"), "cashed_out": -total("credit_refund") - total("credit_refund_reversal"),
+            },
             "by_tool": sorted(by_tool.values(), key=lambda x: -x["credits"]),
             "daily": [{"date": d, "credits": v} for d, v in daily.items()],
             "transactions": [
@@ -392,7 +441,8 @@ def quote(user_id: Optional[str], tool: str, params: Optional[Dict[str, Any]] = 
     priced = pricing.quote(tool, params)
     cost = priced.credits
     out: Dict[str, Any] = {
-        "tool": tool, "cost": cost, "mode": config.CREDITS_MODE, "balance": None, "pricing": priced.as_dict(),
+        "tool": tool, "cost": cost, "mode": "enforce" if enforced() else "off", "balance": None,
+        "pricing": priced.as_dict(),
     }
     if user_id and enforced():
         ensure_allocations(user_id)
@@ -405,6 +455,21 @@ def quote(user_id: Optional[str], tool: str, params: Optional[Dict[str, Any]] = 
         out["sufficient"] = out["balance"] >= cost
     else:
         out["sufficient"] = True
+    if user_id and billing_enabled():
+        from app.billing import BillingError, entitlements
+
+        db = SessionLocal()
+        try:
+            uid = _uuid(user_id)
+            st = entitlements.state(db, uid)
+            entitlements.check_run(st, tool, priced.inputs, params or {})
+            if tool == "backtester":
+                entitlements.check_backtest_quota(db, uid, st)
+            out["blocked"] = None
+        except BillingError as exc:
+            out["blocked"] = exc.detail()
+        finally:
+            db.close()
     # Ask for confirmation on large runs, or on runs that would use most of the balance.
     out["confirm"] = cost >= pricing.CONFIRM_ABOVE or (
         out["balance"] is not None and cost > 0 and cost * 2 > out["balance"]

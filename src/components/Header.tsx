@@ -84,7 +84,6 @@ function MainNav({
     location.pathname === "/vision" ||
     location.pathname === "/home3" ||
     location.pathname === "/about" ||
-    location.pathname === "/pricing" ||
     location.pathname === "/products" ||
     isLegalPath(location.pathname);
   const collapsed = useWordmarkCollapsed();
@@ -194,6 +193,12 @@ function MainNav({
                   </div>
                   <div className="border-t border-border/60">
                     <Link
+                      to="/products#pricing"
+                      className="block whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary/80"
+                    >
+                      Pricing
+                    </Link>
+                    <Link
                       to="/dashboard"
                       className="block whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-secondary/80"
                     >
@@ -219,21 +224,6 @@ function MainNav({
             )}
           >
             About
-          </Link>
-          <Link
-            to="/pricing"
-            className={cn(
-              "whitespace-nowrap text-sm transition-colors",
-              isHomeLanding ?
-                isActive("/pricing") ?
-                  "text-white"
-                : "text-white/55 hover:text-white/90"
-              : isActive("/pricing") ?
-                "font-medium text-foreground"
-              : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            Pricing
           </Link>
           <Link
             to="/contact"

@@ -28,6 +28,8 @@ export type QuoteResponse = {
   sufficient: boolean;
   confirm: boolean;
   pricing: PriceQuote;
+  /** With billing on: why the caller's plan would refuse this run (null when allowed). */
+  blocked?: unknown;
 };
 
 /** Endpoints that start a priced run; the confirmed price and a request key ride along. */
@@ -82,6 +84,10 @@ export type PlanCatalogue = {
   default_plan_id: string;
   run_costs: RunCost[];
   billing_available: boolean;
+  /** Free beta limits; `{}` when the beta is off. */
+  beta?: Record<string, unknown>;
+  founding_offer?: { open: boolean; percent: number; applies_to: string[]; ends_at: string | null };
+  market_data?: unknown;
 };
 
 export type LedgerEntry = {
@@ -173,5 +179,6 @@ export function formatPrice(price: PlanPrice): string | null {
 
 export function describePlanCredits(credits: PlanCredits): string | null {
   if (!credits) return null;
-  return credits.cadence === "monthly" ? `${credits.amount} credits every month` : `${credits.amount} credits to start`;
+  const amount = credits.amount.toLocaleString("en-US");
+  return credits.cadence === "monthly" ? `${amount} credits every month` : `${amount} credits to start`;
 }

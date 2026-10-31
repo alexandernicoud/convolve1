@@ -54,6 +54,8 @@ def _empty_summary() -> dict[str, int]:
         "success": 0,
         "error": 0,
         "stale_runs_cleaned": 0,
+        "skipped_unentitled": 0,
+        "skipped_market_data": 0,
     }
 
 
@@ -99,8 +101,23 @@ def run_due_bots_once(now_utc: Optional[datetime] = None) -> dict[str, int]:
             query = query.filter(or_(Bot.user_id == config.USER_ID, Bot.user_id.is_(None)))
         bots = query.all()
         summary["candidates"] = len(bots)
+        # Billing: bots of owners without an active plan stay as they are (never deleted or
+        # reconfigured) but are not executed until a subscription is active again.
+        unentitled: set = set()
+        if config.BILLING_MODE != "off":
+            from app.billing import entitlements
+
+            unentitled = entitlements.owners_without_access(db, [b.user_id for b in bots], now)
+
+        from app.services import market_data_access
 
         for bot in bots:
+            if bot.user_id in unentitled or (config.BILLING_MODE != "off" and not bot.user_id):
+                summary["skipped_unentitled"] += 1
+                continue
+            if not market_data_access.allowed(bot.user_id):
+                summary["skipped_market_data"] += 1
+                continue
             if is_runtime_expired(bot, now):
                 logger.info("Bot %s runtime expired; marking expired", bot.id)
                 bot.lifecycle_state = "expired"

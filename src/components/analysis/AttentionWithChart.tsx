@@ -4,6 +4,7 @@ import { HeatmapPlotCore, heatmapAspectRatio } from "./HeatmapPlotCore";
 import { HeatmapScaleChip } from "./AnalysisChartChrome";
 import { RasterChartPanel } from "./RasterChartPanel";
 import { cn } from "@/lib/utils";
+import { Bone, LoadingRegion } from "@/components/skeleton/Skeleton";
 
 export type AttentionJson = {
   width?: number;
@@ -128,9 +129,9 @@ export function AttentionWithChart({ runId, analysisId, filename, className }: P
 
   if (payload.status === "loading") {
     return (
-      <div className={cn("flex aspect-[2/1] items-center justify-center rounded-2xl border border-white/[0.08] bg-[#0c0c0e] text-xs text-white/35", className)}>
-        Loading…
-      </div>
+      <LoadingRegion label="Loading attention overlay">
+        <Bone className={cn("aspect-[2/1] w-full rounded-2xl", className)} />
+      </LoadingRegion>
     );
   }
 

@@ -6,6 +6,7 @@ import { DashboardTopBar } from "@/components/dashboard/DashboardTopBar";
 import { dashboardCard } from "@/components/dashboard/dashboardCard";
 import { formatSignedUsd } from "@/components/dashboard/dashboardMetrics";
 import { cn } from "@/lib/utils";
+import { LoadFailed, LoadingRegion, SkeletonTable } from "@/components/skeleton/Skeleton";
 
 function fmtDate(iso: string) {
   const d = new Date(iso);
@@ -126,7 +127,17 @@ export default function DashboardTradeHistory() {
         <div className={cn("min-h-0 flex-1", dashboardCard, "p-4")}>
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/45">All trades</p>
           {loading ? (
-            <p className="text-sm text-white/55">Loading…</p>
+            <LoadingRegion label="Loading trades">
+              <SkeletonTable rows={6} cols={5} />
+            </LoadingRegion>
+          ) : error && trades.length === 0 ? (
+            <LoadFailed
+              message="Trades could not be loaded."
+              onRetry={() => {
+                setLoading(true);
+                void load();
+              }}
+            />
           ) : filtered.length === 0 ? (
             <p className="text-sm text-white/55">No trades yet.</p>
           ) : (

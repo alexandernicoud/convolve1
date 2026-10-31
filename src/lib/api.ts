@@ -13,6 +13,7 @@
  * @see https://vitejs.dev/guide/env-and-mode.html
  */
 import type { ChartEstimate } from "@/features/generator/plan";
+import { isRunStartPath } from "@/features/credits/model";
 
 function resolveApiBase(): string {
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
@@ -65,6 +66,10 @@ export async function fetchApi(path: string, init?: RequestInit): Promise<Respon
     }
     const res = await fetch(url, { ...init, headers });
     if (res.status === 402) announceInsufficientCredits(res.clone());
+    else if (res.status === 403 || res.status === 409 || res.status === 451) announceBillingBlock(res.clone());
+    if (RUN_REFUSAL_STATUSES.has(res.status) && (init?.method ?? "GET").toUpperCase() === "POST" && isRunStartPath(path)) {
+      announceRunRefused(res.clone());
+    }
     return res;
   } catch (e) {
     throw networkErrorMessage(e, url);
@@ -72,6 +77,37 @@ export async function fetchApi(path: string, init?: RequestInit): Promise<Respon
 }
 
 export const INSUFFICIENT_CREDITS_EVENT = "convolve:insufficient-credits";
+export const BILLING_BLOCK_EVENT = "convolve:billing-block";
+/** A run start refused for beta limits, capacity, a duplicate or the required questionnaire. */
+export const RUN_REFUSED_EVENT = "convolve:run-refused";
+
+const RUN_REFUSAL_STATUSES = new Set([403, 409, 422, 429, 503]);
+
+function announceRunRefused(res: Response) {
+  void res
+    .json()
+    .catch(() => ({}))
+    .then((body: { detail?: unknown }) => {
+      if (typeof window === "undefined") return;
+      window.dispatchEvent(new CustomEvent(RUN_REFUSED_EVENT, { detail: { status: res.status, detail: body?.detail ?? null } }));
+    });
+}
+
+const BILLING_BLOCK_CODES = new Set(["subscription_required", "feature_locked", "quota_exceeded", "country_restricted"]);
+
+function announceBillingBlock(res: Response) {
+  void res
+    .json()
+    .then((body: { detail?: { code?: unknown } }) => {
+      if (typeof window === "undefined") return;
+      const code = body?.detail && typeof body.detail === "object" ? body.detail.code : null;
+      // Checkout surfaces its own country message inline; everything else opens the access dialog.
+      if (typeof code === "string" && BILLING_BLOCK_CODES.has(code) && !res.url.includes("/api/billing/")) {
+        window.dispatchEvent(new CustomEvent(BILLING_BLOCK_EVENT, { detail: body.detail }));
+      }
+    })
+    .catch(() => undefined);
+}
 
 function announceInsufficientCredits(res: Response) {
   void res

@@ -8,6 +8,7 @@ import { labApi } from "./api";
 import { describeFilters, EMPTY_FILTERS, fmtProp, isActive, type Filters } from "./lib";
 import { ChartBackdropCtx, MapCanvas, useAuthedObjectUrl, type Palette } from "./maps";
 import type { LabSessionState } from "./useLabSession";
+import { Bone } from "@/components/skeleton/Skeleton";
 
 // --------------------------------------------------------------------------- shared context
 
@@ -459,7 +460,7 @@ export function Thumb({
         selected && "bg-white/[0.08] ring-1 ring-white/40",
       )}
     >
-      {url ? <MapCanvas base={url} map={map ?? null} palette={palette} opacity={opacity} /> : <div className="aspect-square w-full animate-pulse rounded-lg bg-white/[0.06]" />}
+      {url ? <MapCanvas base={url} map={map ?? null} palette={palette} opacity={opacity} /> : <Bone className="aspect-square w-full rounded-lg" />}
       {caption ? <div className="min-w-0 px-0.5 text-[11.5px] leading-snug text-white/55">{caption}</div> : null}
     </Tag>
   );

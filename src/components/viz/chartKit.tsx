@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Download } from "lucide-react";
 import { VIZ } from "@/lib/viz/tokens";
 import { downloadText, isFiniteNum, MISSING, toCsv } from "@/lib/viz/format";
+import { Bone, LoadingRegion } from "@/components/skeleton/Skeleton";
 
 /** Recharts axis props: quiet axis line, readable ticks, no tick marks. */
 export const axisProps = {
@@ -136,6 +137,39 @@ export function ChartFrame({
         {children}
       </div>
     </figure>
+  );
+}
+
+/** A chart that has not arrived: skeleton while loading, the error and a retry once the request failed. */
+export function ChartLoading({
+  height = 240,
+  label = "Loading chart",
+  error,
+  onRetry,
+}: {
+  height?: number | string;
+  label?: string;
+  error?: string | null;
+  onRetry?: () => void;
+}) {
+  if (error) {
+    return (
+      <ChartPlaceholder height={height}>
+        <span role="alert">
+          Could not load this chart: {error}
+          {onRetry && (
+            <button type="button" onClick={onRetry} className="ml-2 text-white/70 underline underline-offset-2 hover:text-white">
+              Try again
+            </button>
+          )}
+        </span>
+      </ChartPlaceholder>
+    );
+  }
+  return (
+    <LoadingRegion label={label}>
+      <Bone className="w-full rounded-lg" style={{ height }} />
+    </LoadingRegion>
   );
 }
 

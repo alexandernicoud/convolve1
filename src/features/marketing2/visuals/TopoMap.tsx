@@ -28,6 +28,11 @@ const PEAKS: [number, number, number, number][] = [
   [0.13, 0.82, 0.55, 0.01],
   [0.53, 0.18, -0.45, 0.02],
   [0.07, 0.14, 0.4, 0.012],
+  // Beyond the unit square: only visible on the zoomed-out frontier sheet.
+  [-0.4, 0.4, 0.85, 0.035],
+  [1.42, 0.3, 0.9, 0.03],
+  [1.36, 0.92, -0.6, 0.03],
+  [-0.32, 0.98, 0.6, 0.025],
 ];
 
 function terrain(x: number, y: number) {
@@ -36,19 +41,22 @@ function terrain(x: number, y: number) {
   return v;
 }
 
-const GW = 150;
-const GH = 110;
 const LEVELS = 24;
 
-/** Marching squares over the unit square. Segments are [x1, y1, x2, y2, level]. */
-export function contours() {
+export type Bounds = { x0: number; y0: number; x1: number; y1: number };
+
+/**
+ * Marching squares over `bounds` (terrain coordinates, default the unit square).
+ * Segments are [x1, y1, x2, y2, level], normalised to the bounds.
+ */
+export function contours(bounds: Bounds = { x0: 0, y0: 0, x1: 1, y1: 1 }, GW = 150, GH = 110) {
   const W = GW + 1;
   const z = new Float32Array(W * (GH + 1));
   let lo = Infinity;
   let hi = -Infinity;
   for (let j = 0; j <= GH; j++)
     for (let i = 0; i <= GW; i++) {
-      const v = terrain(i / GW, j / GH);
+      const v = terrain(bounds.x0 + ((bounds.x1 - bounds.x0) * i) / GW, bounds.y0 + ((bounds.y1 - bounds.y0) * j) / GH);
       z[j * W + i] = v;
       lo = Math.min(lo, v);
       hi = Math.max(hi, v);

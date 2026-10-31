@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.auth import get_current_user_id
+from app.billing.gates import require_feature
 from app.services import direct_uploads
 
 router = APIRouter(tags=["uploads"])
@@ -19,8 +20,10 @@ class UploadInitRequest(BaseModel):
 @router.post("/api/uploads")
 def init_direct_upload(body: UploadInitRequest, request: Request) -> dict:
     """Start a direct-to-storage upload, or answer mode "multipart" when unavailable."""
+    uid = get_current_user_id(request)
+    require_feature(uid, "uploads")
     return direct_uploads.init_upload(
-        get_current_user_id(request),
+        uid,
         body.kind,
         body.filename,
         body.size,

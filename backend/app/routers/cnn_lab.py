@@ -28,6 +28,16 @@ router = APIRouter(prefix="/api/lab", tags=["cnn-lab"])
 ModelKind = Literal["trained", "uploaded"]
 
 
+def _entitled(uid: Optional[str], feature: str) -> None:
+    """Billing gate for compute endpoints; reading existing sessions and findings stays open."""
+    from app.billing import BillingError, service as billing
+
+    try:
+        billing.require(uid, feature)
+    except BillingError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+
+
 # --------------------------------------------------------------------------- resolution
 
 
@@ -290,6 +300,7 @@ def _image_meta(r: Resolved, images: str, image_id: str) -> Dict[str, Any]:
 @router.post("/explain")
 def lab_explain(body: ExplainRequest, request: Request) -> Dict[str, Any]:
     uid = get_current_user_id(request)
+    _entitled(uid, "lab.basic")
     r = _resolve(uid, body.model_kind, body.model_id, body.dataset_id)
     lm = _load_model(r)
     images = _require_dataset(r)
@@ -328,6 +339,7 @@ class InterveneRequest(ModelRef):
 @router.post("/intervene")
 def lab_intervene(body: InterveneRequest, request: Request) -> Dict[str, Any]:
     uid = get_current_user_id(request)
+    _entitled(uid, "lab.advanced")
     r = _resolve(uid, body.model_kind, body.model_id, body.dataset_id)
     lm = _load_model(r)
     path = core.image_path(_require_dataset(r), body.image_id)
@@ -351,6 +363,7 @@ class ActMaxRequest(ModelRef):
 @router.post("/actmax")
 def lab_actmax(body: ActMaxRequest, request: Request) -> Dict[str, Any]:
     uid = get_current_user_id(request)
+    _entitled(uid, "lab.advanced")
     r = _resolve(uid, body.model_kind, body.model_id, body.dataset_id)
     lm = _load_model(r)
     conv = {c["name"]: c for c in lm.conv_layers}
@@ -453,6 +466,7 @@ def _on_finish(uid: Optional[str], session_id: str, d: str, kind: str):
 @router.post("/jobs")
 def lab_submit_job(body: JobRequest, request: Request) -> Dict[str, Any]:
     uid = get_current_user_id(request)
+    _entitled(uid, "lab.advanced")
     if body.session_id:
         d = _session_dir(uid, body.session_id)
         meta = jobs.read_session(d) or {}

@@ -432,7 +432,7 @@ const entries = [
   { id: "panel-daily", title: "Daily P&L", body: "Simulated net profit or loss per UTC day." },
 
   // ---------------------------------------------------------------- account
-  { id: "account-plan", title: "Plan", body: "Your plan and its credit allocation. Paid plans and payments are not available yet." },
+  { id: "account-plan", title: "Plan", body: "Your plan, its monthly credits and quotas, and, where paid plans are offered, upgrades, credit packs and cancellation." },
   {
     id: "account-usage",
     title: "Usage and credits",

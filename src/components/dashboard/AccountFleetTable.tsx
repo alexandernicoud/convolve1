@@ -10,6 +10,7 @@ import {
 } from "@/components/dashboard/dashboardMetrics";
 import { demoLinkClass } from "@/components/dashboard/demoPortfolioPalette";
 import { cn } from "@/lib/utils";
+import { LoadingRegion, SkeletonRows } from "@/components/skeleton/Skeleton";
 
 type Props = {
   bots: Bot[];
@@ -34,7 +35,9 @@ export function AccountFleetTable({ bots, equityByBot, loading }: Props) {
         </Link>
       </div>
       {loading ? (
-        <p className="py-4 text-sm text-white/50">Loading…</p>
+        <LoadingRegion label="Loading fleet">
+          <SkeletonRows rows={3} />
+        </LoadingRegion>
       ) : rows.length === 0 ? (
         <p className="py-4 text-sm text-white/55">
           No bots yet.{" "}
