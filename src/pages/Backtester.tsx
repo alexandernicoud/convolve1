@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useSmoothProgress } from "@/lib/smoothProgress";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import {
   Play,
@@ -189,6 +190,16 @@ export default function Backtester() {
   const [testDataRunId, setTestDataRunId] = useState<string | null>(null);
   const [testDataStatus, setTestDataStatus] = useState<TestDataGeneratorStatusResponse | null>(null);
   const [testDataResult, setTestDataResult] = useState<TestDataGeneratorResultResponse | null>(null);
+  const testDataShown = useSmoothProgress(testDataStatus?.progress ?? 0, {
+    key: testDataRunId ?? undefined,
+    done: !!testDataResult,
+    active: !!testDataRunId && !testDataResult,
+  });
+  const backtestShown = useSmoothProgress(runStatus?.progress ?? 0, {
+    key: currentRunId ?? undefined,
+    done: runStatus?.status === "succeeded",
+    active: runStatus?.status === "running",
+  });
   const [testDataError, setTestDataError] = useState<string | null>(null);
 
   const [config, setConfig] = useState<BacktesterConfig>({
@@ -1217,14 +1228,14 @@ export default function Backtester() {
                                 {testDataStatus?.message || "Generating test charts…"}
                               </span>
                               <span className="tabular-nums text-white/45">
-                                {Math.round((testDataStatus?.progress ?? 0) * 100)}%
+                                {Math.round(testDataShown * 100)}%
                               </span>
                             </div>
                             <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
                               <div
-                                className="h-full rounded-full bg-white transition-all duration-500"
+                                className="h-full rounded-full bg-white transition-[width] duration-300 ease-out"
                                 style={{
-                                  width: `${Math.min(100, Math.max(4, (testDataStatus?.progress ?? 0) * 100))}%`,
+                                  width: `${Math.min(100, Math.max(3, testDataShown * 100))}%`,
                                 }}
                               />
                             </div>
@@ -1696,13 +1707,13 @@ export default function Backtester() {
                 <div className="mb-4">
                   <div className="mb-2 h-3 w-full overflow-hidden rounded-full bg-black/40">
                     <div
-                      className="h-3 rounded-full bg-white transition-all duration-500 ease-out"
-                      style={{ width: `${Math.max(5, Math.min(100, runStatus.progress * 100))}%` }}
+                      className="h-3 rounded-full bg-white transition-[width] duration-300 ease-out"
+                      style={{ width: `${Math.max(3, Math.min(100, backtestShown * 100))}%` }}
                     />
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-white/70">{runStatus.message}</span>
-                    <span className="text-white/45">{Math.round(runStatus.progress * 100)}%</span>
+                    <span className="text-white/45">{Math.round(backtestShown * 100)}%</span>
                   </div>
                 </div>
 

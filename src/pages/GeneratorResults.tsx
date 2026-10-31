@@ -10,6 +10,7 @@ import {
   type TrainingChartGeneratorConfig,
 } from "@/lib/api";
 import { createEtaEstimator, formatRemaining } from "@/lib/eta";
+import { useSmoothProgress } from "@/lib/smoothProgress";
 import { useRunsStore } from "@/state/runsStore";
 
 const mapPhaseToStatus = (phase?: string) => {
@@ -74,6 +75,12 @@ export default function GeneratorResults() {
   const [elapsedTime, setElapsedTime] = useState(0);
   const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
   const etaRef = useRef(createEtaEstimator());
+  const shownProgress = useSmoothProgress(progress / 100, { done: status === "done", active: status === "running" });
+  useEffect(() => {
+    if (status !== "running") return;
+    const id = window.setInterval(() => setEtaSeconds(etaRef.current.remainingSeconds()), 1000);
+    return () => window.clearInterval(id);
+  }, [status]);
   const [datasetStats, setDatasetStats] = useState<DatasetStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorDetails, setErrorDetails] = useState<Record<string, unknown> | null>(null);
@@ -339,20 +346,20 @@ export default function GeneratorResults() {
                 {Math.floor(elapsedTime / 60)}:{(elapsedTime % 60).toString().padStart(2, "0")}
               </span>
             </div>
-            <div className="h-3 w-full rounded-full bg-[#0a0a0a]/60">
+            <div className="h-3 w-full overflow-hidden rounded-full bg-[#0a0a0a]/60">
               <div
-                className="h-3 rounded-full bg-white transition-all duration-500"
-                style={{ width: `${Math.min(100, progress)}%` }}
+                className="h-3 rounded-full bg-white transition-[width] duration-300 ease-out"
+                style={{ width: `${Math.min(100, shownProgress * 100)}%` }}
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-[#F5F5F5]/62">{Math.round(progress)}% complete</span>
+              <span className="text-sm text-[#F5F5F5]/62">{Math.round(shownProgress * 100)}% complete</span>
               {formatRemaining(etaSeconds) ? (
                 <span className="rounded-full bg-white/8 px-2 py-0.5 text-xs text-[#F5F5F5]/70">
                   {formatRemaining(etaSeconds)}
                 </span>
-              ) : progress > 0 && progress < 100 ? (
-                <span className="text-xs text-white/35">estimating…</span>
+              ) : progress < 100 ? (
+                <span className="text-xs text-white/40">{progress < 6 ? "Starting a worker…" : "measuring speed…"}</span>
               ) : null}
               <span className="font-mono text-[10px] text-white/40">ID {runId}</span>
             </div>

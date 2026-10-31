@@ -17,6 +17,7 @@ import {
   isTerminal,
   marketLabel,
   patienceUsed,
+  remainingLikely,
   remainingUpperBound,
   STAGE_DETAIL,
   STAGE_LABEL,
@@ -133,32 +134,39 @@ export default function TrainingSessionPage() {
       ) : null}
       {cancelError ? <p className="rounded-xl border border-red-400/25 bg-red-400/[0.06] px-4 py-3 text-[13.5px] text-red-200/90">{cancelError}</p> : null}
 
-      <StageTrack stage={stage} queued={stage === "queued" || data.progress?.phase === "queued"} epochsDone={session?.epochs_completed ?? 0} />
+      {stage === "completed" && session ? (
+        <DoneBanner runId={runId} session={session} />
+      ) : (
+        <StageTrack stage={stage} queued={stage === "queued" || data.progress?.phase === "queued"} epochsDone={session?.epochs_completed ?? 0} />
+      )}
 
       {stage === "failed" ? <FailurePanel session={session} data={data} /> : null}
       {stage === "cancelled" ? <CancelledPanel session={session} stopping={stopping} /> : null}
       {resumePanel}
 
-      <ProgressPanel data={data} session={session} stage={stage} now={now} running={running} />
-      {session && stage !== "failed" && stage !== "cancelled" ? <LiveComputation session={session} running={running} /> : null}
+      {stage !== "completed" ? <ProgressPanel data={data} session={session} stage={stage} now={now} running={running} /> : null}
+
+      {(session?.history?.length ?? 0) > 0 || stage === "completed" ? (
+        <Panel
+          help="learning-curves"
+          title="Learning curves"
+          description="Accuracy and loss per epoch. Validation images are held out from fitting; a growing gap between the two lines is the first sign of overfitting."
+        >
+          <TrainingCurves
+            history={session?.history ?? []}
+            bestEpoch={session?.best_epoch ?? null}
+            bestLabel={`best ${selectionName(session)}`}
+            exportName={`training_${runId}`}
+          />
+        </Panel>
+      ) : null}
+      {session && isProtocol2(session) ? <SelectionCurves session={session} /> : null}
 
       {stage === "completed" && session ? <CompletedPanel runId={runId} session={session} /> : null}
       {stage === "completed" && session ? <EvaluationPanel session={session} /> : null}
+      {stage === "completed" ? <ProgressPanel data={data} session={session} stage={stage} now={now} running={running} /> : null}
+      {session && stage !== "failed" && stage !== "cancelled" ? <LiveComputation session={session} running={running} /> : null}
       {!running && session?.timings ? <TimingPanel session={session} /> : null}
-
-      <Panel
-        help="learning-curves"
-        title="Learning curves"
-        description="Per-epoch values recorded by the trainer. Validation images are held out from fitting; the gap between the two lines is the first place to look for overfitting."
-      >
-        <TrainingCurves
-          history={session?.history ?? []}
-          bestEpoch={session?.best_epoch ?? null}
-          bestLabel={`best ${selectionName(session)}`}
-          exportName={`training_${runId}`}
-        />
-      </Panel>
-      {session && isProtocol2(session) ? <SelectionCurves session={session} /> : null}
 
       <div className="grid gap-5 xl:grid-cols-12">
         <RunDetails session={session} className="xl:col-span-7" />
@@ -331,7 +339,8 @@ function ProgressPanel({
 }) {
   const { done, total } = epochProgress(session);
   const elapsed = elapsedSeconds(session, now);
-  const remaining = running ? remainingUpperBound(session) : null;
+  const remaining = running ? remainingLikely(session) : null;
+  const ceiling = running ? remainingUpperBound(session) : null;
   const patience = patienceUsed(session);
   const latest = session?.history?.[session.history.length - 1];
   const prev = session?.history?.[session.history.length - 2];
@@ -388,9 +397,17 @@ function ProgressPanel({
             sub={isFiniteNum(session?.mean_epoch_seconds) ? "Measured from epoch timestamps" : "After the first epoch"}
           />
           <Figure
-            label="Time left (upper bound)"
-            value={remaining != null ? `≤ ${fmtDuration(remaining)}` : MISSING}
-            sub={remaining != null ? "Estimate: mean epoch × epochs to the maximum" : running ? "Needs two finished epochs" : "Not running"}
+            label="Time left"
+            value={remaining != null ? `~ ${fmtDuration(remaining)}` : MISSING}
+            sub={
+              remaining != null
+                ? ceiling != null && ceiling > remaining * 1.2
+                  ? `Likely, given early stopping; at most ${fmtDuration(ceiling)}`
+                  : "Mean epoch time × epochs left"
+                : running
+                  ? "After the first epoch"
+                  : "Not running"
+            }
           />
           <Figure
             label="Validation loss"
@@ -587,7 +604,12 @@ function CompletedPanel({ runId, session }: { runId: string; session: TrainingSe
             title="Investigate what it learned"
             body="Attribution maps, attention atlas and masking experiments in Analysis."
           />
-          <NextStep to="/tools/backtester" icon={<LineChart className="h-4 w-4" />} title="Backtest it" body="Run the model on unseen market periods." />
+          <NextStep
+            to={`/tools/backtester?modelRunId=${encodeURIComponent(runId)}`}
+            icon={<LineChart className="h-4 w-4" />}
+            title="Backtest it"
+            body="Run the model on unseen market periods."
+          />
           <NextStep
             to={`/tools/run-log?tab=models&inspect=${encodeURIComponent(`model:${runId}`)}`}
             icon={<ArrowRight className="h-4 w-4" />}
@@ -606,6 +628,47 @@ function SmallFigure({ label, value }: { label: string; value: string }) {
       <p className="text-[12.5px] text-white/45">{label}</p>
       <p className="mt-1 font-digits text-[20px] font-semibold tabular-nums text-white">{value}</p>
     </div>
+  );
+}
+
+function DoneBanner({ runId, session }: { runId: string; session: TrainingSession }) {
+  const s = session.summary ?? {};
+  const savedEpoch = s.saved_weights_epoch ?? session.best_epoch ?? null;
+  const saved = savedEpoch ? session.history.find((h) => h.epoch === savedEpoch) ?? s.saved_weights_metrics : undefined;
+  return (
+    <section
+      role="status"
+      className="overflow-hidden rounded-2xl border border-[#a6ecc8]/30 bg-gradient-to-br from-[#a6ecc8]/[0.09] to-transparent px-6 py-5"
+    >
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-4">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#a6ecc8] text-[#04140b]">
+            <Check className="h-6 w-6" strokeWidth={2.5} aria-hidden />
+          </span>
+          <div>
+            <h2 className="text-[19px] font-semibold text-white">Training complete. Your model is saved.</h2>
+            <p className="mt-1 text-[13.5px] text-white/65">
+              {isFiniteNum(saved?.val_accuracy) ? `Validation accuracy ${fmtPct(saved?.val_accuracy, 1)}. ` : ""}
+              Next, see what it learned or test it on market data it has never seen.
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+          <Link
+            to={`/tools/backtester?modelRunId=${encodeURIComponent(runId)}`}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+          >
+            <LineChart className="h-4 w-4" /> Backtest this model
+          </Link>
+          <Link
+            to={`/tools/analysis?trainer_run=${encodeURIComponent(runId)}`}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/25 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
+          >
+            <FlaskConical className="h-4 w-4" /> See what it learned
+          </Link>
+        </div>
+      </div>
+    </section>
   );
 }
 

@@ -875,7 +875,7 @@ export interface RunsStore extends RunsState {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public refusal: string | null = null) {
     super(message);
     this.name = 'ApiError';
   }
@@ -939,6 +939,28 @@ function formatHttpErrorBody(status: number, raw: string): string {
   return trimmed;
 }
 
+/** Run refusals the app explains in words (beta limits, questionnaire, capacity): no status code in the message. */
+const REFUSAL_CODES = new Set([
+  'feedback_required',
+  'market_data_restricted',
+  'beta_limit',
+  'daily_limit',
+  'queue_full',
+  'too_many_active',
+  'busy',
+  'duplicate_submission',
+  'verification_required',
+]);
+
+export function refusalCode(raw: string): string | null {
+  try {
+    const code = (JSON.parse(raw) as { detail?: { code?: unknown } })?.detail?.code;
+    return typeof code === 'string' && REFUSAL_CODES.has(code) ? code : null;
+  } catch {
+    return null;
+  }
+}
+
 function responseStatusLabel(status: number): string {
   if (status === 404) return 'Not found';
   if (status === 422) return 'Validation error';
@@ -960,7 +982,8 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
   if (!response.ok) {
     const errorText = await response.text();
     const detail = formatHttpErrorBody(response.status, errorText);
-    throw new ApiError(response.status, `${response.status} ${responseStatusLabel(response.status)}: ${detail}`);
+    const refusal = refusalCode(errorText);
+    throw new ApiError(response.status, refusal ? detail : `${response.status} ${responseStatusLabel(response.status)}: ${detail}`, refusal);
   }
 
   return response.json();
@@ -975,7 +998,8 @@ async function apiFormRequest<T>(endpoint: string, formData: FormData): Promise<
   if (!response.ok) {
     const errorText = await response.text();
     const detail = formatHttpErrorBody(response.status, errorText);
-    throw new ApiError(response.status, `${response.status} ${responseStatusLabel(response.status)}: ${detail}`);
+    const refusal = refusalCode(errorText);
+    throw new ApiError(response.status, refusal ? detail : `${response.status} ${responseStatusLabel(response.status)}: ${detail}`, refusal);
   }
 
   return response.json();

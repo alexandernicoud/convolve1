@@ -29,6 +29,8 @@ TEXT_MAX = 2000
 
 # Successful runs of these tools count as research experiments for the feedback gate.
 GATED_TOOLS = frozenset({"training-chart-generator", "labeling-optimizer", "testdata", "trainer", "backtester", "analysis"})
+# Analysing a model the user already has is never paused by the questionnaire; it still counts as an experiment.
+BLOCKED_TOOLS = GATED_TOOLS - {"analysis"}
 
 FEATURES = [
     ("datasets", "Chart dataset generator"),
@@ -283,7 +285,7 @@ def status(user_id: str) -> Dict[str, Any]:
 def check_gate(user_id: Optional[str], tool: str) -> None:
     """Called before a compute run is registered. Only new runs are gated: results, downloads,
     account, privacy and deletion never are."""
-    if not user_id or tool not in GATED_TOOLS or not config.FEEDBACK_REQUIRED_AFTER_RUNS:
+    if not user_id or tool not in BLOCKED_TOOLS or not config.FEEDBACK_REQUIRED_AFTER_RUNS:
         return
     try:
         uid = uuid.UUID(str(user_id))
@@ -298,8 +300,8 @@ def check_gate(user_id: Optional[str], tool: str) -> None:
     if state["required"]:
         raise HTTPException(status_code=403, detail={
             "code": "feedback_required",
-            "message": ("You've now had a chance to try Convolve. Before your next experiment, tell us what works, "
-                        "what doesn't, and what you'd improve."),
+            "message": ("You've run the full pipeline, thank you. New experiments resume after a three-minute questionnaire "
+                        f"(+{BONUS_CREDITS} bonus credits). Your results, downloads and model analysis stay available."),
             "feedback_url": "/dashboard/feedback",
             "completed_experiments": state["completed_experiments"],
             "bonus_credits": BONUS_CREDITS,

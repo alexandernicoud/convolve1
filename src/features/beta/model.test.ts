@@ -55,7 +55,7 @@ test("each tool lists only the limits that apply to it, and 0 means unlimited", 
   assert.deepEqual(betaLimitLines(BETA, "optimizer")[0], "periods up to 15 years");
   const trainer = betaLimitLines(BETA, "trainer");
   assert.ok(trainer.includes("up to 200 epochs") && !trainer.some((l) => l.includes("training images")));
-  assert.deepEqual(betaLimitLines(BETA, "backtester"), ["20 runs per day across all tools"]);
+  assert.deepEqual(betaLimitLines(BETA, "backtester"), ["test data: up to 5 symbols", "test images up to 224 px", "20 runs per day across all tools"]);
 });
 
 test("tool pages are recognised by path", () => {

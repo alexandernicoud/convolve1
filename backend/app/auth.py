@@ -205,11 +205,23 @@ def require_verified_user(request: Request) -> str:
     return user_id
 
 
-def require_admin(request: Request) -> str:
+def is_admin(request: Request, user_id: Optional[str]) -> bool:
+    """Listed by account id, or by a verified email address from the token."""
     from app import config
 
+    if not user_id:
+        return False
+    if user_id.lower() in config.ADMIN_USER_IDS:
+        return True
+    claims = getattr(request.state, "auth_claims", None) or {}
+    email = (claims.get("email") or "").strip().lower()
+    verified = not claims.get("is_anonymous") and claims.get("email_verified") is not False
+    return bool(email) and verified and email in config.ADMIN_EMAILS
+
+
+def require_admin(request: Request) -> str:
     user_id = require_verified_user(request)
-    if user_id.lower() not in config.ADMIN_USER_IDS:
+    if not is_admin(request, user_id):
         raise HTTPException(status_code=404, detail="Not found")
     return user_id
 

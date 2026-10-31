@@ -67,6 +67,10 @@ export function betaLimitLines(beta: BetaLimits, tool: BetaTool): string[] {
     add(beta.max_training_images, `${n(beta.max_training_images)} training images`);
     add(beta.max_active_training_jobs, `${n(beta.max_active_training_jobs)} training run${beta.max_active_training_jobs === 1 ? "" : "s"} at a time`);
   } else {
+    if (tool === "backtester") {
+      add(beta.max_symbols, `test data: up to ${n(beta.max_symbols)} symbols`);
+      add(beta.max_image_dimension, `test images up to ${n(beta.max_image_dimension)} px`);
+    }
     add(beta.max_active_inprocess_runs, `${n(beta.max_active_inprocess_runs ?? 0)} run${beta.max_active_inprocess_runs === 1 ? "" : "s"} at a time`);
   }
   if (tool === "generator" || tool === "optimizer") {
@@ -85,7 +89,11 @@ export type RunRefusal = {
   runId?: string;
   /** Points to the contact page (market-data test group). */
   contact?: boolean;
+  /** A usage limit was hit: offer the earn-credits options. */
+  earn?: boolean;
 };
+
+export const EARN_HREF = "/account?tab=earn";
 
 export const MARKET_DATA_MESSAGE =
   "Tools that download market prices are open to an invited test group while market-data licensing is finalised. Training on your saved datasets and analysing your models remain available.";
@@ -129,7 +137,8 @@ export function runRefusal(status: number, detail: unknown): RunRefusal | null {
     return {
       title: TITLES.feedback_required,
       message:
-        "You've now had a chance to try Convolve. Before your next experiment, tell us what works, what doesn't, and what you'd improve.",
+        message ||
+        "You've run the full pipeline, thank you. New experiments resume after a three-minute questionnaire. Your results, downloads and model analysis stay available.",
       feedback: true,
     };
   }
@@ -147,5 +156,6 @@ export function runRefusal(status: number, detail: unknown): RunRefusal | null {
     title: TITLES[code] ?? title,
     message: message || text,
     runId: typeof d.run_id === "string" ? d.run_id : undefined,
+    earn: status === 422 || code === "daily_limit" || code === "queue_full",
   };
 }

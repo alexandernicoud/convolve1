@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useBetaInfo } from "@/features/beta/BetaUI";
 import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, Loader2, Play, Sparkles, X } from "lucide-react";
 import {
@@ -196,6 +197,13 @@ export default function TestDataGeneratorModal({
 
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { beta } = useBetaInfo();
+  const settingsRef = useRef<HTMLDetailsElement>(null);
+  const [settingsOpen, setSettingsOpen] = useState(true);
+  useEffect(() => {
+    setSettingsOpen(!fittingApplied);
+  }, [fittingApplied]);
+  const defaultDatasetName = `test_${(selectedSymbols[0] ?? "data").toLowerCase()}_${testEndIso}`;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -361,22 +369,25 @@ export default function TestDataGeneratorModal({
     return selectedSymbols.length * estimateChartsPerSymbol(testStart, testEnd, config.timeframe);
   }, [testStart, testEnd, selectedSymbols.length, config.timeframe]);
 
-  const validate = (): string | null => {
-    if (!selectedSymbols.length) return "Add at least one symbol";
-    if (!datasetName.trim()) return "Dataset name is required";
+  const validate = (): { message: string; inSettings?: boolean } | null => {
+    if (!selectedSymbols.length) return { message: "Add at least one symbol (step 3)." };
+    if (beta?.max_symbols && selectedSymbols.length > beta.max_symbols)
+      return { message: `The free beta allows up to ${beta.max_symbols} symbols per test dataset; remove ${selectedSymbols.length - beta.max_symbols} in step 3.` };
     if (!testStart || !testEnd || testStart >= testEnd)
-      return "Test start must be strictly before test end";
+      return { message: "Test start must be strictly before test end (step 2)." };
     if (config.takeProfitFraction <= 0 || config.takeProfitFraction > 1)
-      return "Take profit fraction must be between 0 and 1";
+      return { message: "Take profit fraction must be between 0 and 1 (Chart settings).", inSettings: true };
     if (config.stopLossFraction <= 0 || config.stopLossFraction > 1)
-      return "Stop loss fraction must be between 0 and 1";
+      return { message: "Stop loss fraction must be between 0 and 1 (Chart settings).", inSettings: true };
     if (config.imageDimension < 64 || config.imageDimension > 1024)
-      return "Image dimension must be between 64 and 1024";
-    if (config.horizonBars < 1) return "Horizon bars must be at least 1";
+      return { message: "Image dimension must be between 64 and 1024 (Chart settings).", inSettings: true };
+    if (beta?.max_image_dimension && config.imageDimension > beta.max_image_dimension)
+      return { message: `The free beta allows images up to ${beta.max_image_dimension} px; lower the image size in Chart settings.`, inSettings: true };
+    if (config.horizonBars < 1) return { message: "Horizon bars must be at least 1 (Chart settings).", inSettings: true };
     if (!useRawOffsets && computedPeriodLength < 1)
-      return "Test period is too short for the selected timeframe";
+      return { message: "Test period is too short for the selected timeframe (step 2)." };
     if (overlapsTraining)
-      return "The selected test period overlaps the training period — choose a later window";
+      return { message: "The selected test period overlaps the training period — choose a later window (step 2)." };
     return null;
   };
 
@@ -392,7 +403,11 @@ export default function TestDataGeneratorModal({
   const handleGenerate = async () => {
     const validationError = validate();
     if (validationError) {
-      setError(validationError);
+      setError(validationError.message);
+      if (validationError.inSettings) {
+        setSettingsOpen(true);
+        requestAnimationFrame(() => settingsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      }
       return;
     }
     if (!(await confirmRun("testdata", pricingParams))) return;
@@ -401,7 +416,7 @@ export default function TestDataGeneratorModal({
     try {
       const payload: TestDataGeneratorRequest = {
         symbols: selectedSymbols.join(","),
-        dataset_name: datasetName.trim(),
+        dataset_name: datasetName.trim() || defaultDatasetName,
         use_candles: config.useCandles,
         timeframe: config.timeframe,
         span_unit: config.timespanUnit,
@@ -498,8 +513,15 @@ export default function TestDataGeneratorModal({
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5 sm:p-6">
           {/* Quick flow */}
           <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/70">
-            <span className="font-medium text-white">Three steps:</span> link your trained model → choose an
-            out-of-sample test period → generate labeled charts that match your training settings.
+            <span className="font-medium text-white">How it works:</span> pick your trained model, choose a test period
+            after its training data, check the symbols, then press Generate. Everything else is copied from training.
+            {beta ? (
+              <span className="mt-1.5 block text-white/55">
+                Free beta limits: up to <span className="font-medium text-white">{beta.max_symbols} symbols</span> and images up to{" "}
+                <span className="font-medium text-white">{beta.max_image_dimension} px</span> per test dataset. The number of
+                charts is not capped: you get one per trading day in the test period.
+              </span>
+            ) : null}
           </div>
 
           {/* Step 1 — Model link */}
@@ -678,7 +700,9 @@ export default function TestDataGeneratorModal({
           <StepSection
             step={3}
             title="Confirm symbols"
-            description="These tickers get test charts. When using a fitted model, symbols are copied from training."
+            description={`These tickers get test charts. When using a fitted model, symbols are copied from training.${
+              beta?.max_symbols ? ` Free beta: up to ${beta.max_symbols} symbols.` : ""
+            }`}
           >
             <SymbolBasket
               selectedSymbols={selectedSymbols}
@@ -689,7 +713,12 @@ export default function TestDataGeneratorModal({
           </StepSection>
 
           {/* Step 4 — Chart settings (secondary) */}
-          <details className="rounded-2xl border border-white/[0.1] bg-white/[0.02] p-5 md:p-6" open={!fittingApplied}>
+          <details
+            ref={settingsRef}
+            className="rounded-2xl border border-white/[0.1] bg-white/[0.02] p-5 md:p-6"
+            open={settingsOpen}
+            onToggle={(e) => setSettingsOpen((e.currentTarget as HTMLDetailsElement).open)}
+          >
             <summary className="cursor-pointer list-none">
               <div className="flex items-start gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-sm font-semibold text-white/80">
@@ -704,19 +733,6 @@ export default function TestDataGeneratorModal({
               </div>
             </summary>
             <div className="mt-5 space-y-4 border-t border-white/10 pt-5">
-            <div>
-              <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
-                Dataset name <span className="text-[#e5e5e5]">*</span>
-                <FieldTip text="A name for this test dataset (used in the results metadata and downloads)." />
-              </label>
-              <input
-                type="text"
-                value={datasetName}
-                onChange={(e) => setDatasetName(e.target.value)}
-                placeholder={`test_${(selectedSymbols[0] ?? "data").toLowerCase()}_${testEndIso}`}
-                className="w-full rounded-lg border border-white/8 bg-[#0a0a0a]/60 px-3 py-2 text-[#F5F5F5] placeholder-[rgba(255,255,255,0.35)] focus:border-white/30 focus:ring-1 focus:ring-white/50"
-              />
-            </div>
             <div>
               <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
                 Chart Type <span className="text-[#e5e5e5]">*</span>
@@ -938,6 +954,21 @@ export default function TestDataGeneratorModal({
               {(config.stopLossFraction * 100).toFixed(1)}% (SL, label 0) within the next {config.horizonBars} bars.
               Label balance follows real market outcomes — it is not forced 50/50.
             </p>
+          </div>
+
+          <div>
+            <label htmlFor="testdata-name" className="mb-2 flex items-center text-sm font-medium text-[#F5F5F5]/75">
+              Dataset name <span className="ml-1.5 font-normal text-white/40">(optional)</span>
+              <FieldTip text="A name for this test dataset, used in the results and downloads. Leave empty to use the suggested name." />
+            </label>
+            <input
+              id="testdata-name"
+              type="text"
+              value={datasetName}
+              onChange={(e) => setDatasetName(e.target.value)}
+              placeholder={defaultDatasetName}
+              className="w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] placeholder-[rgba(255,255,255,0.35)] focus:border-white/30 focus:ring-1 focus:ring-white/50"
+            />
           </div>
 
           {/* Error */}

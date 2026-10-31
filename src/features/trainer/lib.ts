@@ -76,6 +76,24 @@ export function remainingUpperBound(session?: TrainingSession | null): number | 
   return mean * (total - done);
 }
 
+/**
+ * Likely remaining time: mean epoch duration × the epochs that will probably still run. With early
+ * stopping on, training ends `patience` epochs after the best epoch unless the metric improves again,
+ * so that is the expected end point; it is capped by the configured maximum. Needs one finished epoch.
+ */
+export function remainingLikely(session?: TrainingSession | null): number | null {
+  const mean = session?.mean_epoch_seconds;
+  const { done, total } = epochProgress(session);
+  if (!mean || !total || done < 1 || done >= total) return null;
+  let end = total;
+  if (session?.architecture?.early_stopping?.enabled !== false) {
+    const patience = session?.architecture?.early_stopping?.patience ?? 5;
+    const best = session?.best_epoch ?? done;
+    end = Math.min(total, Math.max(done + 1, best + patience));
+  }
+  return mean * (end - done);
+}
+
 export const TIMING_LABEL: Record<string, { label: string; detail: string }> = {
   waiting_for_machine: { label: "Waiting for a machine", detail: "Dispatch, container start and worker start-up" },
   dataset_download: { label: "Dataset download", detail: "Restoring the stored dataset onto the training machine" },

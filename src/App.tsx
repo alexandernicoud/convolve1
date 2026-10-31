@@ -74,6 +74,7 @@ const DashboardCommunityRanking = lazy(() => import("./pages/DashboardCommunityR
 const FeedbackPage = lazy(() => import("./features/feedback/FeedbackPage"));
 const CitationReviewPage = lazy(() => import("./features/rewards/CitationReviewPage"));
 const FeedbackReviewPage = lazy(() => import("./features/feedback/FeedbackReviewPage"));
+const AdminPage = lazy(() => import("./features/admin/AdminPage"));
 const LiveBotDetail = lazy(() => import("./pages/LiveBotDetail"));
 
 const queryClient = new QueryClient();
@@ -466,6 +467,16 @@ function AppShell() {
               <PageWrapper>
                 <TechnicalLayout variant="dashboard">
                   <CitationReviewPage />
+                </TechnicalLayout>
+              </PageWrapper>
+            }
+          />
+          <Route
+            path="/dashboard/admin"
+            element={
+              <PageWrapper>
+                <TechnicalLayout variant="dashboard">
+                  <AdminPage />
                 </TechnicalLayout>
               </PageWrapper>
             }

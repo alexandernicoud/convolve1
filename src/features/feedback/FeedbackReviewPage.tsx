@@ -26,6 +26,19 @@ function display(q: FeedbackQuestion | undefined, value: Response["answers"][str
 
 /** Administrators only: the API answers 404 to everyone else. Respondents are pseudonymous. */
 export default function FeedbackReviewPage() {
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden font-sans">
+      <DashboardTopBar title="Questionnaire answers" className="mb-2" />
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-4">
+        <div className="mx-auto w-full max-w-3xl">
+          <FeedbackReviewContent />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function FeedbackReviewContent() {
   const list = useApi<AdminFeedback>("/api/admin/feedback");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,10 +63,7 @@ export default function FeedbackReviewPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden font-sans">
-      <DashboardTopBar title="Questionnaire answers" className="mb-2" />
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 md:p-4">
-        <div className="mx-auto w-full max-w-3xl space-y-5">
+        <div className="space-y-5">
           {list.error && !list.data ? (
             <Notice kind="error">This page is only available to administrators.</Notice>
           ) : (
@@ -106,7 +116,5 @@ export default function FeedbackReviewPage() {
             </AsyncBoundary>
           )}
         </div>
-      </div>
-    </div>
   );
 }

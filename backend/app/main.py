@@ -86,6 +86,7 @@ from app.routers.credits import router as credits_router
 from app.routers.billing import router as billing_router
 from app.routers.feedback import router as feedback_router
 from app.routers.rewards import router as rewards_router
+from app.routers.admin import router as admin_router
 from app.services.model_paths import require_existing_model_file
 from app.services import asset_labels
 from app.services import library_models
@@ -114,6 +115,7 @@ app.include_router(credits_router)
 app.include_router(billing_router)
 app.include_router(feedback_router)
 app.include_router(rewards_router)
+app.include_router(admin_router)
 
 logger = logging.getLogger("app.main")
 
@@ -2043,9 +2045,11 @@ async def get_me(http_request: Request):
     user_id = get_current_user_id(http_request)
     if AUTH_REQUIRED and not user_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    from app.auth import is_admin
     from app.services import market_data_access
 
-    return {"user_id": user_id, "market_data_access": market_data_access.allowed(user_id)}
+    return {"user_id": user_id, "market_data_access": market_data_access.allowed(user_id),
+            "is_admin": is_admin(http_request, user_id)}
 
 
 @app.post("/api/labeling-optimizer/run", response_model=RunResponse)

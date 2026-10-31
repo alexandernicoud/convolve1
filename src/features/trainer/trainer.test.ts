@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { TrainerProgressResponse, TrainingSession } from "@/lib/api";
-import { elapsedSeconds, epochProgress, fmtPhaseSeconds, isTerminal, marketLabel, nextPollDelay, patienceUsed, remainingUpperBound, stageOf, storeStatus, timingRows } from "./lib";
+import { elapsedSeconds, epochProgress, fmtPhaseSeconds, isTerminal, marketLabel, nextPollDelay, patienceUsed, remainingLikely, remainingUpperBound, stageOf, storeStatus, timingRows } from "./lib";
 import { architecturePreview, standardArchitecturePreview } from "./architecture";
 import { ema } from "@/lib/viz/smoothing";
 import { fmtClock, fmtDuration, fmtInt, fmtNum, fmtPct, fmtPp, MISSING, niceScale, paddedDomain, toCsv } from "@/lib/viz/format";
@@ -39,6 +39,16 @@ test("remaining time is an upper bound and needs two measured epochs", () => {
   assert.equal(remainingUpperBound(session({ epochs_completed: 10, epochs_total: 30, mean_epoch_seconds: 12 })), 240);
   assert.equal(remainingUpperBound(session({ epochs_completed: 30, epochs_total: 30, mean_epoch_seconds: 12 })), null);
   assert.equal(remainingUpperBound(session({ epochs_completed: 10, epochs_total: 30 })), null);
+});
+
+test("likely remaining time ends patience epochs after the best epoch", () => {
+  assert.equal(remainingLikely(session({ epochs_completed: 1, epochs_total: 30, mean_epoch_seconds: 10, best_epoch: 1 })), 50);
+  assert.equal(remainingLikely(session({ epochs_completed: 10, epochs_total: 30, mean_epoch_seconds: 12, best_epoch: 8 })), 36);
+  assert.equal(remainingLikely(session({ epochs_completed: 28, epochs_total: 30, mean_epoch_seconds: 12, best_epoch: 28 })), 24);
+  assert.equal(
+    remainingLikely(session({ epochs_completed: 10, epochs_total: 30, mean_epoch_seconds: 12, best_epoch: 8, architecture: { early_stopping: { enabled: false } } } as Partial<TrainingSession>)),
+    240,
+  );
 });
 
 test("timing rows keep measured phases in order with shares and the largest flagged", () => {

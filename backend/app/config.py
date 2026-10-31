@@ -239,7 +239,7 @@ if FREE_BETA:
     CREDITS_MODE = "off"
 # After this many successful research runs, an account must answer the feedback questionnaire
 # (once) before starting another. 0 = never required. Defaults to 2 in the free beta.
-FEEDBACK_REQUIRED_AFTER_RUNS = max(0, _env_int("FEEDBACK_REQUIRED_AFTER_RUNS", 2 if FREE_BETA else 0))
+FEEDBACK_REQUIRED_AFTER_RUNS = max(0, _env_int("FEEDBACK_REQUIRED_AFTER_RUNS", 5 if FREE_BETA else 0))
 # Founding beta members: accounts created in [BETA_WINDOW_START, BETA_WINDOW_END) get
 # FOUNDING_DISCOUNT_PERCENT off their first subscription invoice once paid plans launch.
 # Unset start = no account is eligible. Unset end = the window is still open.
@@ -272,6 +272,8 @@ BILLING_RETURN_URL = os.getenv("BILLING_RETURN_URL", "http://localhost:5173/acco
 # --- Administration ---
 # Supabase user IDs allowed to read feedback responses and contact messages. Empty = nobody.
 ADMIN_USER_IDS = frozenset(u.strip().lower() for u in os.getenv("ADMIN_USER_IDS", "").split(",") if u.strip())
+# Verified email addresses with the same rights (checked against the token's email claim).
+ADMIN_EMAILS = frozenset(e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip())
 
 # --- Contact form ---
 # Optional email notification for new contact messages (Resend). Messages are always stored.

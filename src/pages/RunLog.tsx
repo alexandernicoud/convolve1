@@ -5,6 +5,19 @@ import type { GlobalRun } from "@/lib/api";
 import { AuthorizedDownloadLink } from "@/components/AuthorizedDownloadLink";
 import { useRunsStore } from "@/state/runsStore";
 import { ReviewWorkspace } from "@/features/review/ReviewWorkspace";
+import { useSmoothProgress } from "@/lib/smoothProgress";
+
+function RowProgress({ runId, progress }: { runId: string; progress: number }) {
+  const shown = useSmoothProgress(progress, { key: runId });
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-16 overflow-hidden rounded-full bg-white/20">
+        <div className="h-full rounded-full bg-[#e5e5e5] transition-[width] duration-300 ease-out" style={{ width: `${Math.max(3, shown * 100)}%` }} />
+      </div>
+      <span className="min-w-[3ch] text-sm font-medium text-[#F5F5F5]">{Math.round(shown * 100)}%</span>
+    </div>
+  );
+}
 
 interface RunFamily {
   slug: string;
@@ -184,19 +197,7 @@ export default function RunLog() {
                         </div>
 
                         <div className="flex items-center gap-3">
-                          {run.status === "running" && (
-                            <div className="flex items-center gap-2">
-                              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-white/20">
-                                <div
-                                  className="h-full rounded-full bg-[#e5e5e5] transition-all duration-300"
-                                  style={{ width: `${Math.max(5, run.progress * 100)}%` }}
-                                />
-                              </div>
-                              <span className="min-w-[3ch] text-sm font-medium text-[#F5F5F5]">
-                                {Math.round(run.progress * 100)}%
-                              </span>
-                            </div>
-                          )}
+                          {run.status === "running" && <RowProgress runId={run.id} progress={run.progress} />}
 
                           {(run.status === "succeeded" ||
                             run.status === "failed" ||

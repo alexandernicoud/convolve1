@@ -1,8 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { fetchApi } from "@/lib/api";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ArrowRight, Info, MessageSquare, X } from "lucide-react";
+import { ArrowRight, Gift, Info, MessageSquare, X } from "lucide-react";
 import { useCreditsStore } from "@/state/creditsStore";
 import {
+  EARN_HREF,
   MARKET_DATA_MESSAGE,
   betaLimitLines,
   betaToolForPath,
@@ -93,11 +95,15 @@ export function BetaBanner() {
   const { beta, offer } = useBetaInfo();
   if (!beta) return null;
   return (
-    <div className="mx-2.5 mb-2 shrink-0">
+    <div className="mx-2.5 mb-2 flex shrink-0 flex-wrap gap-2">
       <BetaStrip title={offer?.open ? foundingOfferText(offer) : undefined} className="w-full sm:w-fit sm:max-w-full">
         <span className="text-white">Free during the public beta</span>
         <span className="text-white/45"> · No charges · Fair-use limits</span>
         {shortOffer(offer) && <span className="hidden text-[#a6ecc8] md:inline"> · {shortOffer(offer)}</span>}
+      </BetaStrip>
+      <BetaStrip pill="Earn" to={EARN_HREF} linkLabel="Earn credits" className="w-full sm:w-fit sm:max-w-full">
+        <span className="text-white">Beta users can be ambassadors too</span>
+        <span className="text-white/45"> · Invite friends, answer the questionnaire, cite Convolve</span>
       </BetaStrip>
     </div>
   );
@@ -115,6 +121,25 @@ export function BetaOfferNote({ className = "" }: { className?: string }) {
   );
 }
 
+/** Whether the questionnaire must be answered before the next experiment (checked on each tool page). */
+function useFeedbackDue(enabled: boolean): boolean {
+  const { pathname } = useLocation();
+  const refusal = useCreditsStore((s) => s.refusal);
+  const [due, setDue] = useState(false);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    fetchApi("/api/feedback")
+      .then((r) => (r.ok ? (r.json() as Promise<{ gate?: { required?: boolean } }>) : null))
+      .then((s) => live && setDue(s?.gate?.required === true))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [enabled, pathname, refusal]);
+  return enabled && due;
+}
+
 /** Tool pages: market-data access or the limits for this tool, as one strip. */
 export function BetaLimitsNote() {
   const { pathname } = useLocation();
@@ -122,7 +147,15 @@ export function BetaLimitsNote() {
   const marketData = useCreditsStore((s) => s.marketData);
   const marketDataAccess = useCreditsStore((s) => s.marketDataAccess);
   const tool = betaToolForPath(pathname);
+  const feedbackDue = useFeedbackDue(tool != null && tool !== "analysis");
   if (!tool) return null;
+  if (feedbackDue) {
+    return (
+      <BetaStrip pill="Feedback" to="/dashboard/feedback" linkLabel="Answer (3 min)" className="mb-3 w-fit max-w-full">
+        New experiments resume after a three-minute questionnaire. +5 bonus credits.
+      </BetaStrip>
+    );
+  }
   if (marketData?.access === "cohort" && !marketDataAccess && usesMarketData(tool)) {
     return (
       <BetaStrip tone="warn" pill="Invite only" to="/contact" linkLabel="Request access" title={MARKET_DATA_MESSAGE} className="mb-3 w-fit max-w-full">
@@ -197,14 +230,22 @@ export function RunRefusedModal() {
         </div>
         <p className="mt-4 text-sm leading-relaxed text-white/70">{refusal.message}</p>
         {refusal.feedback ? (
-          <p className="mt-2 text-sm text-white/85">Complete this short questionnaire and earn 5 credits for the full launch.</p>
+          <p className="mt-2 text-xs text-white/45">Criticism is welcome. You can also open it later from the Feedback button in the top bar.</p>
         ) : (
           <p className="mt-2 text-xs text-white/45">Nothing new was started. Your saved results are not affected.</p>
         )}
-        {refusal.feedback && (
-          <p className="mt-2 text-xs text-white/45">
-            Your results, downloads and account settings stay available. About three minutes; criticism is welcome.
-          </p>
+        {refusal.earn && (
+          <button
+            type="button"
+            onClick={() => go(EARN_HREF)}
+            className="mt-4 flex w-full items-center gap-3 rounded-xl border border-[#a6ecc8]/25 bg-[#a6ecc8]/[0.06] p-3 text-left transition hover:bg-[#a6ecc8]/[0.1]"
+          >
+            <Gift className="h-5 w-5 shrink-0 text-[#a6ecc8]" aria-hidden />
+            <span className="text-[13px] leading-snug text-white/80">
+              <span className="font-medium text-white">Earn bonus credits while you wait.</span> Invite friends as an ambassador, cite
+              Convolve or answer the questionnaire. Credits are saved for the full launch.
+            </span>
+          </button>
         )}
         <div className="mt-6 flex flex-col gap-2 sm:flex-row">
           {refusal.feedback ? (
@@ -214,7 +255,7 @@ export function RunRefusedModal() {
               onClick={() => go("/dashboard/feedback")}
               className="inline-flex flex-1 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
             >
-              Open the questionnaire
+              Answer now (3 min, +5 credits)
             </button>
           ) : (
             <button
@@ -231,7 +272,7 @@ export function RunRefusedModal() {
             onClick={close}
             className="inline-flex flex-1 items-center justify-center rounded-xl border border-white/15 px-4 py-3 text-sm font-medium text-white/75 transition hover:bg-white/10"
           >
-            Close
+            {refusal.feedback ? "Not now" : "Close"}
           </button>
         </div>
       </div>

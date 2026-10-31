@@ -67,7 +67,7 @@ export default function AtlasView() {
       <JobPanel
         kind="atlas"
         title="Attention atlas"
-        description="Grad-CAM across a seeded sample of images: where evidence concentrates on average, how consistent it is, and how it differs between groups."
+        description="The Grad-CAM heat maps of many charts averaged into one picture. It answers: on average, which part of the chart does the model look at (for example the most recent candles on the right), and is that the same for up and down predictions? Bright = looked at often."
         params={params}
         runLabel="Build atlas"
         estimate={`About ${Math.max(5, Math.round(n / 20))} s for ${n} images at ${context.model.input_size[0]} px.`}

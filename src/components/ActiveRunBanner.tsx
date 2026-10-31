@@ -5,11 +5,24 @@ import { useRunsStore } from '@/state/runsStore';
 import { useHeaderReveal } from '@/context/HeaderRevealContext';
 import { cancelAnyRun } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
+import { useSmoothProgress } from '@/lib/smoothProgress';
 
 const LIVE_POLL_MS = 5000;
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
 
 const DISMISSED_RUNS_KEY = 'convolve_dismissed_runs';
+
+function RunProgress({ runId, progress, labelClassName }: { runId: string; progress: number; labelClassName: string }) {
+  const shown = useSmoothProgress(progress, { key: runId });
+  return (
+    <>
+      <div className="h-1.5 w-24 overflow-hidden rounded-full bg-white/20">
+        <div className="h-full rounded-full bg-white transition-[width] duration-300 ease-out" style={{ width: `${Math.max(3, shown * 100)}%` }} />
+      </div>
+      <span className={labelClassName}>{Math.round(shown * 100)}%</span>
+    </>
+  );
+}
 
 // Helper functions for sessionStorage
 const getDismissedRuns = (): string[] => {
@@ -250,31 +263,6 @@ export default function ActiveRunBanner() {
     return run.stage || run.message || 'Processing...';
   };
 
-  const isProgressStuck = (run: any) => {
-    const timerKey = `progress_${run.id}`;
-    return progressStuckTimers.current.has(timerKey);
-  };
-
-  const ProgressBar = ({ run }: { run: any }) => {
-    const progressPercent = Math.max(5, Math.min(100, run.progress * 100));
-    const stuck = isProgressStuck(run);
-
-    return (
-      <div className="w-24 h-1.5 bg-white/20 rounded-full overflow-hidden">
-        {stuck ? (
-          // Indeterminate animation when stuck
-          <div className="h-full rounded-full bg-gradient-to-r from-white/40 via-white to-white/40 shimmer-animation" />
-        ) : (
-          // Determinate progress
-          <div
-            className="h-full bg-white rounded-full transition-all duration-500"
-            style={{ width: `${progressPercent}%` }}
-          />
-        )}
-      </div>
-    );
-  };
-
   const CollapsedView = () => (
     <div className="flex items-center justify-between text-white">
       {/* Left: Status and count */}
@@ -311,10 +299,7 @@ export default function ActiveRunBanner() {
       <div className="flex items-center gap-3">
         {visibleRuns.length === 1 && visibleRuns[0].status === 'running' && (
           <>
-            <ProgressBar run={visibleRuns[0]} />
-            <span className="text-sm font-medium min-w-[3ch]">
-              {Math.round(visibleRuns[0].progress * 100)}%
-            </span>
+            <RunProgress runId={visibleRuns[0].id} progress={visibleRuns[0].progress} labelClassName="text-sm font-medium min-w-[3ch]" />
             <button
               type="button"
               onClick={(e) => handleCancelRun(visibleRuns[0].id, e)}
@@ -405,10 +390,7 @@ export default function ActiveRunBanner() {
             <div className="flex items-center gap-3">
               {run.status === 'running' && (
                 <>
-                  <ProgressBar run={run} />
-                  <span className="text-sm font-medium min-w-[3ch] text-white/90">
-                    {Math.round(run.progress * 100)}%
-                  </span>
+                  <RunProgress runId={run.id} progress={run.progress} labelClassName="text-sm font-medium min-w-[3ch] text-white/90" />
                   <button
                     type="button"
                     onClick={(e) => handleCancelRun(run.id, e)}

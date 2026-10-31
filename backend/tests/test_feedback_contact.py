@@ -235,6 +235,14 @@ def test_questionnaire_is_required_after_two_successful_experiments(client, monk
     assert st["reward"]["credits"] == 5 and st["reward"]["usable_now"] is False
 
 
+def test_analysing_an_existing_model_is_never_paused(monkeypatch, user_a):
+    monkeypatch.setattr(config, "FEEDBACK_REQUIRED_AFTER_RUNS", 2)
+    _runs(user_a, "succeeded", "succeeded")
+    _start(user_a, "analysis")
+    with pytest.raises(HTTPException):
+        _start(user_a, "trainer")
+
+
 def test_gate_is_off_without_a_threshold(monkeypatch, user_a):
     monkeypatch.setattr(config, "FEEDBACK_REQUIRED_AFTER_RUNS", 0)
     _runs(user_a, "succeeded", "succeeded", "succeeded")

@@ -11,7 +11,10 @@ import {
   Settings,
   User,
   HelpCircle,
+  Gift,
+  ShieldCheck,
 } from "lucide-react";
+import { useIsAdmin } from "@/features/admin/useIsAdmin";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
@@ -35,6 +38,42 @@ const nav = [
   { to: "/tools/deploy", label: "Deploy (paper)", tag: "Deploy", icon: Rocket, tour: "nav-deploy" },
   { to: "/tools/run-log", label: "Run history", tag: "Review", icon: BarChart3, tour: "nav-review" },
 ] as const;
+
+function SideLink({
+  to,
+  active,
+  icon: Icon,
+  label,
+  tip,
+  accent = false,
+}: {
+  to: string;
+  active: boolean;
+  icon: typeof Gift;
+  label: string;
+  tip: string;
+  accent?: boolean;
+}) {
+  return (
+    <Tooltip delayDuration={200}>
+      <TooltipTrigger asChild>
+        <Link
+          to={to}
+          className={`flex w-full flex-col items-center gap-0.5 rounded-xl py-1 transition-colors ${
+            active ? "bg-white/12 text-white ring-1 ring-white/30" : accent ? "text-[#a6ecc8] hover:bg-white/[0.06]" : "text-white/70 hover:bg-white/[0.06] hover:text-white"
+          }`}
+        >
+          <Icon className="h-[20px] w-[20px] shrink-0" aria-hidden />
+          <span className="text-center text-[7px] font-semibold uppercase leading-tight tracking-wide text-white/55">{label}</span>
+          <span className="sr-only">{tip}</span>
+        </Link>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="max-w-[220px] border-white/10 bg-[#0a0a0a] text-neutral-200">
+        {tip}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function DashboardSidebar() {
   const { pathname, search } = useLocation();
@@ -67,7 +106,9 @@ export function DashboardSidebar() {
     return pathname === to || pathname.startsWith(`${to}/`);
   };
 
-  const accountActive = pathname === "/account" && !usageActive;
+  const earnActive = pathname === "/account" && /tab=earn/.test(search);
+  const accountActive = pathname === "/account" && !usageActive && !earnActive;
+  const admin = useIsAdmin();
 
   return (
     <div className="box-border flex h-full min-h-0 shrink-0 flex-col pt-0">
@@ -113,6 +154,10 @@ export function DashboardSidebar() {
         })}
       </nav>
       <div className="flex flex-col items-center gap-1 border-t border-white/[0.07] px-1.5 py-3">
+        {admin && (
+          <SideLink to="/dashboard/admin" active={pathname.startsWith("/dashboard/admin")} icon={ShieldCheck} label="Admin" tip="Admin console" />
+        )}
+        <SideLink to="/account?tab=earn" active={earnActive} icon={Gift} label="Earn" tip="Earn bonus credits: invite friends, cite Convolve, give feedback" accent />
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
             <Link

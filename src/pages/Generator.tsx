@@ -466,6 +466,11 @@ export default function Generator() {
       navigate(`/tools/generator/runs/${encodeURIComponent(newRunId)}`);
     } catch (err) {
       if (err instanceof ApiError) {
+        if (err.refusal) {
+          setError(err.message);
+          setErrorDetails({ type: "refused", message: err.message, status: err.status });
+          return;
+        }
         const isValidation = err.status === 422;
         const fieldErrs = isValidation ? fieldErrorsFromServer(err.message) : {};
         if (Object.keys(fieldErrs).length) {
@@ -1296,7 +1301,9 @@ export default function Generator() {
             <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-[#f87171]" />
             <div className="flex-1">
               <h4 className="mb-2 text-sm font-semibold text-[#f87171]">
-                {errorDetails?.type === "validation_error"
+                {errorDetails?.type === "refused"
+                  ? "Not started"
+                  : errorDetails?.type === "validation_error"
                   ? "Validation error"
                   : errorDetails?.type === "api_error"
                     ? "API error"
@@ -1305,7 +1312,7 @@ export default function Generator() {
                       : "Error"}
               </h4>
               <p className="mb-2 text-sm text-[#F5F5F5]/80">{error}</p>
-              {errorDetails && (
+              {errorDetails && errorDetails.type !== "refused" && (
                 <details className="text-xs text-[#F5F5F5]/60">
                   <summary className="cursor-pointer hover:text-[#F5F5F5]/80">Show technical details</summary>
                   <div className="mt-2 rounded border border-white/5 bg-[#0a0a0a]/60 p-2 font-mono">

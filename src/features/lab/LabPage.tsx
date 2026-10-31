@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { LineChart } from "lucide-react";
 import { cx, KV, Panel, surface } from "@/features/review/components/primitives";
 import { datasetsApi, internalModelsApi, type DatasetListItem, type InternalModel } from "@/lib/api";
 import { fmtInt } from "@/lib/viz/format";
@@ -223,6 +224,7 @@ export default function LabPage() {
         )
       ) : (
         <>
+          <BacktestCta model={model} />
           <div data-help="lab-context">
             <ContextStrip context={context} sessionId={sessionId} />
           </div>
@@ -271,6 +273,26 @@ export default function LabPage() {
     if (!live && !done) return null;
     return <span className={cx("ml-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle", live ? "animate-pulse bg-white" : "bg-white/45")} title={live ? "Running" : "Has results"} />;
   }
+}
+
+function BacktestCta({ model }: { model: { kind: ModelKind; id: string } }) {
+  const to = model.kind === "trained" ? `/tools/backtester?modelRunId=${encodeURIComponent(model.id)}` : `/tools/backtester?modelId=${encodeURIComponent(model.id)}`;
+  return (
+    <section className="flex flex-col gap-3 rounded-2xl border border-white/15 bg-white/[0.04] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-[15px] font-medium text-white">Seen enough? Test this model on the market.</p>
+        <p className="mt-0.5 text-[13px] text-white/55">
+          The maps below show where the model looks. A backtest shows whether its signals would have made money on periods it never saw.
+        </p>
+      </div>
+      <Link
+        to={to}
+        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+      >
+        <LineChart className="h-4 w-4" /> Backtest this model
+      </Link>
+    </section>
+  );
 }
 
 function ContextStrip({ context, sessionId }: { context: LabContext; sessionId: string | null }) {

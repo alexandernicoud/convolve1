@@ -15,6 +15,29 @@ const METHODS: { id: Method; label: string }[] = [
   { id: "activations", label: "Feature maps" },
 ];
 
+export const METHOD_GUIDE: Record<Method, { what: string; read: string }> = {
+  gradcam: {
+    what: "A heat map of the parts of the chart the network relied on most to pick the class. It is computed from one internal layer, so it is coarse: think regions, not single candles.",
+    read: "Bright (violet to white) areas pushed the model toward the class; transparent areas barely mattered. If the glow sits on empty background instead of candles, the model may be using a shortcut.",
+  },
+  saliency: {
+    what: "For every pixel: how much the prediction would change if that pixel changed slightly. It is very detailed but noisy.",
+    read: "Bright pixels are the ones the prediction is most sensitive to. Look for clusters, not isolated specks; scattered dots are mostly noise.",
+  },
+  smoothgrad: {
+    what: "Saliency averaged over many slightly noisy copies of the chart. Same question as Saliency, with much of the noise removed.",
+    read: "Bright areas are where the model is consistently sensitive. If it agrees with Grad-CAM, you can trust the pattern more.",
+  },
+  occlusion: {
+    what: "A direct experiment: a white patch is slid over the chart, and the model's confidence is measured each time.",
+    read: "Blue means covering that spot lowered the confidence, so the model needed it. Orange means covering it raised the confidence, so it was evidence against the class. Clear areas made no difference.",
+  },
+  activations: {
+    what: "What individual filters inside the network detect at the chosen layer. Each tile is one filter's response to this chart.",
+    read: "White means the filter fired strongly there. Early layers react to edges and candle bodies; deeper layers to larger shapes such as trends or gaps.",
+  },
+};
+
 const REGIONS: { id: string; label: string; rect: Rect }[] = [
   { id: "time:oldest", label: "Oldest third (left)", rect: [0, 0, 1 / 3, 1] },
   { id: "time:middle", label: "Middle third (time)", rect: [1 / 3, 0, 2 / 3, 1] },
@@ -288,6 +311,13 @@ function ViewPane({
             {x.label}
           </Chip>
         ))}
+      </div>
+      <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3.5 py-2.5 text-[12.5px] leading-relaxed">
+        <p className="text-white/70">{METHOD_GUIDE[m].what}</p>
+        <p className="mt-1.5 text-white/50">
+          <span className="font-medium text-white/70">How to read it: </span>
+          {METHOD_GUIDE[m].read}
+        </p>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Explain class" hint="Predicted = the class the model chose. Pick a class to see evidence for it even when the model did not predict it.">

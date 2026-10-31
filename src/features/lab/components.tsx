@@ -9,6 +9,19 @@ import { describeFilters, EMPTY_FILTERS, fmtProp, isActive, type Filters } from 
 import { ChartBackdropCtx, MapCanvas, useAuthedObjectUrl, type Palette } from "./maps";
 import type { LabSessionState } from "./useLabSession";
 import { Bone } from "@/components/skeleton/Skeleton";
+import { useSmoothProgress } from "@/lib/smoothProgress";
+
+function LabProgress({ jobId, progress }: { jobId: string; progress: number }) {
+  const shown = useSmoothProgress(progress, { key: jobId });
+  return (
+    <div className="flex items-center gap-3">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.08]">
+        <div className="h-full rounded-full bg-white/80 transition-[width] duration-300 ease-out" style={{ width: `${Math.max(2, shown * 100)}%` }} />
+      </div>
+      <span className="w-9 text-right text-[11.5px] tabular-nums text-white/50">{Math.round(shown * 100)}%</span>
+    </div>
+  );
+}
 
 // --------------------------------------------------------------------------- shared context
 
@@ -258,13 +271,7 @@ export function JobPanel({
                 <Square className="h-3 w-3" /> Cancel
               </button>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
-              {isFiniteNum(latest.progress) ? (
-                <div className="h-full rounded-full bg-white/80 transition-[width] duration-500" style={{ width: `${Math.max(2, latest.progress * 100)}%` }} />
-              ) : (
-                <div className="h-full w-1/3 animate-indeterminate rounded-full bg-white/70" />
-              )}
-            </div>
+            <LabProgress jobId={latest.job_id} progress={isFiniteNum(latest.progress) ? latest.progress : 0} />
             <p className="text-[12.5px] text-white/50">{latest.message || "Working…"}</p>
           </div>
         ) : null}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Download, RefreshCw } from "lucide-react";
+import { ArrowLeft, Download, LineChart, RefreshCw } from "lucide-react";
 import { trainerApi, AnalysisStatusResponse, type TrainerHistoryEpoch } from "@/lib/api";
 import { AccuracyPlot, LossPlot } from "@/components/analysis/TrainingMetricsPlots";
 import { AttentionWithChart } from "@/components/analysis/AttentionWithChart";
@@ -239,10 +239,19 @@ export default function TrainerAdvancedVisuals() {
           </div>
           <div className="flex items-center gap-2">
             {sampleSwitchControl}
+            {runId ? (
+              <Link
+                to={`/tools/backtester?modelRunId=${encodeURIComponent(runId)}`}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-3.5 py-2 text-[13px] font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+              >
+                <LineChart className="h-3.5 w-3.5" />
+                Backtest this model
+              </Link>
+            ) : null}
             <button
               type="button"
               onClick={handleDownloadZip}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-3.5 py-2 text-[13px] font-medium text-[#0a0a0a] transition hover:bg-white/90"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/20 px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-white/10"
             >
               <Download className="h-3.5 w-3.5 opacity-90" />
               Download ({artifactCount})
@@ -301,8 +310,9 @@ export default function TrainerAdvancedVisuals() {
               title="Spatial attribution"
               intro={
                 <>
-                  Grad-CAM projects the prediction back onto the input. Bright regions should sit on meaningful price action,
-                  not empty margins.
+                  A heat map of the chart areas the model relied on for its decision. Bright means &ldquo;this mattered&rdquo;,
+                  transparent means &ldquo;ignored&rdquo;. Healthy models light up candles and price moves, not the empty background
+                  around them.
                 </>
               }
             >
