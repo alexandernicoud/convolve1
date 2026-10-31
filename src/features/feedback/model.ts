@@ -1,7 +1,7 @@
 export type FeedbackOption = { id: string; label: string };
 export type FeedbackQuestion = {
   id: string;
-  type: "rating" | "choice" | "text";
+  type: "rating" | "choice" | "multi" | "text";
   prompt: string;
   min?: number;
   max?: number;
@@ -27,7 +27,7 @@ export type FeedbackStatus = {
   reward?: FeedbackReward | null;
   gate?: FeedbackGate;
 };
-export type FeedbackAnswers = Record<string, string | number>;
+export type FeedbackAnswers = Record<string, string | number | string[]>;
 
 /** Mirrors the server's TEXT_MAX; the server validates again. */
 export const TEXT_MAX = 2000;
@@ -41,8 +41,20 @@ export function isComplete(questions: FeedbackQuestion[], answers: FeedbackAnswe
       return text.length >= (q.min_length ?? 2) && typeof v === "string" && v.length <= TEXT_MAX;
     }
     if (q.type === "rating") return typeof v === "number" && v >= (q.min ?? 1) && v <= (q.max ?? 5);
+    if (q.type === "multi") return Array.isArray(v) && v.length > 0 && v.every((x) => (q.options ?? []).some((o) => o.id === x));
     return typeof v === "string" && (q.options ?? []).some((o) => o.id === v);
   });
+}
+
+/** Adds or removes one option of a multiple-choice answer. */
+export function toggleOption(current: FeedbackAnswers[string] | undefined, id: string): string[] {
+  const list = Array.isArray(current) ? current : [];
+  return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+}
+
+/** Questions answered so far, for the progress line. */
+export function answeredCount(questions: FeedbackQuestion[], answers: FeedbackAnswers): number {
+  return questions.filter((q) => isComplete([q], answers) && !(q.optional && !answers[q.id])).length;
 }
 
 /** Answers to send: blank optional text is left out. */
@@ -52,6 +64,7 @@ export function cleanAnswers(questions: FeedbackQuestion[], answers: FeedbackAns
     const v = answers[q.id];
     if (v === undefined) continue;
     if (q.type === "text" && typeof v === "string" && !v.trim()) continue;
+    if (q.type === "multi" && Array.isArray(v) && !v.length) continue;
     out[q.id] = v;
   }
   return out;

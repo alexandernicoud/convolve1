@@ -28,6 +28,11 @@ export function oauthCallbackPath(nextPath: string): string {
   return `/auth/callback?next=${encodeURIComponent(next)}`;
 }
 
+/** Where a sign-up confirmation link lands: the callback, flagged so a missing session reads as "confirmed, now sign in". */
+export function confirmCallbackPath(nextPath?: string | null): string {
+  return `${oauthCallbackPath(nextPath ?? "/dashboard")}&confirmed=1`;
+}
+
 export function oauthRedirectTo(origin: string, nextPath: string, isDev: boolean): string {
   const base = (isDev ? canonicalDevOrigin(origin) : origin).replace(/\/+$/, "");
   return `${base}${oauthCallbackPath(nextPath)}`;

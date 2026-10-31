@@ -71,7 +71,7 @@ function Hero() {
               </SecondaryCta>
             </motion.div>
             <motion.div {...enter(0.65)}>
-              <BetaOfferNote className="mt-6 max-w-[26rem]" />
+              <BetaOfferNote className="mt-6" />
             </motion.div>
             <motion.a
               href="#workflow"

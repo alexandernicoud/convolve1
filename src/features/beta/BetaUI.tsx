@@ -34,34 +34,72 @@ export function foundingOfferText(offer: FoundingOffer): string {
   return `Founding beta members get ${offer.percent}% off their first month of ${tiersText} when paid subscriptions launch. One-time, on the first invoice only; nothing is charged automatically.${until}`;
 }
 
-/** Dashboard: the beta is free, limits apply, nothing is charged. */
+type StripTone = "beta" | "warn";
+
+/** The one compact banner style used for every beta notice: a pill, one line, one link. */
+export function BetaStrip({
+  tone = "beta",
+  pill = "Beta",
+  children,
+  to = BETA_LIMITS_HREF,
+  linkLabel = "Limits",
+  title,
+  className = "",
+}: {
+  tone?: StripTone;
+  pill?: string;
+  children: React.ReactNode;
+  to?: string;
+  linkLabel?: string;
+  title?: string;
+  className?: string;
+}) {
+  const warn = tone === "warn";
+  return (
+    <div
+      role="note"
+      title={title}
+      className={`flex min-w-0 items-center gap-2.5 rounded-full border py-1 pl-1 pr-3 text-[12px] ${
+        warn ? "border-amber-300/25 bg-amber-300/[0.06] text-amber-50/85" : "border-white/[0.12] bg-white/[0.04] text-white/75"
+      } ${className}`}
+    >
+      <span
+        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+          warn ? "bg-amber-300/90 text-[#1a1200]" : "bg-[#a6ecc8] text-[#04140b]"
+        }`}
+      >
+        {pill}
+      </span>
+      <span className="min-w-0 truncate">{children}</span>
+      <Link
+        to={to}
+        className={`ml-auto inline-flex shrink-0 items-center gap-1 font-medium transition ${
+          warn ? "text-amber-100 hover:text-white" : "text-white/90 hover:text-white"
+        }`}
+      >
+        {linkLabel}
+        <ArrowRight className="h-3 w-3" aria-hidden />
+      </Link>
+    </div>
+  );
+}
+
+function shortOffer(offer: FoundingOffer | null): string | null {
+  return offer?.open ? `Founding members: ${offer.percent}% off the first paid month at launch.` : null;
+}
+
+/** Dashboard: free beta, nothing charged, founding offer. */
 export function BetaBanner() {
   const { beta, offer } = useBetaInfo();
   if (!beta) return null;
   return (
-    <section
-      aria-label="Public beta"
-      className="mx-2.5 mb-2 shrink-0 rounded-xl border border-white/[0.1] bg-white/[0.025] px-4 py-3 sm:px-5"
-    >
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
-        <div className="min-w-0">
-          <h2 className="text-[13.5px] font-semibold text-white">Convolve Public Beta — Free Access</h2>
-          <p className="mt-1 max-w-3xl text-[12.5px] leading-relaxed text-white/60">
-            Convolve is currently free while we develop and improve the platform with our early users. To keep computation
-            available to everyone, temporary limits apply to experiment sizes and daily usage.
-          </p>
-          <p className="mt-1 text-[12.5px] text-white/80">No subscription required. No automatic charges.</p>
-          {offer?.open && <p className="mt-1.5 max-w-3xl text-[12px] leading-relaxed text-[#a6ecc8]/80">{foundingOfferText(offer)}</p>}
-        </div>
-        <Link
-          to={BETA_LIMITS_HREF}
-          className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg border border-white/15 px-3 py-1.5 text-[12px] text-white/80 transition hover:bg-white/10 hover:text-white"
-        >
-          See beta limits
-          <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-        </Link>
-      </div>
-    </section>
+    <div className="mx-2.5 mb-2 shrink-0">
+      <BetaStrip title={offer?.open ? foundingOfferText(offer) : undefined} className="w-full sm:w-fit sm:max-w-full">
+        <span className="text-white">Free during the public beta</span>
+        <span className="text-white/45"> · No charges · Fair-use limits</span>
+        {shortOffer(offer) && <span className="hidden text-[#a6ecc8] md:inline"> · {shortOffer(offer)}</span>}
+      </BetaStrip>
+    </div>
   );
 }
 
@@ -70,21 +108,14 @@ export function BetaOfferNote({ className = "" }: { className?: string }) {
   const { beta, offer } = useBetaInfo();
   if (!beta && !offer?.open) return null;
   return (
-    <div className={`text-[13px] leading-relaxed text-white/55 ${className}`}>
-      {beta && (
-        <p>
-          <span className="text-white/85">Free during the public beta.</span> No subscription required. No automatic charges.{" "}
-          <Link to={BETA_LIMITS_HREF} className="underline underline-offset-2 hover:text-white/80">
-            Beta limits
-          </Link>
-        </p>
-      )}
-      {offer?.open && <p className="mt-1.5 text-[#a6ecc8]/80">{foundingOfferText(offer)}</p>}
-    </div>
+    <BetaStrip title={offer?.open ? foundingOfferText(offer) : undefined} className={`w-fit max-w-full ${className}`}>
+      <span className="text-white">Free public beta</span>
+      <span className="text-white/45"> · No charges</span>
+    </BetaStrip>
   );
 }
 
-/** Tool pages: the limits that apply to this tool, from the server. */
+/** Tool pages: market-data access or the limits for this tool, as one strip. */
 export function BetaLimitsNote() {
   const { pathname } = useLocation();
   const { beta } = useBetaInfo();
@@ -94,30 +125,18 @@ export function BetaLimitsNote() {
   if (!tool) return null;
   if (marketData?.access === "cohort" && !marketDataAccess && usesMarketData(tool)) {
     return (
-      <p className="mb-3 flex max-w-3xl items-start gap-1.5 rounded-lg border border-amber-300/20 bg-amber-300/[0.05] px-3 py-2 text-[12px] leading-relaxed text-amber-100/80">
-        <Info className="mt-[2px] h-3.5 w-3.5 shrink-0 text-amber-200/70" aria-hidden />
-        <span>
-          {MARKET_DATA_MESSAGE}{" "}
-          <Link to="/contact" className="underline underline-offset-2 hover:text-white">
-            Ask to join the test group
-          </Link>
-        </span>
-      </p>
+      <BetaStrip tone="warn" pill="Invite only" to="/contact" linkLabel="Request access" title={MARKET_DATA_MESSAGE} className="mb-3 w-fit max-w-full">
+        Market-data downloads are limited to a test group while licensing is finalised.
+      </BetaStrip>
     );
   }
   if (!beta) return null;
   const lines = betaLimitLines(beta, tool);
   if (!lines.length) return null;
   return (
-    <p className="mb-3 flex max-w-3xl items-start gap-1.5 text-[11px] leading-relaxed text-white/50">
-      <Info className="mt-[2px] h-3 w-3 shrink-0 text-white/40" aria-hidden />
-      <span>
-        Free beta limits: {lines.join(" · ")}.{" "}
-        <Link to={BETA_LIMITS_HREF} className="underline underline-offset-2 hover:text-white/80">
-          All limits
-        </Link>
-      </span>
-    </p>
+    <BetaStrip className="mb-3 w-fit max-w-full" title={lines.join(" · ")}>
+      {lines.join(" · ")}
+    </BetaStrip>
   );
 }
 
@@ -184,7 +203,7 @@ export function RunRefusedModal() {
         )}
         {refusal.feedback && (
           <p className="mt-2 text-xs text-white/45">
-            Your results, downloads and account settings stay available. Six short questions; criticism is welcome.
+            Your results, downloads and account settings stay available. About three minutes; criticism is welcome.
           </p>
         )}
         <div className="mt-6 flex flex-col gap-2 sm:flex-row">

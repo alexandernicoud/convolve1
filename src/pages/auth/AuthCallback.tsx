@@ -9,6 +9,7 @@ export default function AuthCallback() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = useMemo(() => safeAppPath(params.get("next")), [params]);
+  const confirmed = params.get("confirmed") === "1";
   const urlError = parseOAuthCallbackError(
     typeof window === "undefined" ? "" : window.location.search,
     typeof window === "undefined" ? "" : window.location.hash,
@@ -20,14 +21,17 @@ export default function AuthCallback() {
       navigate(next, { replace: true });
       return;
     }
+    const to = `/login?next=${encodeURIComponent(next)}`;
+    if (confirmed && !urlError) {
+      navigate(`${to}&notice=confirmed`, { replace: true });
+      return;
+    }
     const message = urlError || "Google sign-in did not complete. Please try again.";
-    navigate(`/login?next=${encodeURIComponent(next)}&error=${encodeURIComponent(message)}`, {
-      replace: true,
-    });
-  }, [loading, session, next, urlError, navigate]);
+    navigate(`${to}&error=${encodeURIComponent(message)}`, { replace: true });
+  }, [loading, session, next, urlError, confirmed, navigate]);
 
   return (
-    <AuthShell title="Signing in" subtitle="Finishing Google authentication…">
+    <AuthShell title="Signing in" subtitle={confirmed ? "Confirming your email…" : "Finishing Google authentication…"}>
       <p className="text-center text-sm text-white/50">Please wait a moment.</p>
     </AuthShell>
   );

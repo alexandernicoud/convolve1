@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { asset, trace } from "@/features/marketing2/data";
+import { BetaOffersOverlay, offersSeen } from "@/features/beta/BetaOffersOverlay";
+import { useBetaInfo } from "@/features/beta/BetaUI";
 import { placePopover } from "./model";
 import { TOUR_STEPS, type TourSpot } from "./steps";
 import { useOnboardingStore } from "./store";
@@ -116,13 +118,21 @@ function WelcomeOverlay() {
             How Convolve works
           </button>
         </div>
-        <p className="mt-4 text-[11px] text-white/35">The tour only points at controls; it never starts a run. Reopen it any time from Help.</p>
+        <p className="mt-4 text-[11px] text-white/35">
+          You can type and click in each highlighted control as you go; nothing runs until you press a run button. Reopen the tour any
+          time from Help.
+        </p>
       </div>
     </div>
   );
 }
 
 type Rect = { top: number; left: number; width: number; height: number };
+
+function isEditable(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.getAttribute("role") === "combobox";
+}
 
 function useTargetRect(selector: string | null, reduced: boolean): Rect | null {
   const [rect, setRect] = useState<Rect | null>(null);
@@ -197,6 +207,7 @@ function TourOverlay() {
 
   const onKey = useCallback(
     (e: KeyboardEvent) => {
+      if (isEditable(e.target)) return;
       if (e.key === "Escape") exit();
       else if (e.key === "ArrowRight") next();
       else if (e.key === "ArrowLeft") prev();
@@ -213,8 +224,6 @@ function TourOverlay() {
   const pad = 6;
   const hole = rect ? { top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 } : null;
   const place = hole ? placePopover(hole, { width: vw, height: vh }, cardSize) : null;
-  // Only the sidebar item is clickable through the dim layer, so the user can navigate.
-  const passThrough = pos.spot === 0;
   const dim = "pointer-events-auto absolute bg-black/65";
   const isLastSpot = pos.spot === step.spots.length;
   const isLast = isLastSpot && pos.step === TOUR_STEPS.length - 1;
@@ -227,7 +236,6 @@ function TourOverlay() {
           <div className={dim} style={{ top: hole.top + hole.height, left: 0, right: 0, bottom: 0 }} />
           <div className={dim} style={{ top: hole.top, left: 0, width: Math.max(0, hole.left), height: hole.height }} />
           <div className={dim} style={{ top: hole.top, left: hole.left + hole.width, right: 0, height: hole.height }} />
-          {!passThrough ? <div className="pointer-events-auto absolute" style={hole} /> : null}
           <div
             className="pointer-events-none absolute rounded-xl ring-2 ring-white/80 shadow-[0_0_0_4px_rgba(255,255,255,0.12),0_0_40px_rgba(255,255,255,0.18)] motion-safe:transition-all motion-safe:duration-300"
             style={hole}
@@ -299,7 +307,9 @@ function TourOverlay() {
             )}
           </div>
         </div>
-        <p className="mt-3 text-[10px] text-white/30">Esc to exit · ← → to move · the tour never starts a run</p>
+        <p className="mt-3 text-[10px] text-white/30">
+          {rect && pos.spot > 0 ? "Try it: the highlighted control works · " : ""}Esc to exit · ← → to move
+        </p>
       </div>
     </div>
   );
@@ -374,6 +384,12 @@ export function OnboardingHost({ active }: { active: boolean }) {
   const reset = useOnboardingStore((s) => s.reset);
   const lastUser = useRef<string | null>(null);
   const shown = useWorkspaceShown(active && userId != null);
+  const { beta } = useBetaInfo();
+  const [offersDone, setOffersDone] = useState(() => (userId ? offersSeen(userId) : false));
+
+  useEffect(() => {
+    setOffersDone(userId ? offersSeen(userId) : false);
+  }, [userId]);
 
   useEffect(() => {
     if (lastUser.current && lastUser.current !== userId) reset();
@@ -385,6 +401,7 @@ export function OnboardingHost({ active }: { active: boolean }) {
   }, [shown, userId, loaded, load]);
 
   if (!active || !userId || !shown) return null;
+  if (beta && view !== "tour" && !offersDone) return <BetaOffersOverlay userId={userId} onLaunch={() => setOffersDone(true)} />;
   if (view === "welcome") return <WelcomeOverlay />;
   if (view === "tour") return <TourOverlay />;
   if (view === "complete") return <CompleteCard />;

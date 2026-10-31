@@ -17,12 +17,23 @@ from app.services import account, contact, feedback
 from tests.conftest import mint_token
 
 ANSWERS = {
+    "role": "quant",
+    "experience": "3_10",
+    "goal": "patterns",
+    "tools_used": ["datasets", "training", "backtesting"],
     "overall": 2,
+    "recommend": 6,
     "most_useful": "backtesting",
     "biggest_problem": "slow",
+    "first_result": "15_60",
     "results_trust": "some",
+    "missing": ["intraday", "export"],
+    "alternative": "python",
+    "fair_price": "5_15",
+    "disappointed": "somewhat",
     "continue_use": "unsure",
     "improve": "Show training time estimates.",
+    "confusing": "The labeling rule at first.",
 }
 
 
@@ -49,7 +60,7 @@ def _grants(user: uuid.UUID) -> list:
 # --------------------------------------------------------------------------- questionnaire
 
 
-def test_definition_has_six_questions_and_explains_the_bonus(client, user_a):
+def test_definition_lists_every_question_and_explains_the_bonus(client, user_a):
     r = client.get("/api/feedback", headers=_h(user_a))
     assert r.status_code == 200
     body = r.json()
@@ -106,8 +117,10 @@ def test_concurrent_submissions_grant_once(user_a):
 
 
 @pytest.mark.parametrize("change", [
-    {"overall": 6}, {"overall": True}, {"most_useful": "crypto"}, {"continue_use": None},
-    {"biggest_problem": "everything"}, {"improve": "x" * 2001}, {"extra": "field"},
+    {"overall": 6}, {"overall": True}, {"recommend": 11}, {"recommend": -1}, {"most_useful": "crypto"},
+    {"continue_use": None}, {"biggest_problem": "everything"}, {"improve": "x" * 2001}, {"improve": "meh"},
+    {"extra": "field"}, {"tools_used": []}, {"tools_used": "training"}, {"tools_used": ["training", "training"]},
+    {"missing": ["teleport"]},
 ])
 def test_invalid_or_incomplete_answers_grant_nothing(client, user_a, change):
     answers = {**ANSWERS, **change}
@@ -121,10 +134,24 @@ def test_missing_answer_is_refused(client, user_a):
     assert client.post("/api/feedback", json={"answers": answers}, headers=_h(user_a)).status_code == 422
 
 
-def test_the_written_suggestion_is_optional(client, user_a):
-    answers = {k: v for k, v in ANSWERS.items() if k != "improve"}
-    r = client.post("/api/feedback", json={"answers": {**answers, "improve": "  "}}, headers=_h(user_a))
+def test_the_main_suggestion_is_required_and_the_second_is_optional(client, user_a):
+    without = {k: v for k, v in ANSWERS.items() if k != "improve"}
+    assert client.post("/api/feedback", json={"answers": without}, headers=_h(user_a)).status_code == 422
+    answers = {k: v for k, v in ANSWERS.items() if k != "confusing"}
+    r = client.post("/api/feedback", json={"answers": {**answers, "confusing": "  "}}, headers=_h(user_a))
     assert r.status_code == 200 and _balance(user_a) == 5
+
+
+def test_multiple_choice_answers_are_stored_in_option_order(user_a):
+    feedback.submit(str(user_a), {**ANSWERS, "tools_used": ["backtesting", "datasets"]})
+    db = SessionLocal()
+    try:
+        row = db.query(FeedbackResponse).filter(FeedbackResponse.user_id == user_a).one()
+    finally:
+        db.close()
+    import json
+
+    assert json.loads(row.answers_json)["tools_used"] == ["datasets", "backtesting"]
 
 
 @pytest.mark.parametrize("claims", [{"is_anonymous": True}, {"email": None},
@@ -164,6 +191,7 @@ def test_admin_csv_export_is_pseudonymous_and_formula_safe(client, monkeypatch, 
     r = client.get("/api/admin/feedback.csv", headers=_h(user_b))
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
     assert str(user_a) not in r.text and "Runs took too long" in r.text
+    assert "Intraday timeframes; API or Python export" in r.text
     assert "'=HYPERLINK" in r.text
 
 

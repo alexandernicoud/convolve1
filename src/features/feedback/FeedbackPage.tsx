@@ -8,7 +8,16 @@ import { Button, Notice, readError } from "@/features/account/ui";
 import { fetchApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useCreditsStore } from "@/state/creditsStore";
-import { cleanAnswers, isComplete, rewardLine, TEXT_MAX, type FeedbackAnswers as Answers, type FeedbackStatus } from "./model";
+import {
+  answeredCount,
+  cleanAnswers,
+  isComplete,
+  rewardLine,
+  TEXT_MAX,
+  toggleOption,
+  type FeedbackAnswers as Answers,
+  type FeedbackStatus,
+} from "./model";
 
 export default function FeedbackPage() {
   const state = useApi<FeedbackStatus>("/api/feedback");
@@ -43,8 +52,8 @@ function Intro({ bonus, gate }: { bonus: number; gate?: FeedbackStatus["gate"] }
           : "Tell us what works, what doesn't, and what you'd improve. Honest answers help most, including criticism."}
       </p>
       <p className="mt-2 text-sm text-white/85">
-        Complete this short questionnaire and earn <strong className="font-medium text-white">{bonus} credits</strong> for the full
-        launch.
+        About three minutes, mostly one click per question. Complete it and earn{" "}
+        <strong className="font-medium text-white">{bonus} credits</strong> for the full launch.
       </p>
       <ul className="mt-3 space-y-1 text-xs leading-relaxed text-white/45">
         {gate && gate.threshold > 0 && (
@@ -94,8 +103,10 @@ function Questionnaire({ data, onDone }: { data: FeedbackStatus; onDone?: () => 
   const [answers, setAnswers] = useState<Answers>({});
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const set = (id: string, v: string | number) => setAnswers((a) => ({ ...a, [id]: v }));
+  const set = (id: string, v: Answers[string]) => setAnswers((a) => ({ ...a, [id]: v }));
   const ready = isComplete(data.questions, answers);
+  const required = data.questions.filter((q) => !q.optional).length;
+  const done = answeredCount(data.questions.filter((q) => !q.optional), answers);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -147,7 +158,31 @@ function Questionnaire({ data, onDone }: { data: FeedbackStatus; onDone?: () => 
                       {n}
                     </button>
                   ))}
-                  <span className="ml-1 text-xs text-white/40">1 = poor, 5 = excellent</span>
+                  <span className="ml-1 text-xs text-white/40">
+                    {(q.max ?? 5) > 5 ? `${q.min ?? 0} = not at all, ${q.max} = definitely` : "1 = poor, 5 = excellent"}
+                  </span>
+                </div>
+              )}
+              {q.type === "multi" && (
+                <div className="flex flex-wrap gap-2">
+                  {q.options?.map((o) => {
+                    const on = Array.isArray(answers[q.id]) && (answers[q.id] as string[]).includes(o.id);
+                    return (
+                      <button
+                        key={o.id}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => set(q.id, toggleOption(answers[q.id], o.id))}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] transition",
+                          on ? "border-white bg-white text-[#0a0a0a]" : "border-white/15 text-white/75 hover:bg-white/[0.06]",
+                        )}
+                      >
+                        {on && <Check className="h-3.5 w-3.5" aria-hidden />}
+                        {o.label}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
               {q.type === "choice" && (
@@ -187,7 +222,9 @@ function Questionnaire({ data, onDone }: { data: FeedbackStatus; onDone?: () => 
         <Button variant="primary" type="submit" disabled={!ready || sending}>
           {sending ? "Sending…" : `Submit and get ${data.bonus_credits} credits`}
         </Button>
-        {!ready && <span className="text-xs text-white/40">Answer the multiple-choice questions to submit.</span>}
+        <span className="text-xs text-white/40">
+          {ready ? "All set." : `${done} of ${required} answered. Every question except the last is needed.`}
+        </span>
       </div>
       {error && <Notice kind="error">{error}</Notice>}
     </form>

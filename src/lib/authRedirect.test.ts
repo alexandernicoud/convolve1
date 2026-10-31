@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canonicalDevOrigin,
+  confirmCallbackPath,
   LOCAL_DEV_ORIGIN,
   oauthCallbackPath,
   oauthRedirectTo,
@@ -56,4 +57,10 @@ test("urlHasAuthCallbackParams detects PKCE code and implicit tokens", () => {
   assert.equal(urlHasAuthCallbackParams("", "#access_token=tok"), true);
   assert.equal(urlHasAuthCallbackParams("?error=access_denied"), true);
   assert.equal(urlHasAuthCallbackParams("?next=/dashboard"), false);
+});
+
+test("sign-up confirmation links land on the callback, flagged as a confirmation", () => {
+  assert.equal(confirmCallbackPath("/tools/generator"), "/auth/callback?next=%2Ftools%2Fgenerator&confirmed=1");
+  assert.equal(confirmCallbackPath(null), "/auth/callback?next=%2Fdashboard&confirmed=1");
+  assert.equal(confirmCallbackPath("https://evil.example"), "/auth/callback?next=%2Fdashboard&confirmed=1");
 });

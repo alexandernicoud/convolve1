@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cleanAnswers, isComplete, rewardLine, type FeedbackQuestion } from "./model";
+import { cleanAnswers, isComplete, rewardLine, toggleOption, type FeedbackQuestion } from "./model";
 
 const QUESTIONS: FeedbackQuestion[] = [
   { id: "overall", type: "rating", prompt: "", min: 1, max: 5 },
@@ -28,6 +28,25 @@ test("the optional written suggestion can be left blank and is not sent", () => 
   assert.equal(isComplete(WITH_OPTIONAL, { overall: 2, improve: "x".repeat(2001) }), false);
   assert.deepEqual(cleanAnswers(WITH_OPTIONAL, { overall: 2, improve: "  " }), { overall: 2 });
   assert.deepEqual(cleanAnswers(WITH_OPTIONAL, { overall: 2, improve: "Faster runs" }), { overall: 2, improve: "Faster runs" });
+});
+
+const MULTI: FeedbackQuestion[] = [
+  { id: "tools", type: "multi", prompt: "", options: [{ id: "a", label: "A" }, { id: "b", label: "B" }] },
+];
+
+test("multiple-choice answers need at least one known option", () => {
+  assert.equal(isComplete(MULTI, {}), false);
+  assert.equal(isComplete(MULTI, { tools: [] }), false);
+  assert.equal(isComplete(MULTI, { tools: ["a", "z"] }), false);
+  assert.equal(isComplete(MULTI, { tools: ["b", "a"] }), true);
+  assert.deepEqual(toggleOption(undefined, "a"), ["a"]);
+  assert.deepEqual(toggleOption(["a", "b"], "a"), ["b"]);
+});
+
+test("a 0 to 10 scale accepts zero", () => {
+  const nps: FeedbackQuestion[] = [{ id: "recommend", type: "rating", prompt: "", min: 0, max: 10 }];
+  assert.equal(isComplete(nps, { recommend: 0 }), true);
+  assert.equal(isComplete(nps, { recommend: 11 }), false);
 });
 
 test("reward status says when credits are only stored for the launch", () => {

@@ -23,7 +23,7 @@ from app.billing import lots
 from app.db import SessionLocal
 from app.models import CreditAccount, CreditLot, FeedbackResponse, PipelineRun, Profile
 
-SURVEY_VERSION = "2026-10-31"
+SURVEY_VERSION = "2026-11-01"
 BONUS_CREDITS = 5
 TEXT_MAX = 2000
 
@@ -70,23 +70,101 @@ CONTINUE = [
     ("definitely_not", "Definitely not"),
 ]
 
+ROLE = [
+    ("retail", "Private trader or investor"),
+    ("professional", "Professional trader or portfolio manager"),
+    ("quant", "Quant, data scientist or ML engineer"),
+    ("student", "Student or academic researcher"),
+    ("developer", "Software developer"),
+    ("other", "Something else"),
+]
+EXPERIENCE = [
+    ("lt1", "Less than a year"),
+    ("1_3", "1 to 3 years"),
+    ("3_10", "3 to 10 years"),
+    ("gt10", "More than 10 years"),
+]
+GOAL = [
+    ("patterns", "Test whether chart patterns predict anything"),
+    ("strategy", "Build a model I could trade with"),
+    ("learn", "Learn how CNNs and deep learning work"),
+    ("research", "Academic or professional research"),
+    ("curious", "Just curious"),
+]
+TOOLS_USED = [f for f in FEATURES if f[0] != "other"]
+FIRST_RESULT = [
+    ("lt15", "Under 15 minutes"),
+    ("15_60", "15 to 60 minutes"),
+    ("1_3h", "1 to 3 hours"),
+    ("longer", "Longer"),
+    ("not_yet", "I have not got one yet"),
+]
+MISSING = [
+    ("markets", "More markets (crypto, FX, futures)"),
+    ("intraday", "Intraday timeframes"),
+    ("own_data", "Upload my own price data"),
+    ("indicators", "Indicators drawn on the charts"),
+    ("live", "Live or broker trading"),
+    ("export", "API or Python export"),
+    ("compare", "Comparing models side by side"),
+    ("learning", "Better explanations and tutorials"),
+    ("nothing", "Nothing important"),
+]
+ALTERNATIVE = [
+    ("charting", "Charting tools such as TradingView"),
+    ("python", "My own Python notebooks"),
+    ("quant_platform", "A quant platform such as QuantConnect"),
+    ("other_ml", "Another no-code ML tool"),
+    ("none", "Nothing: I would not do this research"),
+]
+PRICE = [
+    ("free_only", "I would only use it for free"),
+    ("lt5", "Up to US$5 a month"),
+    ("5_15", "US$5 to 15"),
+    ("15_30", "US$15 to 30"),
+    ("30_60", "US$30 to 60"),
+    ("gt60", "More than US$60"),
+]
+DISAPPOINTED = [
+    ("very", "Very disappointed"),
+    ("somewhat", "Somewhat disappointed"),
+    ("not", "Not disappointed"),
+]
+
 QUESTIONS: List[Dict[str, Any]] = [
-    {"id": "overall", "type": "rating", "min": 1, "max": 5,
-     "prompt": "How would you rate your experience so far?"},
-    {"id": "most_useful", "type": "choice", "options": FEATURES,
-     "prompt": "Which part did you find most useful?"},
-    {"id": "biggest_problem", "type": "choice", "options": PROBLEMS,
-     "prompt": "What got in your way the most?"},
-    {"id": "results_trust", "type": "choice", "options": TRUST,
-     "prompt": "How do you see the results you got?"},
-    {"id": "continue_use", "type": "choice", "options": CONTINUE,
-     "prompt": "Will you keep using Convolve for your research?"},
-    {"id": "improve", "type": "text", "min_length": 0, "optional": True,
-     "prompt": "What should we improve first? Criticism is welcome. (optional)"},
+    {"id": "role", "type": "choice", "options": ROLE, "prompt": "What describes you best?"},
+    {"id": "experience", "type": "choice", "options": EXPERIENCE, "prompt": "How long have you been trading or researching markets?"},
+    {"id": "goal", "type": "choice", "options": GOAL, "prompt": "What did you come to Convolve to do?"},
+    {"id": "tools_used", "type": "multi", "options": TOOLS_USED, "prompt": "Which tools did you actually use? Pick all that apply."},
+    {"id": "overall", "type": "rating", "min": 1, "max": 5, "prompt": "How would you rate your experience so far?"},
+    {"id": "recommend", "type": "rating", "min": 0, "max": 10,
+     "prompt": "How likely are you to recommend Convolve to a friend or colleague?"},
+    {"id": "most_useful", "type": "choice", "options": FEATURES, "prompt": "Which part was most useful?"},
+    {"id": "biggest_problem", "type": "choice", "options": PROBLEMS, "prompt": "What got in your way the most?"},
+    {"id": "first_result", "type": "choice", "options": FIRST_RESULT, "prompt": "How long did it take to get your first meaningful result?"},
+    {"id": "results_trust", "type": "choice", "options": TRUST, "prompt": "How do you see the results you got?"},
+    {"id": "missing", "type": "multi", "options": MISSING, "prompt": "What is missing for your research? Pick all that apply."},
+    {"id": "alternative", "type": "choice", "options": ALTERNATIVE, "prompt": "What would you use if Convolve did not exist?"},
+    {"id": "fair_price", "type": "choice", "options": PRICE, "prompt": "What monthly price would feel fair for what you have seen?"},
+    {"id": "disappointed", "type": "choice", "options": DISAPPOINTED, "prompt": "How would you feel if you could no longer use Convolve?"},
+    {"id": "continue_use", "type": "choice", "options": CONTINUE, "prompt": "Will you keep using Convolve for your research?"},
+    {"id": "improve", "type": "text", "min_length": 10,
+     "prompt": "If you could change one thing about Convolve, what would it be? Criticism is welcome."},
+    {"id": "confusing", "type": "text", "min_length": 0, "optional": True,
+     "prompt": "Anything that confused or surprised you? (optional)"},
 ]
 
 # Questions of earlier versions, so stored answers stay readable.
 LEGACY_QUESTIONS: Dict[str, List[Dict[str, Any]]] = {
+    "2026-10-31": [
+        {"id": "overall", "type": "rating", "min": 1, "max": 5, "prompt": "How would you rate your experience so far?"},
+        {"id": "most_useful", "type": "choice", "options": FEATURES, "prompt": "Which part did you find most useful?"},
+        {"id": "biggest_problem", "type": "choice", "options": PROBLEMS, "prompt": "What got in your way the most?"},
+        {"id": "results_trust", "type": "choice", "options": TRUST, "prompt": "How do you see the results you got?"},
+        {"id": "continue_use", "type": "choice", "options": CONTINUE, "prompt": "Will you keep using Convolve for your research?"},
+        {"id": "improve", "type": "text", "min_length": 0, "optional": True,
+         "prompt": "What should we improve first? Criticism is welcome. (optional)"},
+    ],
     "2026-10-27": [
         {"id": "overall", "type": "rating", "min": 1, "max": 5,
          "prompt": "How would you rate your overall experience with Convolve?"},
@@ -136,6 +214,11 @@ def validate(answers: Mapping[str, Any]) -> Dict[str, Any]:
             if value not in {i for i, _ in q["options"]}:
                 raise _invalid(q["id"], "Choose one of the options.")
             clean[q["id"]] = value
+        elif q["type"] == "multi":
+            allowed = [i for i, _ in q["options"]]
+            if not isinstance(value, list) or not value or len(set(value)) != len(value) or any(v not in allowed for v in value):
+                raise _invalid(q["id"], "Choose at least one of the options.")
+            clean[q["id"]] = [i for i in allowed if i in value]
         else:
             text = value.strip() if isinstance(value, str) else ""
             if q.get("optional") and not text:
@@ -308,8 +391,14 @@ def admin_csv() -> str:
         if r["survey_version"] != SURVEY_VERSION:
             continue
         answers = r["answers"]
-        writer.writerow([r["respondent"], r["created_at"], r["survey_version"],
-                         *[_cell(labels[i].get(answers.get(i), answers.get(i, ""))) for i in ids]])
+
+        def label(i: str) -> Any:
+            v = answers.get(i, "")
+            if isinstance(v, list):
+                return "; ".join(labels[i].get(x, x) for x in v)
+            return labels[i].get(v, v) if isinstance(v, str) else v
+
+        writer.writerow([r["respondent"], r["created_at"], r["survey_version"], *[_cell(label(i)) for i in ids]])
     return buf.getvalue()
 
 

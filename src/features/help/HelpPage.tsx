@@ -80,8 +80,8 @@ function TourControls() {
   return (
     <div className="space-y-4">
       <p>
-        Six steps, about three minutes. The tour highlights each tool in the sidebar, then the controls on its page. It never starts a
-        run. {server?.status === "completed" ? "You have completed it; you can take it again any time." : null}
+        Six steps, about three minutes. The tour highlights each tool in the sidebar, then the controls on its page. You can fill in
+        and press each highlighted control as you go; nothing runs until you press a run button. {server?.status === "completed" ? "You have completed it; you can take it again any time." : null}
       </p>
       <div className="flex flex-wrap gap-2">
         {resumable ? (

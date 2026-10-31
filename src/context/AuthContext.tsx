@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
-import { canonicalDevOrigin, oauthRedirectTo, safeAppPath } from "@/lib/authRedirect";
+import { canonicalDevOrigin, confirmCallbackPath, oauthRedirectTo, safeAppPath } from "@/lib/authRedirect";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabase";
 
 type AuthContextValue = {
@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: originUrl(next ? `/login?next=${encodeURIComponent(next)}` : "/login"), data: metadata },
+      options: { emailRedirectTo: originUrl(confirmCallbackPath(next)), data: metadata },
     });
     if (error) throw error;
     return { needsEmailConfirmation: !data.session };
@@ -129,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await getSupabaseClient().auth.resend({
       type: "signup",
       email,
-      options: { emailRedirectTo: originUrl("/login") },
+      options: { emailRedirectTo: originUrl(confirmCallbackPath()) },
     });
     if (error) throw error;
   }, []);

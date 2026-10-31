@@ -40,7 +40,7 @@ export function DashboardTopBar({ title = "Overview", className }: Props) {
         <ExplainToggle className="h-10" />
         <Link
           to="/dashboard/feedback"
-          title="Answer six short questions and get 5 bonus credits"
+          title="Answer the three-minute questionnaire and get 5 bonus credits"
           className="hidden h-10 md:inline-flex items-center gap-2 rounded-lg border border-white/25 bg-white/[0.04] px-3 font-sans text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.08] sm:px-4"
         >
           <MessageSquare className="h-4 w-4" aria-hidden />

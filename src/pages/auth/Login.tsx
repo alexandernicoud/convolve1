@@ -13,6 +13,7 @@ export default function Login() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = useMemo(() => safeAppPath(params.get("next")), [params]);
+  const confirmedNotice = params.get("notice") === "confirmed";
   const oauthError = useMemo(
     () => params.get("error") || parseOAuthCallbackError(params.toString()),
     [params],
@@ -53,7 +54,7 @@ export default function Login() {
 
   if (loading || session) {
     return (
-      <AuthShell title="Sign in" subtitle="Opening your workspace…">
+      <AuthShell title={session ? "Signed in" : "Signing in"} subtitle="Opening your workspace…">
         <p className="text-center text-sm text-white/50">Please wait a moment.</p>
       </AuthShell>
     );
@@ -68,7 +69,15 @@ export default function Login() {
   }
 
   return (
-    <AuthShell title="Sign in" subtitle="Use your Convolve account to open the workspace.">
+    <AuthShell
+      title={confirmedNotice ? "Email confirmed" : "Sign in"}
+      subtitle={confirmedNotice ? "Your account is ready. Sign in once to open the workspace." : "Use your Convolve account to open the workspace."}
+    >
+      {confirmedNotice && !error ? (
+        <p role="status" className="mb-4 rounded-lg border border-[#a6ecc8]/25 bg-[#a6ecc8]/[0.06] px-3 py-2 text-center text-[13px] text-[#c9f5de]">
+          Your email is confirmed. Sign in with the email and password you just chose.
+        </p>
+      ) : null}
       <AuthGoogleButton busy={busy} onClick={() => void onGoogle()} />
       {error ? <p className="mt-3 text-center text-sm text-red-300">{error}</p> : null}
       <AuthDivider />

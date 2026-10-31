@@ -74,7 +74,7 @@ function Questionnaire({ r }: { r: RewardsStatus }) {
   return (
     <Card
       title="Answer the feedback questionnaire"
-      description="Six short questions about what works for you and what is missing. Once per account."
+      description="About three minutes: who you are, what works, what is missing and what it is worth to you. Once per account."
       action={<Bonus>+{r.questionnaire.credits} credits</Bonus>}
     >
       {r.questionnaire.completed ? (

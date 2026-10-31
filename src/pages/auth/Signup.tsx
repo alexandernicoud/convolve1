@@ -136,7 +136,7 @@ export default function Signup() {
           Sign in
         </Link>
       </p>
-      <BetaOfferNote className="mt-5 border-t border-white/[0.08] pt-4 text-center text-[12.5px]" />
+      <BetaOfferNote className="mx-auto mt-5" />
     </AuthShell>
   );
 }
