@@ -142,15 +142,28 @@ export function PricingSection({ index = "03" }: { index?: string }) {
           index={index}
           label="Pricing"
           title={
-            <>
-              Pay for the research you run. <span className="text-white/40">Nothing else.</span>
-            </>
+            beta ? (
+              <>
+                Free during the public beta. <span className="text-white/40">Planned pricing below.</span>
+              </>
+            ) : (
+              <>
+                Pay for the research you run. <span className="text-white/40">Nothing else.</span>
+              </>
+            )
           }
           intro={
-            <>
-              Creating an account and browsing are free. A subscription includes monthly credits for computation; extra credits can be
-              bought when you need more.
-            </>
+            beta ? (
+              <>
+                Creating an account and running experiments are free during the public beta, within the limits below. The plans, credit
+                packs and credit rules on this page describe planned pricing for the full launch; nothing can be bought yet.
+              </>
+            ) : (
+              <>
+                Creating an account and browsing are free. A subscription includes monthly credits for computation; extra credits can be
+                bought when you need more.
+              </>
+            )
           }
         />
       </Container>
@@ -218,9 +231,9 @@ export function PricingSection({ index = "03" }: { index?: string }) {
                   ))}
                 </div>
                 <p className="mt-6 max-w-3xl text-[13px] leading-relaxed text-white/40">
-                  Prices in US dollars. Subscriptions renew monthly until cancelled; cancel at any time in your account and keep access
-                  until the end of the paid month. Have a discount code? Enter it on the payment page. Taxes may apply depending on your
-                  country. Paid plans are not yet available in the United States.
+                  {beta
+                    ? "Planned prices in US dollars. Nothing can be bought during the public beta and nothing is charged automatically. Paid plans are not yet available in the United States."
+                    : "Prices in US dollars. Subscriptions renew monthly until cancelled; cancel at any time in your account and keep access until the end of the paid month. Have a discount code? Enter it on the payment page. Taxes may apply depending on your country. Paid plans are not yet available in the United States."}
                 </p>
               </>
             )}
@@ -232,7 +245,7 @@ export function PricingSection({ index = "03" }: { index?: string }) {
             <Container>
               <div className="grid gap-12 border-t border-white/[0.08] pt-12 md:grid-cols-12">
                 <Reveal className="md:col-span-4">
-                  <SubHead>Extra credits</SubHead>
+                  <SubHead>{beta ? "Extra credits · planned" : "Extra credits"}</SubHead>
                   <h3 className="mt-5 text-[clamp(1.6rem,2.4vw,2.2rem)] font-normal leading-[1.1] tracking-[-0.03em] text-white">
                     More computation, same plan.
                   </h3>
@@ -279,7 +292,7 @@ export function PricingSection({ index = "03" }: { index?: string }) {
             <Container>
               <div className="grid gap-12 border-t border-white/[0.08] pt-12 md:grid-cols-12">
                 <Reveal className="md:col-span-4">
-                  <SubHead>Credits</SubHead>
+                  <SubHead>{beta ? "Credits · planned" : "Credits"}</SubHead>
                   <h3 className="mt-5 text-[clamp(1.6rem,2.4vw,2.2rem)] font-normal leading-[1.1] tracking-[-0.03em] text-white">
                     How credits work.
                   </h3>
