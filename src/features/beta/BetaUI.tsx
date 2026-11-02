@@ -3,6 +3,7 @@ import { fetchApi } from "@/lib/api";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight, Gift, Info, MessageSquare, X } from "lucide-react";
 import { useCreditsStore } from "@/state/creditsStore";
+import { useIsAdmin } from "@/features/admin/useIsAdmin";
 import {
   EARN_HREF,
   MARKET_DATA_MESSAGE,
@@ -148,7 +149,15 @@ export function BetaLimitsNote() {
   const marketDataAccess = useCreditsStore((s) => s.marketDataAccess);
   const tool = betaToolForPath(pathname);
   const feedbackDue = useFeedbackDue(tool != null && tool !== "analysis");
+  const admin = useIsAdmin();
   if (!tool) return null;
+  if (admin) {
+    return (
+      <BetaStrip pill="Admin" to="/dashboard/admin" linkLabel="Console" className="mb-3 w-fit max-w-full">
+        Admin account: no beta limits, queue caps or questionnaire.
+      </BetaStrip>
+    );
+  }
   if (feedbackDue) {
     return (
       <BetaStrip pill="Feedback" to="/dashboard/feedback" linkLabel="Answer (3 min)" className="mb-3 w-fit max-w-full">

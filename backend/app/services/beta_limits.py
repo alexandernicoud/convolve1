@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 from fastapi import HTTPException
 
 from app import config
+from app.services.unlimited import is_unlimited
 
 
 def _symbols(raw: str) -> int:
@@ -35,8 +36,8 @@ def _check_image(dim: Optional[int]) -> None:
         _refuse(f"The free beta allows images up to {cap} px.", cap)
 
 
-def check_generator(symbols: str, charts_per_label: int, image_dimension: int) -> None:
-    if not config.FREE_BETA:
+def check_generator(symbols: str, charts_per_label: int, image_dimension: int, user_id: Optional[str] = None) -> None:
+    if not config.FREE_BETA or is_unlimited(user_id):
         return
     _check_symbols(symbols)
     cap = config.BETA_MAX_CHARTS_PER_LABEL
@@ -45,15 +46,15 @@ def check_generator(symbols: str, charts_per_label: int, image_dimension: int) -
     _check_image(image_dimension)
 
 
-def check_testdata(symbols: str, img_dim: int) -> None:
-    if not config.FREE_BETA:
+def check_testdata(symbols: str, img_dim: int, user_id: Optional[str] = None) -> None:
+    if not config.FREE_BETA or is_unlimited(user_id):
         return
     _check_symbols(symbols)
     _check_image(img_dim)
 
 
-def check_optimizer(start: str, end: str) -> None:
-    if not config.FREE_BETA or not config.BETA_MAX_OPTIMIZER_YEARS:
+def check_optimizer(start: str, end: str, user_id: Optional[str] = None) -> None:
+    if not config.FREE_BETA or not config.BETA_MAX_OPTIMIZER_YEARS or is_unlimited(user_id):
         return
     try:
         days = (date.fromisoformat(str(end)[:10]) - date.fromisoformat(str(start)[:10])).days

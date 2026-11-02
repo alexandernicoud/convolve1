@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from app import config
 from app.billing import lots
 from app.db import SessionLocal
+from app.services.unlimited import is_unlimited
 from app.models import CreditAccount, CreditLot, FeedbackResponse, PipelineRun, Profile
 
 SURVEY_VERSION = "2026-11-01"
@@ -261,7 +262,7 @@ def gate(db, uid: uuid.UUID, completed: bool) -> Dict[str, Any]:
     return {
         "threshold": threshold,
         "completed_experiments": runs,
-        "required": bool(threshold) and not completed and runs >= threshold,
+        "required": bool(threshold) and not completed and runs >= threshold and not is_unlimited(uid),
     }
 
 

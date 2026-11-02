@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBetaInfo } from "@/features/beta/BetaUI";
+import { useIsAdmin } from "@/features/admin/useIsAdmin";
 import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, Loader2, Play, Sparkles, X } from "lucide-react";
 import {
@@ -197,7 +198,8 @@ export default function TestDataGeneratorModal({
 
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { beta } = useBetaInfo();
+  const { beta: betaInfo } = useBetaInfo();
+  const beta = useIsAdmin() ? null : betaInfo;
   const settingsRef = useRef<HTMLDetailsElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(true);
   useEffect(() => {

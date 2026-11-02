@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app import config as app_config
 from app.db import SessionLocal
+from app.services.unlimited import is_unlimited
 from app.models import PipelineRun
 from app.ownership import TERMINAL_RUN_STATUSES, _dt_to_epoch, _load_extra, update_pipeline_run_state
 from app.services import trainer_jobs
@@ -294,7 +295,7 @@ def _duplicate_of(db, user_id: str, tool: str, fp: str, exclude: Optional[str] =
 def check_daily_limit(user_id: Optional[str], tool: str) -> None:
     """Abuse protection for every compute tool, in every execution mode."""
     cap = app_config.RESEARCH_MAX_RUNS_PER_DAY
-    if not cap or not user_id or tool not in DAILY_LIMITED_TOOLS:
+    if not cap or not user_id or tool not in DAILY_LIMITED_TOOLS or is_unlimited(user_id):
         return
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     db = SessionLocal()
@@ -345,7 +346,7 @@ def check_inprocess_capacity(user_id: Optional[str], tool: str) -> None:
                 {"code": "busy", "message": "All research workers are busy. Please try again in a few minutes."},
             )
         user_cap = app_config.INPROCESS_MAX_ACTIVE_RUNS_PER_USER
-        if user_cap and user_id:
+        if user_cap and user_id and not is_unlimited(user_id):
             mine = base.filter(PipelineRun.user_id == _uid(user_id)).count()
             if mine >= user_cap:
                 raise AdmissionError(
@@ -377,7 +378,7 @@ def check_admission(user_id: Optional[str], tool: str, fp: str) -> None:
                 },
             )
         cap = app_config.RESEARCH_MAX_QUEUED_JOBS_PER_USER
-        if cap:
+        if cap and not is_unlimited(user_id):
             waiting = (
                 db.query(PipelineRun)
                 .filter(
@@ -474,7 +475,7 @@ def _capacity_blocker(db, user_id: str) -> Optional[str]:
     if global_cap and _active_research(db.query(PipelineRun)).count() >= global_cap:
         return "global"
     user_cap = app_config.RESEARCH_MAX_ACTIVE_JOBS_PER_USER
-    if user_cap and _active_research(db.query(PipelineRun)).filter(PipelineRun.user_id == _uid(user_id)).count() >= user_cap:
+    if user_cap and not is_unlimited(user_id) and _active_research(db.query(PipelineRun)).filter(PipelineRun.user_id == _uid(user_id)).count() >= user_cap:
         return "user"
     return None
 

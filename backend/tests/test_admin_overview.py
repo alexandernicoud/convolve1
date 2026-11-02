@@ -39,6 +39,36 @@ def test_admin_email_also_opens_feedback_and_contact(client, monkeypatch, user_b
     assert client.get("/api/admin/contact", headers=h).status_code == 200
 
 
+def test_admin_account_has_no_beta_limits(client, monkeypatch, user_a, user_b):
+    import pytest
+    from fastapi import HTTPException
+
+    from app.services import beta_limits, research_jobs, unlimited
+
+    monkeypatch.setattr(config, "ADMIN_EMAILS", frozenset({ADMIN_EMAIL}))
+    monkeypatch.setattr(config, "FREE_BETA", True)
+    monkeypatch.setattr(config, "RESEARCH_MAX_RUNS_PER_DAY", 1)
+    unlimited.clear_cache()
+    client.get("/api/me", headers=_h(user_a))
+    client.get("/api/me", headers=_h(user_b, email=ADMIN_EMAIL))
+    db = SessionLocal()
+    try:
+        for i, uid in enumerate((user_a, user_b)):
+            db.add(PipelineRun(id=f"run-limit-{i}", user_id=uid, tool="training-chart-generator", status="succeeded"))
+        db.commit()
+    finally:
+        db.close()
+
+    assert unlimited.is_unlimited(user_b) and not unlimited.is_unlimited(user_a)
+    beta_limits.check_generator("A,B,C,D,E,F,G", 100_000, 1024, str(user_b))
+    with pytest.raises(HTTPException):
+        beta_limits.check_generator("A,B,C,D,E,F,G", 100_000, 1024, str(user_a))
+    research_jobs.check_daily_limit(str(user_b), "training-chart-generator")
+    with pytest.raises(research_jobs.AdmissionError):
+        research_jobs.check_daily_limit(str(user_a), "training-chart-generator")
+    unlimited.clear_cache()
+
+
 def test_overview_lists_accounts_activity_and_inbox(client, monkeypatch, user_a, user_b):
     monkeypatch.setattr(config, "ADMIN_EMAILS", frozenset({ADMIN_EMAIL}))
     client.get("/api/me", headers=_h(user_a))  # creates the profile, as a first visit does

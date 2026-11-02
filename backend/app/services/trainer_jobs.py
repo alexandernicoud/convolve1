@@ -34,6 +34,7 @@ from app.config import (
     TRAINER_JOB_STALE_SECONDS,
 )
 from app.db import SessionLocal
+from app.services.unlimited import is_unlimited
 from app.models import PipelineRun, UserDataset, UserPlan
 from app.ownership import (
     TERMINAL_RUN_STATUSES,
@@ -340,7 +341,10 @@ def _user_limits(db, user_id: str) -> Dict[str, int]:
         plan = db.get(UserPlan, _uuid.UUID(str(user_id)))
     except (ValueError, TypeError):
         plan = None
-    return compute_limits(plan.plan_id if plan else DEFAULT_PLAN_ID)
+    limits = compute_limits(plan.plan_id if plan else DEFAULT_PLAN_ID)
+    if is_unlimited(user_id):
+        limits = {**limits, "max_active_training_jobs": 0, "max_queued_training_jobs": 0, "max_training_images": 0, "max_epochs": 0}
+    return limits
 
 
 def _capacity_blocker(db, user_id: str, accelerator: str = "cpu") -> Optional[str]:

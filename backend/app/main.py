@@ -2061,7 +2061,7 @@ async def start_run(
     """Start a labeling optimizer run"""
     run_id = generate_run_id()
     uid = get_current_user_id(http_request)
-    beta_limits.check_optimizer(request.start, request.end)
+    beta_limits.check_optimizer(request.start, request.end, uid)
 
     def register(status: str = "running") -> None:
         register_run(
@@ -2199,7 +2199,7 @@ async def start_training_chart_generator(
     """Start a training chart generator run"""
     run_id = generate_run_id()
     uid = get_current_user_id(http_request)
-    beta_limits.check_generator(request.symbols, request.chartsPerLabel, request.imageDimension)
+    beta_limits.check_generator(request.symbols, request.chartsPerLabel, request.imageDimension, uid)
 
     def register(status: str = "running") -> None:
         register_run(
@@ -5269,7 +5269,7 @@ async def start_testdata_run(
         run_id=request.generator_run_id,
     )
     run_id = generate_run_id()
-    beta_limits.check_testdata(request.symbols, request.img_dim)
+    beta_limits.check_testdata(request.symbols, request.img_dim, uid)
 
     def register(status: str = "running") -> None:
         register_run(
