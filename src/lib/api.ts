@@ -813,6 +813,8 @@ export interface BacktestDatasetCapabilities {
   symbols?: string[];
   benchmark_symbols?: string[];
   price_adjustment?: string;
+  /** Sample symbols whose stored bars are absent: the dataset cannot be simulated. */
+  market_data_missing?: string[];
 }
 
 export interface BacktestResultResponse {
@@ -950,6 +952,7 @@ const REFUSAL_CODES = new Set([
   'busy',
   'duplicate_submission',
   'verification_required',
+  'market_data_missing',
 ]);
 
 export function refusalCode(raw: string): string | null {

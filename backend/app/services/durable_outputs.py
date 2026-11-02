@@ -394,7 +394,11 @@ def _publish_dataset_dir(
     dataset_id: str,
     user_id: Optional[str],
     dataset_path: Path,
+    require_market_data: bool = False,
 ) -> Tuple[bool, str]:
+    """``require_market_data``: test datasets are simulated from their stored bars, so every
+    symbol provenance.json declares must be present. Training ZIPs ship provenance.json without
+    the bars by design."""
     summary = dataset_path / "summary.json"
     if not summary.is_file():
         return False, "Dataset summary.json is missing, so it was not stored"
@@ -411,9 +415,15 @@ def _publish_dataset_dir(
     meta = _read_json(summary)
     prefix = f"datasets/{dataset_id}"
     store = get_artifact_store()
-    # Per-chart event times; the trainer purges overlapping samples from them.
-    provenance_dir = dataset_path / "provenance"
-    provenance = sorted(p for p in provenance_dir.iterdir() if p.is_file()) if provenance_dir.is_dir() else []
+    # Per-chart event times (the trainer purges overlapping samples from them) and the stored
+    # bars under provenance/ohlcv/ that the backtester and bots re-simulate from.
+    from app.services import dataset_provenance as dprov
+
+    provenance = dprov.provenance_files(dataset_path)
+    if require_market_data:
+        missing = dprov.missing_market_data(dataset_path)
+        if missing:
+            return False, f"Stored market data is missing for {', '.join(missing)}, so the dataset was not stored"
     if not getattr(store, "prefers_archives", True):
         files = [summary] + provenance + images
         zip_path = dataset_path / f"{dataset_id}.zip"
@@ -458,7 +468,7 @@ def _publish_testdata_dataset(run_dir: Path, user_id: str) -> Tuple[bool, str]:
         if raw:
             candidate = Path(str(raw))
             path = candidate.parent if candidate.name == "images" else candidate
-    return _publish_dataset_dir(dataset_id, user_id, path)
+    return _publish_dataset_dir(dataset_id, user_id, path, require_market_data=True)
 
 
 def _content_root(row: _RunView, user_id: str) -> Tuple[str, Path]:

@@ -823,7 +823,13 @@ export default function Backtester() {
   const isV2 = datasetCaps?.engine === "v2";
   const labelDef = datasetCaps?.label_definition ?? null;
 
-  const canRun = hasModel && hasDataset && !isSubmitting && (!datasetIdForCaps || datasetCaps != null || datasetCapsError != null);
+  const marketDataMissing = datasetCaps?.market_data_missing ?? [];
+  const canRun =
+    hasModel &&
+    hasDataset &&
+    !isSubmitting &&
+    marketDataMissing.length === 0 &&
+    (!datasetIdForCaps || datasetCaps != null || datasetCapsError != null);
 
   const pricingParams = useMemo(
     () => ({
@@ -1429,6 +1435,11 @@ export default function Backtester() {
                     <p className="text-white/60">Could not check which engine this dataset supports ({datasetCapsError}). The server will decide when the run starts.</p>
                   ) : !datasetCaps ? (
                     <p className="text-white/45">Checking dataset…</p>
+                  ) : marketDataMissing.length > 0 ? (
+                    <>
+                      <p className="font-medium text-red-200">This test dataset cannot be backtested</p>
+                      <p className="mt-1 text-white/65">{datasetCaps.reason}</p>
+                    </>
                   ) : isV2 ? (
                     <>
                       <p className="font-medium text-white">Price-based simulation (v2)</p>

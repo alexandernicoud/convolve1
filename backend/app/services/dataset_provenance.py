@@ -156,6 +156,39 @@ def load_samples(dataset_dir: str | os.PathLike) -> List[Dict[str, Any]]:
     return out
 
 
+def provenance_files(dataset_dir: str | os.PathLike) -> List[Path]:
+    """Every file under ``<dataset>/provenance``, including ``ohlcv/<SYMBOL>.csv``."""
+    root = Path(dataset_dir) / PROVENANCE_DIR
+    if not root.is_dir():
+        return []
+    return sorted(p for p in root.rglob("*") if p.is_file() and not p.name.startswith("._"))
+
+
+def missing_market_data(dataset_dir: str | os.PathLike) -> List[str]:
+    """Symbols that provenance.json declares but whose stored bars are absent on disk."""
+    p = provenance_dir(dataset_dir)
+    meta = load_provenance(dataset_dir)
+    if not p or not meta:
+        return []
+    missing = []
+    for sym, entry in (meta.get("market_data") or {}).items():
+        rel = str((entry or {}).get("file") or f"ohlcv/{sym}.csv")
+        path = p / rel
+        if not path.is_file() or path.stat().st_size == 0:
+            missing.append(str(sym))
+    return sorted(missing)
+
+
+def is_test_dataset(dataset_dir: str | os.PathLike) -> bool:
+    meta = load_provenance(dataset_dir)
+    return bool(meta) and meta.get("kind") == "test"
+
+
+def test_market_data_incomplete(dataset_dir: str | os.PathLike) -> bool:
+    """A test dataset (simulated from its own bars) whose declared bars are not all on disk."""
+    return is_test_dataset(dataset_dir) and bool(missing_market_data(dataset_dir))
+
+
 def load_ohlcv(dataset_dir: str | os.PathLike, symbol: str, verify: bool = True) -> Optional[pd.DataFrame]:
     """Stored bars for ``symbol`` (tz-aware index). Raises ValueError if the file hash changed."""
     p = provenance_dir(dataset_dir)

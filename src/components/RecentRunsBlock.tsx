@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { ExternalLink, Download } from "lucide-react";
-import type { GlobalRun } from "@/lib/api";
+import { collapseRepeatedFailures } from "@/components/recentRuns";
 import { AuthorizedDownloadLink } from "@/components/AuthorizedDownloadLink";
 import { useRunsStore } from "@/state/runsStore";
 
@@ -45,10 +45,11 @@ export default function RecentRunsBlock({ tool, title = "Recent runs", maxItems 
   const runsById = useRunsStore((s) => s.runsById);
   const getRunRoute = useRunsStore((s) => s.getRunRoute);
 
-  const rows: GlobalRun[] = Object.values(runsById)
-    .filter((r) => r.tool === tool)
-    .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))
-    .slice(0, maxItems);
+  const rows = collapseRepeatedFailures(
+    Object.values(runsById)
+      .filter((r) => r.tool === tool)
+      .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0)),
+  ).slice(0, maxItems);
 
   if (rows.length === 0) return null;
 
@@ -76,7 +77,8 @@ export default function RecentRunsBlock({ tool, title = "Recent runs", maxItems 
               <div className="min-w-0 flex-1">
                 <div className="font-medium text-[#F5F5F5]">{toolLabel(run.tool)}</div>
                 <div className="text-xs text-[#F5F5F5]/50">
-                  {statusLabel(run.status)} · {formatTs(run.updated_at)}
+                  {statusLabel(run.status)}
+                  {run.repeats > 1 ? ` ${run.repeats}×` : ""} · {formatTs(run.updated_at)}
                   {run.message ? ` · ${run.message.slice(0, 80)}` : ""}
                 </div>
               </div>

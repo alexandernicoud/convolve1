@@ -224,6 +224,18 @@ def _dataset_has_images(path: Optional[Path]) -> bool:
         return False
 
 
+def _test_bars_missing(path: Optional[Path]) -> bool:
+    """Images restored on this instance but the stored bars of a test dataset are not (yet)."""
+    if path is None:
+        return False
+    try:
+        from app.services.dataset_provenance import test_market_data_incomplete
+
+        return test_market_data_incomplete(path)
+    except Exception:
+        return False
+
+
 def resolve_existing_dataset_dir(
     dataset_id: str,
     user_id: Optional[str] = None,
@@ -231,7 +243,7 @@ def resolve_existing_dataset_dir(
     restore: bool = True,
 ) -> Optional[Path]:
     found = _search_dataset_dir(dataset_id, user_id)
-    if _dataset_has_images(found):
+    if _dataset_has_images(found) and not _test_bars_missing(found):
         return found
     if not restore:
         return found

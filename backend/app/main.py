@@ -4896,6 +4896,11 @@ async def start_backtest_run(
     if engine == "v2":
         if caps["engine"] != "v2":
             raise HTTPException(status_code=422, detail=caps["reason"])
+        if caps.get("market_data_missing"):
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "market_data_missing", "message": caps["reason"], "symbols": caps["market_data_missing"]},
+            )
         ld = caps["label_definition"]
         sent = request.model_fields_set
         if ("tp_pct" in sent and abs(request.tp_pct - ld["tp_frac"] * 100) > 1e-9) or (
@@ -4990,6 +4995,15 @@ def _backtest_dataset_capabilities(dataset_dir: Path) -> Dict[str, Any]:
         benchmark_symbols=sorted(dprov.iter_symbols(meta, "benchmark")),
         price_adjustment=meta.get("price_adjustment"),
     )
+    sample_syms = set(out["symbols"])
+    missing = [s for s in dprov.missing_market_data(dataset_dir) if s in sample_syms]
+    out["market_data_missing"] = missing
+    if missing:
+        out["reason"] = (
+            f"The stored market data for {', '.join(missing)} is missing from this test dataset, so its labels "
+            "cannot be verified against the bars they were computed from. Generate the test dataset again "
+            "(same settings) and backtest the new one."
+        )
     return out
 
 
