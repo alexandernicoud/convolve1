@@ -293,6 +293,8 @@ export interface TrainerRunRequest {
   class_weighting?: 'none' | 'balanced';
   augmentation?: string[];
   transfer?: { mode: TransferMode; trainable_layers?: number };
+  /** Improve-model experiment; the server verifies it and stores its own record. */
+  experiment?: { parent_run_id: string; preset?: string | null; origin?: string | null; changed?: string[] };
 }
 
 export type ValidationMethod = 'random' | 'chronological';
@@ -320,6 +322,8 @@ export interface TrainerArchitecture {
   label: string;
   description: string;
   experimental: boolean;
+  /** False: trainable (Improve comparisons) but not offered in the Trainer's picker. */
+  listed?: boolean;
   default: boolean;
   parameters_224: number;
   forward_gflops_224: number;
@@ -628,7 +632,11 @@ export interface TrainingSession {
     test_fraction?: number;
     evaluate_test?: boolean;
     deterministic_ops?: boolean;
+    purge_chart_windows?: boolean;
+    embargo_bars?: number;
+    validation_method?: ValidationMethod;
   } | null;
+  experiment?: ExperimentRecord | null;
   selection_metric?: { name: string; mode: 'min' | 'max' };
   train_samples?: number | null;
   val_samples?: number | null;
@@ -1939,6 +1947,25 @@ export interface ReviewRun extends ReviewLabelFields {
   optimizer?: ReviewOptimizerSummary;
   generator?: ReviewGeneratorSummary;
   analysis?: { artifact_count?: number };
+  /** Trainer runs created with Improve. */
+  experiment?: ExperimentSummary;
+}
+
+export interface ExperimentSummary {
+  parent_run_id: string;
+  preset?: string | null;
+  origin?: string | null;
+  origin_kind?: string | null;
+  changed?: string[];
+  /** "test_results" when a backtest result was inspected somewhere in the chain before this model was designed. */
+  selection?: 'validation_only' | 'test_results';
+}
+
+export interface ExperimentRecord extends ExperimentSummary {
+  version: number;
+  parent_dataset_id?: string | null;
+  selection_history: { kind: string; run_id?: string; dataset_id?: string | null; first_decision?: string | null; last_decision?: string | null }[];
+  created_at: number;
 }
 
 export type ReviewLinkProvenance = 'recorded' | 'recovered';

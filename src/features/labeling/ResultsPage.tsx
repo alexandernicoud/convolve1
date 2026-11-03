@@ -13,6 +13,8 @@ import SearchSpaceTab from "./tabs/SearchSpaceTab";
 import PerformanceTab from "./tabs/PerformanceTab";
 import RobustnessTab from "./tabs/RobustnessTab";
 import FindingsTab from "./tabs/FindingsTab";
+import AiPromptButton from "@/features/aiPrompt/AiPromptButton";
+import { optimizerPromptInput } from "@/features/aiPrompt/build";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -102,7 +104,34 @@ export default function LabelingResultsPage() {
 
   return (
     <div className="mx-auto w-full max-w-[100rem] space-y-5 pb-10">
-      <Header runId={runId} backHref={backHref} audit={audit} metrics={metrics} conclusion={data.loading ? null : conclusion} runInfo={data.runInfo} candidates={data.loading ? undefined : data.candidates} />
+      <Header
+        runId={runId}
+        backHref={backHref}
+        audit={audit}
+        metrics={metrics}
+        conclusion={data.loading ? null : conclusion}
+        runInfo={data.runInfo}
+        candidates={data.loading ? undefined : data.candidates}
+        aiPrompt={
+          data.loading || data.error ? null : (
+            <AiPromptButton
+              fileName={`convolve_labeling_optimizer_${runId.slice(0, 8)}_ai_prompt`}
+              collect={async () =>
+                optimizerPromptInput({
+                  runId,
+                  metrics,
+                  audit: audit as Record<string, any> | null,
+                  surface,
+                  timeseries: data.timeseries,
+                  candidates: data.candidates as Record<string, any> | null,
+                  runInfo: data.runInfo,
+                  conclusion,
+                })
+              }
+            />
+          )
+        }
+      />
 
       {data.loading ? (
         <LoadingRegion label="Loading optimizer results" className="space-y-4">
@@ -152,6 +181,7 @@ function Header({
   conclusion,
   runInfo,
   candidates,
+  aiPrompt,
 }: {
   runId: string;
   backHref: string;
@@ -160,6 +190,7 @@ function Header({
   conclusion: Conclusion | null;
   runInfo: RunInfo | null;
   candidates: ResearchCandidates | null | undefined;
+  aiPrompt: ReactNode;
 }) {
   const symbol = audit?.symbol ?? metrics?.symbol;
   const periods = runInfo?.periods ?? candidates?.periods;
@@ -212,6 +243,7 @@ function Header({
         <Link to={backHref} className={btn}>
           <ArrowLeft className="h-4 w-4" /> Back
         </Link>
+        {aiPrompt}
         <DownloadButton runId={runId} />
         <Link to="/products/labeling-optimizer/technical" className={btnPrimary}>
           <Plus className="h-4 w-4" /> New optimization

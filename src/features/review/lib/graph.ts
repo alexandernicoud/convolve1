@@ -17,10 +17,11 @@ export type NodeKind =
   | "analysis"
   | "backtest"
   | "bot"
+  | "stock"
   | "run"
   | "unresolved";
 
-export type AssetRefKind = "model" | "dataset" | "run" | "bot";
+export type AssetRefKind = "model" | "dataset" | "run" | "bot" | "stock";
 
 export interface GraphNode {
   key: string;
@@ -52,26 +53,48 @@ export const NODE_KIND_LABEL: Record<NodeKind, string> = {
   analysis: "Analysis",
   backtest: "Backtest",
   bot: "Deployed bot",
+  stock: "Stock",
   run: "Run",
   unresolved: "Not in workspace",
 };
 
-/** Column (pipeline stage) per kind, left → right. */
-export const STAGE: Record<NodeKind, number> = {
-  generator: 0,
-  optimizer: 0,
-  archive: 1,
-  dataset: 1,
-  trainer: 2,
-  model: 3,
-  testdata: 4,
-  testset: 5,
-  analysis: 6,
-  backtest: 6,
-  bot: 7,
-  run: 4,
-  unresolved: 4,
+/** The eight workflow columns of the Search Hub graph, left → right. */
+export const COLUMNS = [
+  "Stock",
+  "Labeling Optimizer",
+  "Training Chart Generator",
+  "Trainer",
+  "Analysis",
+  "Test Data Generator",
+  "Backtester",
+  "Deploy",
+] as const;
+
+/**
+ * Column and lane per kind. Tools that produce an artifact use two lanes inside their column:
+ * the run (lane 0) and what it produced (lane 1), so produced-by links still run left → right.
+ */
+export const PLACE: Record<NodeKind, { col: number; lane: 0 | 1 }> = {
+  stock: { col: 0, lane: 0 },
+  optimizer: { col: 1, lane: 0 },
+  generator: { col: 2, lane: 0 },
+  archive: { col: 2, lane: 1 },
+  dataset: { col: 2, lane: 1 },
+  trainer: { col: 3, lane: 0 },
+  model: { col: 3, lane: 1 },
+  analysis: { col: 4, lane: 0 },
+  testdata: { col: 5, lane: 0 },
+  testset: { col: 5, lane: 1 },
+  backtest: { col: 6, lane: 0 },
+  bot: { col: 7, lane: 0 },
+  run: { col: 4, lane: 0 },
+  unresolved: { col: 4, lane: 0 },
 };
+
+/** Kept for callers that only need a stage number. */
+export const STAGE: Record<NodeKind, number> = Object.fromEntries(
+  (Object.keys(PLACE) as NodeKind[]).map((k) => [k, PLACE[k].col * 2 + PLACE[k].lane]),
+) as Record<NodeKind, number>;
 
 export const RELATION_LABEL: Record<string, string> = {
   produced: "produced",
@@ -85,6 +108,8 @@ export const RELATION_LABEL: Record<string, string> = {
   exported_as: "exported as",
   deployed_as: "deployed as",
   informed: "informed",
+  improved_into: "improved into",
+  price_data: "price data for",
 };
 
 const RUN_KIND: Record<string, NodeKind> = {
@@ -101,7 +126,7 @@ export function parseKey(key: string): { kind: AssetRefKind | null; id: string }
   if (i < 0) return { kind: null, id: key };
   const k = key.slice(0, i);
   const id = key.slice(i + 1);
-  return k === "run" || k === "model" || k === "dataset" || k === "bot" ? { kind: k, id } : { kind: null, id: key };
+  return k === "run" || k === "model" || k === "dataset" || k === "bot" || k === "stock" ? { kind: k, id } : { kind: null, id: key };
 }
 
 export interface NameLookup {
@@ -148,7 +173,15 @@ export function buildGraph(data: Pick<ReviewOverviewResponse, "runs" | "models" 
     nodes.set(`bot:${b.id}`, botNode(b));
   }
 
-  const edges = data.edges ?? [];
+  const priceEdges = stockEdges(data);
+  for (const e of priceEdges) {
+    if (!nodes.has(e.source)) {
+      const sym = e.source.slice("stock:".length);
+      nodes.set(e.source, { key: e.source, kind: "stock", ref: { kind: "stock", id: sym }, label: sym, sublabel: "Price data (Yahoo Finance)" });
+    }
+  }
+
+  const edges = [...priceEdges, ...(data.edges ?? [])];
   const out = new Map<string, ReviewEdge[]>();
   const inc = new Map<string, ReviewEdge[]>();
   for (const e of edges) {
@@ -169,6 +202,40 @@ export function buildGraph(data: Pick<ReviewOverviewResponse, "runs" | "models" 
     (inc.get(e.target) ?? inc.set(e.target, []).get(e.target)!).push(e);
   }
   return { nodes, edges, out, in: inc };
+}
+
+export function splitSymbols(raw: unknown): string[] {
+  if (typeof raw !== "string" && !Array.isArray(raw)) return [];
+  const list = Array.isArray(raw) ? raw.map(String) : raw.split(/[,\s]+/);
+  return [...new Set(list.map((s) => s.trim().toUpperCase()).filter(Boolean))];
+}
+
+/**
+ * Stock → tool links from the symbols each data-downloading run recorded in its own
+ * configuration (label search, chart generator, test-set generator). Never matched by name
+ * across assets: a run is linked only to the tickers it states it downloaded.
+ */
+export function stockEdges(data: Pick<ReviewOverviewResponse, "runs" | "datasets">): ReviewEdge[] {
+  const out: ReviewEdge[] = [];
+  const add = (sym: string, target: string, basis: string) =>
+    out.push({ source: `stock:${sym}`, target, relation: "price_data", provenance: "recorded", basis });
+  const testRuns = new Set<string>();
+  for (const r of data.runs ?? []) {
+    if (r.tool === "labeling-optimizer") for (const s of splitSymbols(r.optimizer?.config?.symbol)) add(s, `run:${r.id}`, "symbol in the label search's recorded configuration");
+    if (r.tool === "training-chart-generator") for (const s of splitSymbols(r.generator?.config?.symbols)) add(s, `run:${r.id}`, "symbols in the generator's recorded configuration");
+    if (r.tool === "testdata") testRuns.add(r.id);
+  }
+  const linkedTestRuns = new Set<string>();
+  for (const d of data.datasets ?? []) {
+    if (d.kind !== "test" || !d.symbols) continue;
+    const target = d.testdata_run_id && testRuns.has(d.testdata_run_id) ? `run:${d.testdata_run_id}` : `dataset:${d.id}`;
+    if (target.startsWith("run:")) {
+      if (linkedTestRuns.has(target)) continue;
+      linkedTestRuns.add(target);
+    }
+    for (const s of splitSymbols(d.symbols)) add(s, target, "symbols recorded in the test set's provenance");
+  }
+  return out;
 }
 
 function botNode(b: ReviewBot): GraphNode {
@@ -234,69 +301,4 @@ export function components(g: Graph, keys: Set<string>): string[][] {
   return comps.sort((a, b) => (b.length > 1 ? 1 : 0) - (a.length > 1 ? 1 : 0) || recency(b) - recency(a));
 }
 
-export const LAYOUT = { nodeW: 252, nodeH: 58, colGap: 76, rowGap: 14, compGap: 40, pad: 36 };
-
-export interface Layout {
-  pos: Map<string, { x: number; y: number }>;
-  width: number;
-  height: number;
-  columns: { stage: number; x: number }[];
-}
-
-/**
- * Deterministic columnar layout: stage columns left→right, components stacked
- * vertically, nodes ordered within a column by the mean row of their upstream nodes.
- */
-export function layoutGraph(g: Graph, keys: Set<string>): Layout {
-  const { nodeW, nodeH, colGap, rowGap, compGap, pad } = LAYOUT;
-  const usedStages = [...new Set([...keys].map((k) => STAGE[g.nodes.get(k)!.kind]))].sort((a, b) => a - b);
-  const colIndex = new Map(usedStages.map((s, i) => [s, i]));
-  const colX = (stage: number) => pad + colIndex.get(stage)! * (nodeW + colGap);
-  const pos = new Map<string, { x: number; y: number }>();
-  let top = pad;
-
-  for (const comp of components(g, keys)) {
-    const byStage = new Map<number, string[]>();
-    for (const k of comp) {
-      const s = STAGE[g.nodes.get(k)!.kind];
-      (byStage.get(s) ?? byStage.set(s, []).get(s)!).push(k);
-    }
-    const row = new Map<string, number>();
-    let rows = 0;
-    for (const s of [...byStage.keys()].sort((a, b) => a - b)) {
-      const col = byStage.get(s)!;
-      const score = (k: string) => {
-        const ups = (g.in.get(k) ?? []).map((e) => row.get(e.source)).filter((v): v is number => v != null);
-        return ups.length ? ups.reduce((a, b) => a + b, 0) / ups.length : Number.MAX_SAFE_INTEGER;
-      };
-      col.sort((a, b) => score(a) - score(b) || (g.nodes.get(b)!.ts ?? 0) - (g.nodes.get(a)!.ts ?? 0));
-      col.forEach((k, i) => {
-        row.set(k, i);
-        pos.set(k, { x: colX(s), y: top + i * (nodeH + rowGap) });
-      });
-      rows = Math.max(rows, col.length);
-    }
-    top += rows * (nodeH + rowGap) - rowGap + compGap;
-  }
-  return {
-    pos,
-    width: pad * 2 + Math.max(1, usedStages.length) * (nodeW + colGap) - colGap,
-    height: Math.max(top - compGap + pad, pad * 2 + nodeH),
-    columns: usedStages.map((s) => ({ stage: s, x: colX(s) })),
-  };
-}
-
-export function stageTitle(stage: number): string {
-  const kinds = (Object.keys(STAGE) as NodeKind[]).filter((k) => STAGE[k] === stage && k !== "unresolved" && k !== "run");
-  const labels: Record<number, string> = {
-    0: "Source runs",
-    1: "Training data",
-    2: "Training",
-    3: "Models",
-    4: "Test-set runs",
-    5: "Test sets",
-    6: "Evaluation",
-    7: "Deployment",
-  };
-  return labels[stage] ?? kinds.map((k) => NODE_KIND_LABEL[k]).join(" / ");
-}
+export { LAYOUT, layoutGraph, type Layout } from "./graphLayout";

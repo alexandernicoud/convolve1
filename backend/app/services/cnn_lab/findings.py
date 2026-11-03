@@ -184,7 +184,34 @@ def _atlas(res: Dict[str, Any], job_id: str) -> List[Dict[str, Any]]:
                 None,
                 res["n_all_zero"] + res.get("n_used", 0),
                 None,
-                ["All-zero maps occur when no channel has positive gradient-weighted activation for the target."],
+                [
+                    "All-zero maps occur when no channel has positive gradient-weighted activation for the target.",
+                    "This is not by itself a model failure: Grad-CAM keeps only positive evidence, so a prediction driven by the absence of features, or decided in later dense layers, can give a blank map. Try an earlier layer or the faithfulness test.",
+                ],
+            )
+        )
+
+    border = prof.get("border") or {}
+    b_att, b_ink, b_area = border.get("attention") or {}, border.get("ink") or {}, border.get("area")
+    if b_att.get("mean") is not None and b_area:
+        ref = max(b_area, b_ink.get("mean") or 0.0)
+        heavy = excludes(b_att, ref) and b_att["mean"] > ref
+        out.append(
+            _f(
+                "atlas.border",
+                "atlas",
+                job_id,
+                "hypothesis" if heavy else "observation",
+                "Grad-CAM concentrates on the image border" if heavy else "No excess attention on the image border",
+                f"The outer border band covers {_pct(b_area)} of the image and holds {_pct(b_ink.get('mean'))} of the candle pixels; it receives {_pct(b_att['mean'])} of Grad-CAM mass."
+                + (" Attention beyond both the area and the candle share there can come from padding or frame artifacts." if heavy else ""),
+                _m("Grad-CAM share in the border band", b_att, "share"),
+                n,
+                f"The larger of the band's area and candle share ({_pct(ref)})",
+                [
+                    "The right border also contains the most recent bar, which can be informative; check the time-region result before calling this an artifact.",
+                    "Grad-CAM upsampling and convolution padding both put some mass on borders.",
+                ],
             )
         )
 
@@ -430,17 +457,71 @@ def _embedding(res: Dict[str, Any], job_id: str) -> List[Dict[str, Any]]:
                 ["Inactive on this sample only."],
             )
         )
+    sp = res.get("splits")
+    if sp and sp.get("centroid_shift") is not None:
+        tr, va = sp["training"], sp["validation"]
+        acc_t, acc_v = (tr.get("accuracy") or {}).get("p"), (va.get("accuracy") or {}).get("p")
+        gap_supported = bool(tr.get("accuracy") and va.get("accuracy") and not _overlaps(tr["accuracy"], va["accuracy"]))
+        shift = sp["centroid_shift"]
+        out.append(
+            _f(
+                "embedding.splits",
+                "embedding",
+                job_id,
+                "supported" if gap_supported else "observation",
+                ("Training images are classified better than validation images" if gap_supported and (acc_t or 0) > (acc_v or 0) else "Training and validation images look alike to the model")
+                if shift < 0.5
+                else "Training and validation images sit apart in the representation",
+                f"Accuracy on sampled training images {_pct(acc_t)} vs validation {_pct(acc_v)}; centroid shift {shift:.2f} "
+                "(distance between the split centroids divided by the typical within-split spread).",
+                {"label": "Centroid shift (training vs validation)", "value": shift, "lo": None, "hi": None, "unit": "ratio"},
+                (tr.get("n") or 0) + (va.get("n") or 0),
+                "Equal accuracy on both splits",
+                [
+                    "A higher training accuracy is the usual sign of memorization; a large centroid shift also appears when the splits cover different periods.",
+                    "Uses the split recorded by the trainer for this model and dataset.",
+                ],
+            )
+        )
     return out
 
 
-BUILDERS = {"atlas": _atlas, "sensitivity": _sensitivity, "faithfulness": _faithfulness, "features": _features, "embedding": _embedding}
+def _stability(res: Dict[str, Any], job_id: str) -> List[Dict[str, Any]]:
+    flip = res.get("any_flip_confident") or res.get("any_flip")
+    if not flip or flip.get("p") is None:
+        return []
+    worst = max(res.get("rows") or [], key=lambda r: r["abs_delta"].get("mean") or 0.0, default=None)
+    if flip["lo"] is not None and flip["lo"] > 0.05:
+        status, title = "supported", "Predictions change under harmless rendering edits"
+    elif flip["hi"] is not None and flip["hi"] < 0.05:
+        status, title = "supported", "Predictions are stable under small rendering edits"
+    else:
+        status, title = "inconclusive", "Rendering stability is not established"
+    return [
+        _f(
+            "stability",
+            "stability",
+            job_id,
+            status,
+            title,
+            f"{_pct(flip['p'])} of confidently predicted images change class under at least one of {len(res.get('rows') or [])} small edits."
+            + (f" Largest mean change: {worst['description'].lower()} ({_pp(worst['abs_delta']['mean'], 2)} absolute)." if worst else ""),
+            {"label": "Flip rate under any edit (confident images)", "value": flip["p"], "lo": flip["lo"], "hi": flip["hi"], "unit": "proportion"},
+            flip.get("n"),
+            "5% flip rate",
+            (res.get("limitations") or [])[:2],
+        )
+    ]
+
+
+BUILDERS = {"atlas": _atlas, "sensitivity": _sensitivity, "faithfulness": _faithfulness, "features": _features, "embedding": _embedding, "stability": _stability}
 
 
 def derive(latest: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
     """``latest`` maps experiment kind → its most recent successful result (with ``job_id``)."""
     findings: List[Dict[str, Any]] = []
     ctx_done = False
-    for kind in ("atlas", "sensitivity", "faithfulness", "features", "embedding"):
+    for kind in ("atlas", "sensitivity", "faithfulness", "features", "embedding", "stability"):
         res = latest.get(kind)
         if not res:
             continue

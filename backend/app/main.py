@@ -572,6 +572,8 @@ class TrainerRequest(BaseModel):
     class_weighting: Optional[str] = None
     augmentation: Optional[List[str]] = None
     transfer: Optional[Dict[str, Any]] = None
+    # Improve-model experiment (app/services/experiments.py); the server replaces it with the stored record.
+    experiment: Optional[Dict[str, Any]] = None
 
 
 class SplitPreviewRequest(BaseModel):
@@ -3591,6 +3593,8 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
     if request.dataset_id:
         assert_cross_owned(uid, dataset_id=request.dataset_id)
     _validate_training_options(request)
+    if request.experiment is not None:
+        request.experiment = _experiment_record(request.experiment, uid)
     if trainer_jobs.job_mode_enabled():
         return await _start_trainer_job(request, uid, http_request)
     try:
@@ -3724,6 +3728,30 @@ async def start_trainer(request: TrainerRequest, background_tasks: BackgroundTas
     background_tasks.add_task(run_trainer_safe)
 
     return RunResponse(run_id=run_id)
+
+
+def _experiment_record(raw: Any, uid: Optional[str]) -> Dict[str, Any]:
+    """Validate an Improve request against runs the user owns and build the stored record."""
+    from app.services import experiments
+
+    try:
+        req = experiments.sanitize(raw)
+        origin = experiments.parse_origin(req.get("origin"))
+    except experiments.ExperimentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    assert_cross_owned(uid, trainer_run_id=req["parent_run_id"])
+    parent_meta = _read_json_dict(os.path.join(get_run_dir(req["parent_run_id"]), "model_metadata.json"))
+    if parent_meta is None:
+        raise HTTPException(status_code=404, detail="The model to improve was not found")
+
+    def load_backtest(bid: str) -> Optional[Dict[str, Any]]:
+        assert_cross_owned(uid, run_id=bid)
+        d = find_backtest_dir(bid, uid if is_user_uuid(uid) else None)
+        return _read_json_dict(str(d / "output" / "backtest_results.json")) if d else None
+
+    if origin["kind"] == "backtest" and not origin["id"]:
+        raise HTTPException(status_code=400, detail="A backtest origin needs its run id")
+    return experiments.build_record(req, parent_meta, load_backtest)
 
 
 def _trainer_config(request: TrainerRequest) -> Dict[str, Any]:
@@ -5027,7 +5055,11 @@ def _v2_backtest_context(payload: Dict[str, Any], dataset_dir: Path, uid: Option
     else:
         meta_path = None
     ctx: Dict[str, Any] = {"dataset_dir": str(dataset_dir), "model_ref": model_ref,
-                           "training_metadata_path": meta_path}
+                           "training_metadata_path": meta_path, "selection_history": None}
+    if ((meta or {}).get("training_config") or {}).get("experiment"):
+        from app.services import experiments
+
+        ctx["selection_history"] = experiments.history_of(meta)
     if trainer_run_id:
         try:
             assert_cross_owned(uid, trainer_run_id=str(trainer_run_id))
@@ -5708,6 +5740,10 @@ def _update_library_label(
 
 
 _DATASET_PATH_RE = re.compile(r"datasets[/\\]([A-Za-z0-9_.-]+)[/\\]")
+# Per-user layout: datasets/<user uuid>/<dataset id>/...
+_USER_DATASET_PATH_RE = re.compile(
+    r"datasets[/\\][0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}[/\\]([A-Za-z0-9_.-]+)[/\\]"
+)
 _RUNS_MODEL_PATH_RE = re.compile(r"runs[/\\]([A-Za-z0-9_.-]+)[/\\][^/\\]+\.(?:keras|h5)$")
 
 
@@ -5728,7 +5764,7 @@ def _parse_backtest_links(cfg: Dict[str, Any]) -> Dict[str, Optional[str]]:
         base = os.path.basename(model_path)
         if base.startswith("model_") and base.endswith(".keras"):
             out["model_id"] = base[: -len(".keras")]
-    dm = _DATASET_PATH_RE.search(dataset_path)
+    dm = _USER_DATASET_PATH_RE.search(dataset_path) or _DATASET_PATH_RE.search(dataset_path)
     if dm:
         out["dataset_id"] = dm.group(1)
     return out
@@ -6503,6 +6539,18 @@ def _build_review_overview(user_id: Optional[str]) -> Dict[str, Any]:
                 )
             if generator_run_id:
                 links["generator_run_id"] = generator_run_id
+            experiment = (meta.get("training_config") or {}).get("experiment")
+            if isinstance(experiment, dict) and experiment.get("parent_run_id"):
+                parent = str(experiment["parent_run_id"])
+                links["experiment_parent_run_id"] = parent
+                add_edge(f"model:{parent}", node, "improved_into", "recorded", "Improve experiment record")
+                origin = str(experiment.get("origin") or "")
+                if origin.startswith("backtest:") and len(origin) > len("backtest:"):
+                    add_edge(f"run:{origin[len('backtest:'):]}", node, "informed", "recorded", "Improve experiment origin")
+                row["experiment"] = {
+                    k: experiment.get(k)
+                    for k in ("parent_run_id", "preset", "origin", "origin_kind", "changed", "selection")
+                }
             training = review_meta.trainer_summary(summary)
             metrics = dict(training.get("metrics") or {})
             row["training"] = training

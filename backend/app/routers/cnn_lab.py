@@ -412,7 +412,7 @@ def _latest_results(d: str) -> Dict[str, Dict[str, Any]]:
 
 class JobRequest(ModelRef):
     session_id: Optional[str] = None
-    kind: Literal["atlas", "sensitivity", "faithfulness", "features", "embedding"]
+    kind: Literal["atlas", "sensitivity", "faithfulness", "features", "embedding", "stability"]
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -422,6 +422,7 @@ ALLOWED_PARAMS = {
     "faithfulness": {"n", "seed", "layer", "filters", "grid", "repeats", "ks", "baseline"},
     "features": {"n", "seed", "layer", "filters", "top_images"},
     "embedding": {"n", "seed", "filters"},
+    "stability": {"n", "seed", "filters"},
 }
 FILTER_KEYS = {"labels", "symbols", "date_from", "date_to", "split", "predicted", "outcome", "confidence_min", "confidence_max"}
 
@@ -433,7 +434,7 @@ def _clean_params(kind: str, params: Dict[str, Any]) -> Dict[str, Any]:
             raise HTTPException(status_code=422, detail="filters must be an object")
         out["filters"] = {k: v for k, v in out["filters"].items() if k in FILTER_KEYS and v not in (None, "", [])}
     out.setdefault("seed", 0)
-    out.setdefault("n", {"atlas": 200, "sensitivity": 100, "faithfulness": 100, "features": 200, "embedding": 500}[kind])
+    out.setdefault("n", {"atlas": 200, "sensitivity": 100, "faithfulness": 100, "features": 200, "embedding": 500, "stability": 100}[kind])
     try:
         out["n"] = int(out["n"])
         out["seed"] = int(out["seed"])

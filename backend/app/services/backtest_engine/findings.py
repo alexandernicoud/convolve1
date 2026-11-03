@@ -17,15 +17,25 @@ def _v(m: Optional[Dict[str, Any]]) -> Optional[float]:
     return None if not isinstance(m, dict) else m.get("value")
 
 
+# Action kinds the frontend maps to routes with the run's model and dataset preloaded.
+ACTION_IMPROVE, ACTION_ANALYZE, ACTION_LABELING, ACTION_TESTSET, ACTION_RERUN_VALIDATED = (
+    "improve", "analyze", "labeling", "new_test_set", "rerun_validation_threshold",
+)
+
+
 def _f(
     id: str, severity: str, title: str, measurement: str, n: Optional[int], baseline: Optional[str],
     ci: Optional[List[float]], assumptions: str, limitations: str, interpretation: str,
+    action: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
-    return {
+    out = {
         "id": id, "severity": severity, "title": title, "measurement": measurement, "sample_size": n,
         "baseline": baseline, "ci95": ci, "assumptions": assumptions, "limitations": limitations,
         "interpretation": interpretation,
     }
+    if action:
+        out["action"] = action
+    return out
 
 
 def _pct(x: Optional[float], d: int = 1) -> str:
@@ -52,6 +62,7 @@ def build_findings(r: Dict[str, Any]) -> List[Dict[str, Any]]:
             "A manually entered threshold.",
             "If it was chosen after looking at this test set, every test metric is optimistic.",
             "Treat the headline result as exploratory until a threshold is selected on validation data and locked.",
+            action={"kind": ACTION_RERUN_VALIDATED, "label": "Re-run with a validation-locked threshold"},
         ))
 
     sel = th.get("selection") or {}
@@ -97,6 +108,7 @@ def build_findings(r: Dict[str, Any]) -> List[Dict[str, Any]]:
             "Threshold-free; computed on all labelled test predictions.",
             "Bootstrap interval resamples charts independently and ignores overlap between label horizons.",
             "Ranking skill is necessary, not sufficient, for a profitable strategy.",
+            action={"kind": ACTION_IMPROVE, "label": "Improve the model"} if lo <= 0.5 else None,
         ))
 
     # Costs erase gross --------------------------------------------------------------------------
@@ -109,6 +121,7 @@ def build_findings(r: Dict[str, Any]) -> List[Dict[str, Any]]:
             f"Commission {cfg.get('commission_pct')}% and slippage {cfg.get('slippage_pct')}% per side.",
             "Costs are a simple percentage model; real spreads vary by symbol and time.",
             "The signal's edge, if any, is smaller than the assumed cost of trading it.",
+            action={"kind": ACTION_LABELING, "label": "Search labels with larger moves per trade"},
         ))
 
     # Small sample / concentration ---------------------------------------------------------------
@@ -119,6 +132,7 @@ def build_findings(r: Dict[str, Any]) -> List[Dict[str, Any]]:
             f"{closed} closed trade(s).", closed, "≥ 30 closed trades", (tm.get("win_rate") or {}).get("ci95"),
             "Win-rate interval is Wilson 95%.", "Subgroup and ratio metrics are highly unstable at this size.",
             "Results may change materially with a different test period.",
+            action={"kind": ACTION_TESTSET, "label": "Create a longer test set"},
         ))
     conc = rb.get("concentration") or {}
     if conc.get("top3_share_of_net") is not None and conc["top3_share_of_net"] > 0.5 and (net or 0) > 0:
@@ -156,6 +170,50 @@ def build_findings(r: Dict[str, Any]) -> List[Dict[str, Any]]:
             tm.get("n_periods"), em.get("label"), None, em.get("note", ""),
             "One realised path; no significance test is applied to the difference.",
             "Shows whether timing added value beyond simply holding a smaller position.",
+        ))
+
+    # Incremental value over no-model baselines ---------------------------------------------------
+    inc = r.get("incremental") or {}
+    ver = inc.get("verdict") or {}
+    if ver.get("id"):
+        sev = {"edge": POSITIVE, "inconclusive": NEUTRAL, "no_edge": NEGATIVE, "invalid": CAUTION}.get(ver["id"], NEUTRAL)
+        pa = (inc.get("paired") or {}).get("always_eligible") or {}
+        out.append(_f(
+            "incremental_verdict", sev, f"Incremental value of the CNN: {ver.get('label')}",
+            " ".join(ver.get("reasons") or []), (inc.get("cnn") or {}).get("closed_trades"),
+            "same trades without the model (every eligible chart), random selections of the same size, exposure-matched passive mix",
+            pa.get("ci95_annualized"),
+            inc.get("same_as_cnn", ""),
+            "Paired moving-block bootstrap on shared dates; one test period. Random draws use fixed seeds.",
+            {
+                "edge": "The CNN's filter added return beyond trading the same setups without it, beyond chance selections and beyond a passive position of the same size.",
+                "inconclusive": "The CNN may add value, but the difference is within what the test period's noise allows.",
+                "no_edge": "On this test the CNN's selection did not beat trading the same setups without it.",
+                "invalid": "The baselines could not be compared on this run.",
+            }.get(ver["id"], ""),
+            action=(
+                {"kind": ACTION_IMPROVE, "label": "Improve the model"} if ver["id"] in ("no_edge", "inconclusive")
+                else {"kind": ACTION_TESTSET, "label": "Confirm on a new, later test set"} if ver["id"] == "edge"
+                else None
+            ),
+        ))
+    ae = inc.get("always_eligible") or {}
+    cnn = inc.get("cnn") or {}
+    if ae.get("total_return") is not None and cnn.get("total_return") is not None and ae.get("expectancy_return") is not None and cnn.get("expectancy_return") is not None:
+        diff = cnn["expectancy_return"] - ae["expectancy_return"]
+        # Differences below 2 bp per trade or 10% of the baseline are treated as no change.
+        material = abs(diff) >= max(0.0002, 0.1 * abs(ae["expectancy_return"]))
+        better = material and diff > 0
+        out.append(_f(
+            "filter_expectancy", (POSITIVE if better else NEGATIVE) if material else NEUTRAL,
+            ("The CNN raises the average trade" if better else "The CNN lowers the average trade") if material
+            else "The CNN does not materially change the average trade",
+            f"Mean net return per closed trade {_pct(cnn['expectancy_return'], 3)} with the CNN vs. {_pct(ae['expectancy_return'], 3)} for every eligible chart "
+            f"({cnn.get('closed_trades')} vs. {ae.get('closed_trades')} closed trades).",
+            cnn.get("closed_trades"), "every eligible chart, same exits and costs", None,
+            inc.get("same_as_cnn", ""), "Trade-level means ignore overlap between holding periods.",
+            "Expectancy isolates what the filter selects, independently of how often it trades.",
+            action=None if better else {"kind": ACTION_ANALYZE, "label": "Analyze what the model attends to"},
         ))
 
     # Leakage / data quality ----------------------------------------------------------------------

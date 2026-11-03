@@ -2,7 +2,7 @@ import { ApiError, fetchApi } from "@/lib/api";
 
 export type ModelKind = "trained" | "uploaded";
 export type ModelRef = { model_kind: ModelKind; model_id: string; dataset_id?: string | null };
-export type ExperimentKind = "atlas" | "sensitivity" | "faithfulness" | "features" | "embedding";
+export type ExperimentKind = "atlas" | "sensitivity" | "faithfulness" | "features" | "embedding" | "stability";
 export type Method = "gradcam" | "saliency" | "smoothgrad" | "occlusion" | "activations";
 
 /** 8-bit grayscale PNG (base64) plus the value range it encodes. */

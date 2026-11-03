@@ -9,6 +9,7 @@ import { btn, btnPrimary, Caveat, cx, EmptyState, KV, Panel, PanelTitle, surface
 import { useTrainingRun } from "./useTrainingRun";
 import { LiveComputation } from "./LiveComputation";
 import { DiagnosticsPanel, EvaluationPanel, isProtocol2, SelectionCurves, SplitPanel } from "./EvaluationPanels";
+import { ModelHealthPanel } from "./ModelHealthPanel";
 import { SELECTION_NAME, selectionName } from "./evaluation";
 import { OPTIMIZER_LABEL, SCHEDULE_LABEL } from "./options";
 import {
@@ -61,14 +62,14 @@ export default function TrainingSessionPage() {
       <div className="mx-auto max-w-3xl py-10">
         <EmptyState
           title="This training run could not be found"
-          body="It may belong to another account, or its files were removed. Runs you started are listed in Review."
+          body="It may belong to another account, or its files were removed. Runs you started are listed in the Search Hub."
           action={
             <div className="flex gap-2">
               <Link to="/tools/trainer?new=1" className={btnPrimary}>
                 <Plus className="h-4 w-4" /> New training run
               </Link>
               <Link to="/tools/run-log?tab=runs" className={btn}>
-                Open Review
+                Open Search Hub
               </Link>
             </div>
           }
@@ -164,6 +165,7 @@ export default function TrainingSessionPage() {
 
       {stage === "completed" && session ? <CompletedPanel runId={runId} session={session} /> : null}
       {stage === "completed" && session ? <EvaluationPanel session={session} /> : null}
+      {stage === "completed" && session ? <ModelHealthPanel session={session} runId={runId} /> : null}
       {stage === "completed" ? <ProgressPanel data={data} session={session} stage={stage} now={now} running={running} /> : null}
       {session && stage !== "failed" && stage !== "cancelled" ? <LiveComputation session={session} running={running} /> : null}
       {!running && session?.timings ? <TimingPanel session={session} /> : null}
@@ -611,9 +613,15 @@ function CompletedPanel({ runId, session }: { runId: string; session: TrainingSe
             body="Run the model on unseen market periods."
           />
           <NextStep
+            to={`/tools/improve?model=${encodeURIComponent(`trained:${runId}`)}&from=trainer`}
+            icon={<FlaskConical className="h-4 w-4" />}
+            title="Improve it"
+            body="Controlled comparisons against smaller, regularized and GAP variants on the same split."
+          />
+          <NextStep
             to={`/tools/run-log?tab=models&inspect=${encodeURIComponent(`model:${runId}`)}`}
             icon={<ArrowRight className="h-4 w-4" />}
-            title="Open in Review"
+            title="Open in Search Hub"
             body="Lineage, labels and comparison with your other models."
           />
         </div>

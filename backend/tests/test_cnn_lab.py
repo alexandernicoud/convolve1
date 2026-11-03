@@ -285,6 +285,52 @@ def test_sensitivity_faithfulness_features_embedding_run(lab_files, lm):
         json.dumps(jobs.sanitize(res), allow_nan=False)
 
 
+def test_shift_fills_with_background():
+    x = np.zeros((4, 5, 3), dtype=np.float32)
+    x[1, 1] = 0.5
+    right = experiments._shift(x, 0, 2)
+    assert right[1, 3, 0] == 0.5 and (right[:, :2] == 1.0).all()
+    up = experiments._shift(x, -1, 0)
+    assert up[0, 1, 0] == 0.5 and (up[-1] == 1.0).all()
+
+
+def test_stability_and_split_comparison(lab_files, lm):
+    ctx = _ctx(lab_files, lm)
+    stab = experiments.run_stability(ctx, {"n": 6, "seed": 1})
+    assert [r["perturbation"] for r in stab["rows"]] == list(experiments.PERTURBATIONS)
+    assert all(r["flip_rate"]["n"] == 6 for r in stab["rows"]) and stab["worst_abs_delta"] >= 0
+    json.dumps(jobs.sanitize(stab), allow_nan=False)
+
+    assert experiments.run_embedding(ctx, {"n": 20})["splits"] is None
+    val = {r.id for r in ctx.records[::2]}
+    emb = experiments.run_embedding(_ctx(lab_files, lm, val=val), {"n": 20})
+    assert {p["split"] for p in emb["points"]} == {"training", "validation"}
+    sp = emb["splits"]
+    assert sp["training"]["n"] + sp["validation"]["n"] == 20 and sp["centroid_shift"] >= 0
+
+    atlas = experiments.run_atlas(ctx, {"n": 8, "seed": 1})
+    border = atlas["profile"]["border"]
+    assert 0 < border["area"] < 1 and border["attention"]["n"] == atlas["n_used"]
+
+
+def test_stability_and_split_findings():
+    flip = lambda lo, hi: {"p": (lo + hi) / 2, "lo": lo, "hi": hi, "n": 80}
+    row = {"description": "Shift", "abs_delta": {"mean": 0.02}}
+    unstable = findings.derive({"stability": {"job_id": "job_000000000002", "rows": [row], "any_flip_confident": flip(0.1, 0.3)}})["findings"]
+    stable = findings.derive({"stability": {"job_id": "job_000000000002", "rows": [row], "any_flip_confident": flip(0.0, 0.03)}})["findings"]
+    assert unstable[0]["title"].startswith("Predictions change") and stable[0]["title"].startswith("Predictions are stable")
+
+    acc = lambda lo, hi: {"p": (lo + hi) / 2, "lo": lo, "hi": hi, "n": 50}
+    emb = {
+        "job_id": "job_000000000003",
+        "explained_variance": [0.4, 0.2],
+        "summary": {"n": 100},
+        "splits": {"training": {"n": 50, "accuracy": acc(0.8, 0.95)}, "validation": {"n": 50, "accuracy": acc(0.45, 0.65)}, "centroid_shift": 0.2},
+    }
+    f = [x for x in findings.derive({"embedding": emb})["findings"] if x["id"] == "embedding.splits"][0]
+    assert f["status"] == "supported" and "Training images are classified better" in f["title"]
+
+
 def test_findings_are_complete_and_use_fixed_vocabulary(lab_files, lm):
     ctx = _ctx(lab_files, lm)
     latest = {

@@ -1,0 +1,1916 @@
+{
+ "/": {
+  "blocks": [
+   [
+    "h1",
+    "Build your own AI that reads charts."
+   ],
+   [
+    "p",
+    "Neural networks that learn patterns straight from price charts. Convolve turns price history into labelled chart images, trains models on them, shows you what they learned and tests the result on data they have never seen."
+   ],
+   [
+    "h2",
+    "The technology behind image recognition. Applied to financial markets."
+   ],
+   [
+    "p",
+    "Convolutional neural networks learn to recognise patterns in images. They read medical scans; Convolve trains them on price charts."
+   ],
+   [
+    "p",
+    "Each one responds to an edge or texture."
+   ],
+   [
+    "p",
+    "The regions that drove the output."
+   ],
+   [
+    "p",
+    "Don't just analyse the chart. Train a model to analyse it."
+   ],
+   [
+    "p",
+    "An indicator is a formula someone chose. A CNN learns its own features from the data, and they need not have a name."
+   ],
+   [
+    "h2",
+    "From a label rule to a deployed model."
+   ],
+   [
+    "p",
+    "Each tool hands its result to the next. Dashed stages are optional; any stage can be revisited."
+   ],
+   [
+    "p",
+    "Score take-profit, stop-loss and horizon rules."
+   ],
+   [
+    "p",
+    "Render each price window as a labelled image."
+   ],
+   [
+    "p",
+    "Choose an architecture, fit it, keep the best epoch."
+   ],
+   [
+    "p",
+    "Open the model on its own charts."
+   ],
+   [
+    "p",
+    "Unseen data, costs, locked threshold."
+   ],
+   [
+    "p",
+    "Run the model on a symbol and schedule."
+   ],
+   [
+    "h2",
+    "Inside the research workspace."
+   ],
+   [
+    "p",
+    "Six connected tools, each shown on a real research run."
+   ],
+   [
+    "h3",
+    "Score every label rule before you train."
+   ],
+   [
+    "h2",
+    "See what the network sees."
+   ],
+   [
+    "p",
+    "Real attention maps on real charts. Switch method or chart at any point."
+   ],
+   [
+    "h2",
+    "From backtest to deployed model."
+   ],
+   [
+    "p",
+    "Put a tested model on a schedule: it predicts, acts on a simulated account and reports back. Every deployment traces to the experiment behind it."
+   ],
+   [
+    "h2",
+    "One pipeline. Every stage."
+   ],
+   [
+    "p",
+    "The dashboard brings runs, results and deployed models onto one surface."
+   ],
+   [
+    "p",
+    "Illustrative dashboard. Research entries are real outputs; deployments and P&L are simulated."
+   ],
+   [
+    "h2",
+    "From pixels to a prediction."
+   ],
+   [
+    "p",
+    "The maths behind every prediction, for those who want it. Five operations, repeated, turn a chart into a probability; matching colours link each equation to its picture."
+   ],
+   [
+    "p",
+    "A 3 × 3 filter slides over the chart image. Each output value (blue) is a weighted sum of the patch under it (green), plus a bias."
+   ],
+   [
+    "p",
+    "ReLU keeps the positive responses; a 2 × 2 max (green) halves the resolution. Three blocks deep, the chart is 128 maps of 26 × 26."
+   ],
+   [
+    "p",
+    "The last maps are flattened, passed through a dense layer and squashed into one probability (blue). The marked point is the chart from the Analysis Lab above."
+   ],
+   [
+    "p",
+    "Binary cross-entropy compares each probability with the realised label. The validation loss (green) decides which epoch is kept."
+   ],
+   [
+    "h3",
+    "How the network learns."
+   ],
+   [
+    "p",
+    "Momentum overshoots, then settles. Plain descent creeps."
+   ],
+   [
+    "h2",
+    "Start engineering right on the spot."
+   ],
+   [
+    "p",
+    "Pick a symbol, a window and how many charts you want. The Generator opens with them filled in."
+   ],
+   [
+    "p",
+    "Any ticker your data source covers."
+   ],
+   [
+    "p",
+    "Twice this many images in total."
+   ],
+   [
+    "p",
+    "How much history each image shows."
+   ],
+   [
+    "p",
+    "Nothing runs until you press Generate in the app."
+   ],
+   [
+    "h2",
+    "Make trading scientific again."
+   ],
+   [
+    "p",
+    "Hypotheses, held-out data and honest backtests instead of gut feel, without writing code. Convolve makes the experiments easier to run; it does not promise they will beat the market."
+   ]
+  ],
+  "links": [
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   }
+  ]
+ },
+ "/products": {
+  "blocks": [
+   [
+    "h1",
+    "Six research tools. One hub between them."
+   ],
+   [
+    "p",
+    "Each tool records what it produces, so a deployed model can be traced back to its backtest, model, dataset and label rule. This is the surface where that record lives."
+   ],
+   [
+    "p",
+    "Illustrative dashboard. Research entries are real outputs; deployments and P&L are simulated."
+   ],
+   [
+    "h2",
+    "Pay for the research you run. Nothing else."
+   ],
+   [
+    "p",
+    "Creating an account and browsing are free. A subscription includes monthly credits for computation; extra credits can be bought when you need more."
+   ],
+   [
+    "h3",
+    "Starter"
+   ],
+   [
+    "li",
+    "Model statistics after every run (included)"
+   ],
+   [
+    "li",
+    "Grad-CAM and saliency on single charts (included)"
+   ],
+   [
+    "li",
+    "Buy extra credits at any time (included)"
+   ],
+   [
+    "h3",
+    "Research"
+   ],
+   [
+    "li",
+    "Dataset generation, any number of assets (included)"
+   ],
+   [
+    "li",
+    "Every supported CNN architecture (included)"
+   ],
+   [
+    "li",
+    "Advanced training options (included)"
+   ],
+   [
+    "li",
+    "Transfer learning from pretrained weights (included)"
+   ],
+   [
+    "li",
+    "Feature maps, interventions and representation analysis (included)"
+   ],
+   [
+    "li",
+    "Detailed evaluations, model comparisons and exports (included)"
+   ],
+   [
+    "h3",
+    "Professional"
+   ],
+   [
+    "p",
+    "Prices in US dollars. Subscriptions renew monthly until cancelled; cancel at any time in your account and keep access until the end of the paid month. Have a discount code? Enter it on the payment page. Taxes may apply depending on your country. Paid plans are not yet available in the United States."
+   ],
+   [
+    "h3",
+    "More computation, same plan."
+   ],
+   [
+    "li",
+    "Extra credits need an active subscription. They pay for computation only; they do not unlock features or raise backtest and deployment limits."
+   ],
+   [
+    "li",
+    "Monthly credits are used first. Purchased credits are used after them, carry over between months and do not expire."
+   ],
+   [
+    "li",
+    "Cancel anytime and get a 50% refund of unused purchased credits. No questions asked! The refund is 50% of the amount you originally paid for the purchased top-up credits you have not used. Credits included in a subscription and promotional credits are not refundable. Your mandatory consumer rights are not affected. Refund policy"
+   ],
+   [
+    "li",
+    "Credits cannot be transferred, traded or exchanged for money other than through that refund. Promotional credits, such as the feedback bonus, are never refundable."
+   ],
+   [
+    "li",
+    "Earn credits for free: 5 for the feedback questionnaire, 50 for citing Convolve in your website or project, and invite rewards: a free month of Research when a friend starts Research or Professional through your link, or 10 credits when they start Starter. Find them under Account, Earn credits."
+   ],
+   [
+    "h3",
+    "How credits work."
+   ],
+   [
+    "li",
+    "A run is charged once, when the server accepts it. The price depends on the run's size and is set by Convolve, never by your browser."
+   ],
+   [
+    "li",
+    "A run that fails or is interrupted is refunded automatically. A run cancelled before it starts is refunded too."
+   ],
+   [
+    "li",
+    "If your balance does not cover a run, it is not started and nothing is charged."
+   ],
+   [
+    "li",
+    "Your balance and every charge and refund are listed under Account, Usage & credits."
+   ],
+   [
+    "h2",
+    "A chain, not a menu."
+   ],
+   [
+    "p",
+    "Four tools are required to get from prices to a deployed model. Two are optional. All of them can be revisited, and the dashboard records each step."
+   ],
+   [
+    "h2",
+    "What each one does, and what it hands on."
+   ],
+   [
+    "h3",
+    "Optimize"
+   ],
+   [
+    "p",
+    "Scores every take-profit, stop-loss and horizon rule before you commit to a dataset."
+   ],
+   [
+    "h3",
+    "Generate"
+   ],
+   [
+    "p",
+    "Turns price history into labelled chart images, on your symbols, intervals and window lengths."
+   ],
+   [
+    "h3",
+    "Train"
+   ],
+   [
+    "p",
+    "Trains a convolutional network on a dataset and keeps the best epoch on validation. Change the architecture or the training setup, and test whether it actually improves."
+   ],
+   [
+    "h3",
+    "Analyze"
+   ],
+   [
+    "p",
+    "Opens a model on its own charts: Grad-CAM, saliency, occlusion and the internal representation."
+   ],
+   [
+    "h3",
+    "Test"
+   ],
+   [
+    "p",
+    "Backtests the model on unseen data with a locked threshold, trading costs and buy-and-hold benchmarks."
+   ],
+   [
+    "h3",
+    "Deploy"
+   ],
+   [
+    "p",
+    "Puts a tested model on a schedule: it predicts on new data, acts on a simulated account and reports how it performs."
+   ],
+   [
+    "h3",
+    "Dashboard"
+   ],
+   [
+    "p",
+    "Brings runs, outputs, deployments and lineage onto one surface, and is where you move between modules."
+   ],
+   [
+    "h2",
+    "Make trading scientific again."
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/refunds",
+    "label": "Refund policy"
+   }
+  ]
+ },
+ "/about": {
+  "blocks": [
+   [
+    "h1",
+    "about."
+   ],
+   [
+    "p",
+    "A new way to investigate financial markets. Other platforms give you tools to interpret prices. Convolve gives you the infrastructure to build AI that interprets them."
+   ],
+   [
+    "h2",
+    "Chart patterns are simple by design. Markets may not be."
+   ],
+   [
+    "p",
+    "Head and shoulders, triangles, moving-average crosses: classic technical analysis reduces a chart to a few shapes a person can name and draw by hand. Tested rigorously, many of them show little reliable edge. That is usually read as proof that charts carry no information. It may only show that the vocabulary was too small."
+   ],
+   [
+    "h2",
+    "Maybe the patterns aren't meaningless. Maybe our methods are too simple."
+   ],
+   [
+    "p",
+    "If structure exists, it is likely nonlinear: combinations of shape, scale and context that nobody would write down as a rule. Convolutional networks learn exactly that kind of visual feature from data, which makes them one way to test the idea. Not proof of it. A network can just as easily learn noise, so every result faces the same three checks."
+   ],
+   [
+    "p",
+    "Thresholds and settings are chosen on validation data, then locked before the test set is scored."
+   ],
+   [
+    "p",
+    "Try enough settings on the same history and one will look brilliant by chance. Only data the model never influenced counts."
+   ],
+   [
+    "p",
+    "Every result is set against buy-and-hold and a passive mix with the same exposure."
+   ],
+   [
+    "p",
+    "Testing an idea like this properly used to take a team: data pipelines, GPUs, model code and the discipline to evaluate honestly. The aim is to make that method mainstream, so that anyone curious enough can run the experiment, read the evidence and accept it when the answer is no."
+   ],
+   [
+    "h2",
+    "From a price series to a tested probability."
+   ],
+   [
+    "p",
+    "A trading idea enters Convolve as a rule about the future and leaves as a measured model. First, the rule becomes data."
+   ],
+   [
+    "h3",
+    "Every price window becomes an image."
+   ],
+   [
+    "h3",
+    "Labelled by what happened next."
+   ],
+   [
+    "p",
+    "The label is the objective the network trains toward; the Labeling Optimizer searches for a good one."
+   ],
+   [
+    "p",
+    "The network only ever sees the image on the left. The bars to the right of the dashed line are what decided its label."
+   ],
+   [
+    "h3",
+    "What the network computes on one chart."
+   ],
+   [
+    "p",
+    "Every response below zero is set to zero. Without this bend, stacked layers would collapse into one linear function and could never express “this shape matters only next to that one”."
+   ],
+   [
+    "p",
+    "Each filter outputs a map of where its pattern occurred. Pooling halves the resolution after every block, so deeper maps see larger regions: early ones respond to wicks and edges, later ones to formations built from them."
+   ],
+   [
+    "p",
+    "This is the original Convolve CNN, one of seven networks in the Trainer. Each encodes a different assumption about where the signal sits: a dense head that keeps position or global pooling that discards it, residual depth, or ImageNet features reused by transfer. Optimiser, learning-rate schedule, dropout, L2 and augmentation are chosen per run as well. Trained on the same split, the variants are compared on validation and test data; a larger network is not presumed better."
+   ],
+   [
+    "p",
+    "One 3 × 3 filter on a real test chart, and the feature map it produces."
+   ],
+   [
+    "h3",
+    "Learning is a descent on the loss."
+   ],
+   [
+    "p",
+    "Momentum overshoots, then settles. Plain descent creeps."
+   ],
+   [
+    "h3",
+    "A model counts only on data it has never seen."
+   ],
+   [
+    "p",
+    "A later stretch of history is held out from fitting. It decides which epoch is kept and where the decision threshold sits, before any test result is looked at."
+   ],
+   [
+    "p",
+    "The locked model then trades the test period once, after costs, next to buy-and-hold and a passive mix with the same exposure. Classification accuracy and trading return are measured separately, because they can disagree. A strong backtest alone proves little: run enough variants over the same history and one will look excellent by chance."
+   ],
+   [
+    "p",
+    "Grad-CAM, saliency and occlusion show which pixels moved a prediction, so a learned price formation can be told apart from an artefact of how the chart was drawn."
+   ],
+   [
+    "h2",
+    "It started as a school research project. It never stopped."
+   ],
+   [
+    "h3",
+    "Applied mathematics and physics"
+   ],
+   [
+    "p",
+    "Matura with an academic focus on applied mathematics and physics, plus an independent project with a Japanese high school exploring quantum computing."
+   ],
+   [
+    "h3",
+    "Can a CNN read a price chart?"
+   ],
+   [
+    "p",
+    "Convolutional networks are built to recognise images. The project asked whether they could learn meaningful patterns from financial charts."
+   ],
+   [
+    "h3",
+    "Answering it meant building tools"
+   ],
+   [
+    "p",
+    "Generating datasets, training different networks, looking inside them, comparing results and testing strategies. Development continued after the project ended."
+   ],
+   [
+    "h3",
+    "Opened up to everyone"
+   ],
+   [
+    "p",
+    "The software built to answer one question, rebuilt so that anyone can ask their own."
+   ],
+   [
+    "h2",
+    "One researcher surveys a corner. A community maps the terrain."
+   ],
+   [
+    "p",
+    "A result one person finds is an anecdote. A result others can re-run, challenge and improve on the same held-out data becomes evidence. The long-term goal is a collaborative research community exploring AI and financial markets in the open."
+   ],
+   [
+    "p",
+    "Trading, engineered. Researched like science."
+   ],
+   [
+    "p",
+    "See the workspace this approach produced, from the first dataset to a monitored deployment."
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/help",
+    "label": "How labels work"
+   }
+  ]
+ },
+ "/help": {
+  "blocks": [
+   [
+    "h1",
+    "How can we help?"
+   ],
+   [
+    "h2",
+    "How Convolve works"
+   ],
+   [
+    "h2",
+    "Guided tour"
+   ],
+   [
+    "p",
+    "Six steps, about three minutes. The tour highlights each tool in the sidebar, then the controls on its page. You can fill in and press each highlighted control as you go; nothing runs until you press a run button."
+   ],
+   [
+    "h2",
+    "Build a dataset"
+   ],
+   [
+    "p",
+    "Keep a later period aside: the Backtester and its test-data generator should use dates after your training data, otherwise results are measured on what the model has already seen."
+   ],
+   [
+    "p",
+    "Take-profit hits are usually rarer than stop-loss hits. Balanced trims the common label to match the rare one; Keep all keeps every chart."
+   ],
+   [
+    "h2",
+    "Labeling rules"
+   ],
+   [
+    "h2",
+    "Train a model"
+   ],
+   [
+    "p",
+    "Training runs on the server; you can leave the page and come back to the session to follow progress."
+   ],
+   [
+    "h2",
+    "Analyze a model"
+   ],
+   [
+    "p",
+    "A heatmap shows where the model's evidence sits, not why the market moved."
+   ],
+   [
+    "h2",
+    "Backtest"
+   ],
+   [
+    "p",
+    "A backtest is a simulation on past data. It is not an evaluation on future data and does not predict returns."
+   ],
+   [
+    "h2",
+    "Read your results"
+   ],
+   [
+    "h2",
+    "Paper bots"
+   ],
+   [
+    "h2",
+    "Credits and pricing"
+   ],
+   [
+    "p",
+    "Runs above 25 credits ask for confirmation. When charging is on, a failed run is refunded and a double-click cannot charge twice. During the beta charging is off and nothing is deducted."
+   ],
+   [
+    "h2",
+    "Account and data"
+   ],
+   [
+    "p",
+    "Questions or problems: contact us."
+   ],
+   [
+    "h2",
+    "Terminology"
+   ],
+   [
+    "h2",
+    "Risk"
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/privacy",
+    "label": "privacy policy"
+   }
+  ]
+ },
+ "/contact": {
+  "blocks": [
+   [
+    "h1",
+    "Let's connect!"
+   ],
+   [
+    "p",
+    "Want to join the team? Interested in investing? Have an idea to improve Convolve, a question, or some criticism?"
+   ],
+   [
+    "p",
+    "I'd love to hear from you. Reach out!"
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "https://calendly.com/alexander-nicoud/30min",
+    "label": "Book a call"
+   },
+   {
+    "href": "https://www.linkedin.com/in/alexander-nicoud-11a707398/",
+    "label": "LinkedIn DM"
+   },
+   {
+    "href": "/privacy",
+    "label": "Privacy Policy"
+   }
+  ]
+ },
+ "/signup": {
+  "blocks": [
+   [
+    "h1",
+    "Create account"
+   ],
+   [
+    "p",
+    "You’ll use this identity across every tool."
+   ],
+   [
+    "p",
+    "Already have an account? Sign in"
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/terms",
+    "label": "Terms of Service"
+   },
+   {
+    "href": "/privacy",
+    "label": "Privacy Policy"
+   },
+   {
+    "href": "/risk-disclosure",
+    "label": "risk disclosure"
+   }
+  ]
+ },
+ "/privacy": {
+  "blocks": [
+   [
+    "h1",
+    "Privacy Policy"
+   ],
+   [
+    "p",
+    "This document is being finalised. Details shown in [square brackets] have not been completed yet."
+   ],
+   [
+    "h2",
+    "1. Who is responsible"
+   ],
+   [
+    "p",
+    "The controller responsible for processing personal data on this website and in the Convolve workspace is:"
+   ],
+   [
+    "h2",
+    "2. Scope and applicable law"
+   ],
+   [
+    "p",
+    "Convolve is operated from Switzerland. We process personal data in accordance with the Swiss Federal Act on Data Protection (FADP). Because the service is available to users in the European Union and European Economic Area, the EU General Data Protection Regulation (GDPR) may also apply to processing that relates to those users; where it does, the GDPR-specific information in this policy applies as well."
+   ],
+   [
+    "h2",
+    "3. What we process"
+   ],
+   [
+    "p",
+    "Account data. When you create an account we process your email address, a user identifier, your sign-in method, whether your email address is verified, the time the account was created and your last sign-in, an optional display name, the version and time at which you accepted the Terms of Service, and your progress in the guided tour (current step, whether you finished or closed it). Passwords are handled by our authentication provider and stored only as a cryptographic hash; we never see them. If you sign in with Google, Google shares your name, email address and Google account identifier with us."
+   ],
+   [
+    "p",
+    "Research content. The workspace stores what you create or upload: chart datasets and their settings, uploaded and trained models, training and analysis runs, backtest reports, labels, tags and notes, and their metadata. This content is linked to your account. It usually concerns financial instruments rather than people, but it is personal data insofar as it is linked to you."
+   ],
+   [
+    "p",
+    "Paper-trading bots. If you deploy a bot we store its configuration (symbol, model, thresholds, schedule, simulated capital and costs) and its history of predictions, simulated trades and simulated equity."
+   ],
+   [
+    "p",
+    "Technical data. When you use the website or the API, our hosting and authentication providers process your IP address, browser and device information, request times, requested URLs and error information in server logs."
+   ],
+   [
+    "p",
+    "Contact messages. If you use the contact form we store your name, email address and message in our database so that we can reply. To protect the form against spam we also store a keyed, one-way hash of your IP address (not the address itself) and use it only to limit how many messages can be sent per hour. Messages are read only by the founder."
+   ],
+   [
+    "p",
+    "Feedback questionnaire. During the free public beta, the questionnaire is needed once before starting new experiments after your first successful ones; it never limits access to your results, account settings, data export or account deletion. When you complete it we store your answers (ratings, choices and an optional free-text comment), the questionnaire version and the time, linked to your account, together with the record of the bonus credits granted. Answers are used only to improve Convolve and are read only by the founder, who sees them under a pseudonymous respondent code without your name, email or account identifier. They are not shared, sold or used for marketing, and are included in your data export. Please do not include sensitive personal information in free-text answers."
+   ],
+   [
+    "p",
+    "Citations and invites. If you claim the citation bonus we store the address and any file you send, your note and the review outcome, linked to your account, and use them only to review the claim. If you create an invite code we store it, and when someone signs up with it we record that their account was invited by yours, the plan of the invited account's first payment, which rewards were granted and whether they were withdrawn after a refund or payment dispute. Neither side sees the other's email address or activity; the inviting account sees only counts. This data is included in your export and deleted with your account."
+   ],
+   [
+    "p",
+    "Usage and credits. We record which tools you run, when, and how long each run takes, together with your plan, the credit price calculated for each run (pricing policy version and inputs) and a ledger of credits granted, used and refunded. This is shown to you on your account page and included in your data export."
+   ],
+   [
+    "p",
+    "Subscriptions, payments and refunds. Once paid plans are offered, card and other payment details are entered on Stripe's page and never reach our servers. We receive and keep Stripe's customer, subscription, payment and refund references, the plan or credit pack bought, the amount and currency, the country you declare, the country of your billing address and the country that issued your card (used to apply consumer rights, taxes and country restrictions), the subscription period and status, whether you asked for immediate access to purchased credits, and the status of any refund or payment dispute. Until paid plans are launched none of this is processed."
+   ],
+   [
+    "h2",
+    "4. Purposes and legal bases"
+   ],
+   [
+    "p",
+    "We do not use your data for automated decisions that have legal or similarly significant effects on you."
+   ],
+   [
+    "h2",
+    "5. Service providers"
+   ],
+   [
+    "p",
+    "We use the following providers to operate Convolve. They process personal data on our behalf and under our instructions, or, where stated, as independent controllers."
+   ],
+   [
+    "h2",
+    "6. International transfers"
+   ],
+   [
+    "p",
+    "Some providers are based in, or may access data from, the United States and other countries that may not offer a level of data protection equivalent to Switzerland or the EU. Where this is the case, transfers rely on the Swiss–U.S. and EU–U.S. Data Privacy Frameworks where the provider is certified, or on the European Commission's standard contractual clauses as recognised by the Swiss Federal Data Protection and Information Commissioner. [Confirm the transfer mechanism for each provider.]"
+   ],
+   [
+    "h2",
+    "7. Retention and deletion"
+   ],
+   [
+    "li",
+    "Account data and research content are kept for as long as your account exists, or until you delete the individual item."
+   ],
+   [
+    "li",
+    "Incomplete direct uploads are deleted automatically after one day."
+   ],
+   [
+    "li",
+    "Application server logs at Google Cloud are kept for 30 days; Google Cloud audit logs, which record administrative changes to our infrastructure, for 400 days."
+   ],
+   [
+    "li",
+    "Feedback answers are kept for as long as your account exists and are deleted with it."
+   ],
+   [
+    "p",
+    "Deleting your account. You can delete your account in Account settings. This removes your account, profile, research runs, datasets, models, stored files, analyses, backtests, bots and their paper-trading history, and your feedback answers from our active systems. Copies can remain in backups until those backups expire. We keep a minimal record that a deletion took place (account identifier and time) in server logs, and we keep information we are legally required to retain. [Confirm retention of deletion records.]"
+   ],
+   [
+    "h2",
+    "8. Your rights"
+   ],
+   [
+    "p",
+    "Subject to the applicable law, you have the right to:"
+   ],
+   [
+    "li",
+    "obtain information about and a copy of the personal data we hold about you;"
+   ],
+   [
+    "li",
+    "have incorrect data corrected;"
+   ],
+   [
+    "li",
+    "receive data you provided in a structured, machine-readable format (data portability);"
+   ],
+   [
+    "li",
+    "object to processing based on legitimate interests and, under the GDPR, request restriction of processing;"
+   ],
+   [
+    "li",
+    "withdraw consent at any time where processing is based on consent, without affecting earlier processing."
+   ],
+   [
+    "p",
+    "You can lodge a complaint with the Swiss Federal Data Protection and Information Commissioner (FDPIC). If the GDPR applies, you can also complain to the supervisory authority in your country of residence or work."
+   ],
+   [
+    "h2",
+    "9. Security"
+   ],
+   [
+    "p",
+    "We use technical and organisational measures appropriate to the risk. Connections to the website and API are encrypted with TLS. Every API request is checked against your signed-in session, and the server verifies that you own each dataset, model, run and bot you access. Database tables are not reachable directly from browsers, and stored files are kept under a separate area per account. No system is completely secure, and we cannot guarantee the security of data transmitted over the internet."
+   ],
+   [
+    "h2",
+    "10. Other information"
+   ],
+   [
+    "p",
+    "Convolve is not directed at persons under 18. If you believe a minor has created an account, contact us and we will delete it."
+   ],
+   [
+    "p",
+    "We may update this policy when the service or the law changes. The date at the top shows the latest version. Material changes will be announced in the workspace."
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/terms",
+    "label": "Terms"
+   },
+   {
+    "href": "/subscription-terms",
+    "label": "Subscriptions & credits"
+   },
+   {
+    "href": "/refunds",
+    "label": "Refunds & cancellation"
+   },
+   {
+    "href": "/risk-disclosure",
+    "label": "Risk disclosure"
+   },
+   {
+    "href": "/cookies",
+    "label": "Cookies"
+   },
+   {
+    "href": "/legal",
+    "label": "Legal notice"
+   }
+  ]
+ },
+ "/terms": {
+  "blocks": [
+   [
+    "li",
+    "Convolve's intellectual property"
+   ],
+   [
+    "li",
+    "Suspension, termination and deletion"
+   ],
+   [
+    "h1",
+    "Terms of Service"
+   ],
+   [
+    "p",
+    "These terms govern your use of Convolve, a research workspace for building, testing and paper-trading convolutional neural network models on financial chart data. Version 2026-10-28."
+   ],
+   [
+    "p",
+    "This document is being finalised. Details shown in [square brackets] have not been completed yet."
+   ],
+   [
+    "h2",
+    "1. Provider and scope"
+   ],
+   [
+    "h2",
+    "2. The service"
+   ],
+   [
+    "li",
+    "generate labelled chart-image datasets from historical market data, or upload your own;"
+   ],
+   [
+    "li",
+    "train, upload and analyse convolutional neural network models;"
+   ],
+   [
+    "li",
+    "backtest models on historical data with configurable costs and thresholds;"
+   ],
+   [
+    "li",
+    "run models as scheduled paper-trading bots that simulate trades with a virtual balance."
+   ],
+   [
+    "p",
+    "Convolve is a software tool. It does not provide investment advice, portfolio management, brokerage or custody services, does not connect to any brokerage account, does not hold client money or assets and does not execute real trades. Features described as planned are not part of the service until they are released."
+   ],
+   [
+    "h2",
+    "3. Accounts"
+   ],
+   [
+    "li",
+    "You must be at least 18 years old and able to enter into a binding contract."
+   ],
+   [
+    "li",
+    "Provide accurate information and keep your email address current."
+   ],
+   [
+    "li",
+    "Keep your sign-in credentials confidential. You are responsible for activity under your account; tell us promptly if you suspect misuse."
+   ],
+   [
+    "li",
+    "One person per account. Accounts may not be shared or resold."
+   ],
+   [
+    "h2",
+    "4. Acceptable use"
+   ],
+   [
+    "li",
+    "access, or attempt to access, other users' accounts, data or models, or circumvent authentication, ownership checks or usage limits;"
+   ],
+   [
+    "li",
+    "probe, scan or test the vulnerability of the service without our written permission;"
+   ],
+   [
+    "li",
+    "use the service's computing resources for purposes unrelated to research on Convolve, such as cryptocurrency mining, or impose an unreasonable load;"
+   ],
+   [
+    "li",
+    "upload malware, unlawful content, or data you have no right to use;"
+   ],
+   [
+    "li",
+    "use automated means to scrape or copy the service, except through interfaces we provide for that purpose;"
+   ],
+   [
+    "li",
+    "use Convolve to provide regulated financial services to others without the authorisations those services require."
+   ],
+   [
+    "h2",
+    "5. Your content"
+   ],
+   [
+    "p",
+    "You keep all rights to the datasets, models, configurations, strategies and notes you upload or create (\"your content\"). You grant us a non-exclusive licence to host, copy, process and display your content solely to provide the service to you. We do not use your content to train our own models or share it with other users."
+   ],
+   [
+    "p",
+    "You are responsible for having the rights to the content and data you upload, including any licence terms that apply to market data you provide."
+   ],
+   [
+    "h2",
+    "6. Convolve's intellectual property"
+   ],
+   [
+    "p",
+    "The software, website, design, documentation and the Convolve name and logo belong to us or our licensors. We grant you a personal, non-transferable right to use the service in accordance with these terms for as long as your account exists."
+   ],
+   [
+    "h2",
+    "7. Research results and risk"
+   ],
+   [
+    "h2",
+    "8. Paper-trading bots"
+   ],
+   [
+    "p",
+    "Bots simulate trades with a virtual balance. Their scheduled execution depends on market-data availability and our infrastructure, and runs may be delayed, skipped or paused. Simulated fills use simplified assumptions and do not reproduce real order books, liquidity, slippage, partial fills or outages. Real-money trading is not offered."
+   ],
+   [
+    "h2",
+    "9. Market data and third parties"
+   ],
+   [
+    "p",
+    "Market data may be inaccurate, delayed, incomplete, adjusted after the fact or temporarily or permanently unavailable, and the source may change its terms or stop providing data. We may replace the source at any time. We do not guarantee the accuracy, completeness or continued availability of any market data. [A commercially licensed data source is required before paid plans launch.]"
+   ],
+   [
+    "h2",
+    "10. Fees"
+   ],
+   [
+    "p",
+    "Ambassador programme. You can create a personal invite code. A reward is earned once per new account that signed up with your code, when the first payment of its first paid subscription succeeds, and depends on that plan. Starter: that account receives 5 promotional credits and you receive 10. Research or Professional: that account receives 20 promotional credits and you receive one free month of the Research plan; if you have no paid subscription, a complimentary month that ends by itself and is never charged; if you have one, a credit of the Research monthly price against your next invoices. Free months and invoice credits are limited to 12 per year. Invite codes are for new accounts only and cannot be used on your own account or between two accounts that invited each other; a subscription fully covered by a discount does not qualify. If the qualifying payment is refunded in full, disputed or charged back, rewards from it that are still unused are withdrawn. Rewards have no cash value and are not refunded. We may refuse or withdraw rewards obtained through self-referral, multiple accounts or other abuse, and we may change or end the programme for future invites."
+   ],
+   [
+    "p",
+    "While paid plans are not available in your country or account, Convolve is provided free of charge and credits are either not deducted or granted as a free allowance with no monetary value."
+   ],
+   [
+    "h2",
+    "11. Availability and changes"
+   ],
+   [
+    "p",
+    "We aim to keep Convolve available but do not guarantee uninterrupted operation. We may change, suspend or discontinue features, for example for maintenance, security or legal reasons. We will give reasonable notice of material changes where possible. We may update these terms; if a change is material we will ask you to accept the new version before you continue using the workspace."
+   ],
+   [
+    "h2",
+    "12. Suspension, termination and deletion"
+   ],
+   [
+    "p",
+    "When a subscription ends, your account stays open with read-only access: your models, datasets, runs and bots are kept and remain visible, but research tools and scheduled bots stop until you subscribe again. Ending a subscription never deletes your content."
+   ],
+   [
+    "h2",
+    "13. Liability"
+   ],
+   [
+    "p",
+    "To the extent permitted by law, we exclude liability for damages caused by slight negligence, for indirect or consequential damages, and for trading or investment losses resulting from the use of research results, models, backtests or paper-trading output. We remain liable for damage caused intentionally or by gross negligence and wherever liability cannot be excluded by law, including under mandatory consumer-protection rules. [Liability clause to be reviewed by counsel.]"
+   ],
+   [
+    "h2",
+    "14. Governing law and disputes"
+   ],
+   [
+    "h2",
+    "15. Final provisions"
+   ],
+   [
+    "p",
+    "If a provision of these terms is invalid, the remaining provisions remain in effect. Contact: info.convolve@gmail.com."
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/privacy",
+    "label": "Privacy"
+   },
+   {
+    "href": "/subscription-terms",
+    "label": "Subscriptions & credits"
+   },
+   {
+    "href": "/refunds",
+    "label": "Refunds & cancellation"
+   },
+   {
+    "href": "/risk-disclosure",
+    "label": "Risk disclosure"
+   },
+   {
+    "href": "/cookies",
+    "label": "Cookies"
+   },
+   {
+    "href": "/legal",
+    "label": "Legal notice"
+   },
+   {
+    "href": "/help",
+    "label": "help center"
+   }
+  ]
+ },
+ "/subscription-terms": {
+  "blocks": [
+   [
+    "li",
+    "Cancellation and end of a subscription"
+   ],
+   [
+    "h1",
+    "Subscription and Credit Terms"
+   ],
+   [
+    "p",
+    "This document is being finalised. Details shown in [square brackets] have not been completed yet."
+   ],
+   [
+    "h2",
+    "1. Scope"
+   ],
+   [
+    "h2",
+    "2. Plans"
+   ],
+   [
+    "h2",
+    "3. Price, payment and renewal"
+   ],
+   [
+    "li",
+    "Subscriptions are billed in advance for one month at a time and renew automatically every month at the then-current price until you cancel."
+   ],
+   [
+    "li",
+    "Before you subscribe we show the price, the billing interval, that the subscription renews automatically and how to cancel. Your agreement is recorded with the checkout."
+   ],
+   [
+    "li",
+    "We will tell you about any price increase in advance. It applies from the next billing period after the notice, and you can cancel before it takes effect."
+   ],
+   [
+    "li",
+    "Prices are shown in the currency displayed at checkout. Your bank or card issuer may charge currency conversion fees."
+   ],
+   [
+    "li",
+    "Discount codes we issue are entered on the payment page. Their terms (amount, duration, eligibility) are shown there; refunds are calculated from the amount actually paid."
+   ],
+   [
+    "h2",
+    "4. Credits"
+   ],
+   [
+    "li",
+    "Credits measure computation. Each research run shows its price in credits before it starts; the price is calculated on our servers from the run's configuration."
+   ],
+   [
+    "li",
+    "A run is charged when our server accepts it. A run that fails or is interrupted is refunded in credits automatically; a run cancelled before it starts is refunded too."
+   ],
+   [
+    "li",
+    "Monthly credits included in a plan are added at the start of each billing period and expire at its end. Unused monthly credits are not carried over and are not refundable."
+   ],
+   [
+    "li",
+    "Credits are personal to your account. They cannot be transferred, sold, traded or exchanged for money, except through a refund of purchased credits under the Refund and Cancellation Policy."
+   ],
+   [
+    "li",
+    "Credits are not a deposit, e-money or a stored-value instrument and earn no interest."
+   ],
+   [
+    "li",
+    "Promotional credits (the feedback questionnaire, citation and ambassador bonuses) are free. They have no cash value, are never refunded and are not purchased credits. They are used before purchased credits."
+   ],
+   [
+    "li",
+    "A complimentary plan period (an ambassador free month, or the complimentary access offered to accounts that existed before paid plans started) is free, does not renew and needs no cancellation. Its monthly credits work like a paid plan's. You can start a paid plan at any time during it."
+   ],
+   [
+    "h2",
+    "5. Extra credits"
+   ],
+   [
+    "li",
+    "With an active subscription you can buy credit packs. Their sizes and prices are shown in your account before purchase."
+   ],
+   [
+    "li",
+    "Purchased credits are used only after the current period's monthly credits are used up. They carry over from month to month and do not expire while your account exists."
+   ],
+   [
+    "li",
+    "Purchased credits pay for computation only. They do not unlock features of a higher plan and do not raise backtest, deployment or other usage limits."
+   ],
+   [
+    "li",
+    "After a subscription ends, purchased credits remain on your account and can be used again when you resubscribe, or refunded as described in the Refund and Cancellation Policy."
+   ],
+   [
+    "h2",
+    "6. Features, limits and fair use"
+   ],
+   [
+    "p",
+    "Plan limits are enforced by our servers. We may apply technical limits that protect the service, such as the number of training jobs that can run at once or the maximum size of a dataset; they are shown in the workspace. Plans are for one person's own research and may not be shared, resold or used to provide services to others."
+   ],
+   [
+    "h2",
+    "7. Plan changes"
+   ],
+   [
+    "li",
+    "Upgrading takes effect immediately. The additional monthly credits of the higher plan for the rest of the current period are added at once, and the price difference is charged pro rata by the payment provider."
+   ],
+   [
+    "li",
+    "Downgrading takes effect at the next renewal. You keep the current plan's features and limits until then."
+   ],
+   [
+    "li",
+    "Content created with features of a higher plan stays available to view after a downgrade."
+   ],
+   [
+    "h2",
+    "8. Cancellation and end of a subscription"
+   ],
+   [
+    "p",
+    "When a subscription ends, your account stays open with read-only access. Your models, datasets, runs and bots are kept and remain visible; research tools and scheduled paper-trading bots stop until you subscribe again. Nothing is deleted because a subscription ended."
+   ],
+   [
+    "h2",
+    "9. Failed payments and disputes"
+   ],
+   [
+    "p",
+    "If a renewal payment fails, we and the payment provider may retry it, and we will tell you. Access continues until the end of the period already paid for. If a payment is disputed or charged back, or refunded in full outside the self-service refund, the unused credits it paid for are withdrawn and further refunds of that payment are suspended until the dispute is resolved. Ambassador rewards earned through that payment are withdrawn as far as they are unused."
+   ],
+   [
+    "h2",
+    "10. Taxes and availability"
+   ],
+   [
+    "p",
+    "Prices include or exclude taxes as shown at checkout. [VAT registration not yet confirmed; no VAT number is shown until it is. EU VAT on digital services to consumers may be due from the first sale (OSS registration); Swiss VAT applies above the registration threshold. Tax handling to be confirmed before launch.]"
+   ],
+   [
+    "p",
+    "Paid plans are not offered to residents of the United States or its territories at this time. Checkout asks for your billing address, and our servers check the country you declare, your billing address and the country that issued your card. A purchase from an excluded country is refunded in full, any subscription it started is ended immediately, and no credits or plan features are granted. Your free account stays available. We may restrict the countries in which paid plans are available; this is shown at checkout."
+   ],
+   [
+    "h2",
+    "11. Changes to these terms"
+   ],
+   [
+    "p",
+    "We will notify you of material changes in advance. Changes apply from your next billing period; you can cancel before they take effect. Questions: info.convolve@gmail.com."
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/privacy",
+    "label": "Privacy"
+   },
+   {
+    "href": "/terms",
+    "label": "Terms"
+   },
+   {
+    "href": "/refunds",
+    "label": "Refunds & cancellation"
+   },
+   {
+    "href": "/risk-disclosure",
+    "label": "Risk disclosure"
+   },
+   {
+    "href": "/cookies",
+    "label": "Cookies"
+   },
+   {
+    "href": "/legal",
+    "label": "Legal notice"
+   }
+  ]
+ },
+ "/refunds": {
+  "blocks": [
+   [
+    "li",
+    "Refund of unused purchased credits"
+   ],
+   [
+    "h1",
+    "Refund and Cancellation Policy"
+   ],
+   [
+    "p",
+    "This document is being finalised. Details shown in [square brackets] have not been completed yet."
+   ],
+   [
+    "h2",
+    "1. Summary"
+   ],
+   [
+    "p",
+    "Cancel anytime and get a 50% refund of unused purchased credits. No questions asked!"
+   ],
+   [
+    "p",
+    "The refund is 50 % of the amount you originally paid for the purchased top-up credits you have not used. Credits included in a subscription and promotional credits are not refundable. Your mandatory consumer rights are not affected."
+   ],
+   [
+    "li",
+    "Cancel any time in your account, entirely self-service. No reason, email, call, survey or retention step is needed."
+   ],
+   [
+    "li",
+    "Cancelling stops renewal. You keep access until the end of the period you have paid for."
+   ],
+   [
+    "li",
+    "The refund is calculated per purchase from the amount actually paid (after any discount) and paid to your original payment method. The exact amount is shown before you confirm."
+   ],
+   [
+    "li",
+    "Where the law gives you more, for example a statutory right of withdrawal, the law applies and nothing is deducted."
+   ],
+   [
+    "h2",
+    "2. Cancelling a subscription"
+   ],
+   [
+    "h2",
+    "3. Refund of unused purchased credits"
+   ],
+   [
+    "p",
+    "This voluntary refund is offered in addition to your statutory rights. We may change or withdraw it for future purchases with notice; purchases already made keep the terms that applied when you bought them."
+   ],
+   [
+    "h2",
+    "4. How the refund is calculated"
+   ],
+   [
+    "p",
+    "refund = amount paid × unused credits ÷ credits bought × 50 %"
+   ],
+   [
+    "p",
+    "\"Amount paid\" is what you were actually charged for that pack, after any discount code. Several packs are calculated one by one and listed separately before you confirm."
+   ],
+   [
+    "p",
+    "The result is rounded half up to the smallest unit of the payment currency (for example the cent), and never exceeds the part of that payment not already refunded. The remaining 50 % of the unused value covers payment processing, taxes already paid and administrative costs, and is retained."
+   ],
+   [
+    "p",
+    "Purchased credits are used after monthly credits; within purchased credits, the oldest purchase is used first."
+   ],
+   [
+    "h2",
+    "5. Your statutory rights"
+   ],
+   [
+    "li",
+    "Consumers in the EU, the EEA and the United Kingdom can withdraw from a credit-pack purchase within 14 days without giving a reason and get a full refund, unless they asked for immediate access and acknowledged that they lose this right once they start using the credits. A pack that is completely unused within 14 days is refunded in full."
+   ],
+   [
+    "li",
+    "Where the law of your country requires a full refund of unused prepaid credit, or forbids a deduction, the refund is made in full."
+   ],
+   [
+    "li",
+    "Nothing in this policy limits rights you have under mandatory consumer law, including for a service that is not provided as agreed."
+   ],
+   [
+    "p",
+    "[Counsel to confirm: withdrawal-right wording and model form; treatment of the subscription fee within the withdrawal period; any country where the 50 % retention is not permitted; Swiss law position.]"
+   ],
+   [
+    "h2",
+    "6. What is not refunded"
+   ],
+   [
+    "li",
+    "Monthly credits included in a subscription. They expire at the end of the period."
+   ],
+   [
+    "li",
+    "Promotional credits: the feedback questionnaire, citation and ambassador bonuses, and complimentary plan periods. They are free and have no cash value."
+   ],
+   [
+    "li",
+    "Credits held by runs that are still queued or running. If such a run fails, its credits are returned to your balance as credits."
+   ],
+   [
+    "li",
+    "Credits already used for completed runs."
+   ],
+   [
+    "li",
+    "Payments that are disputed or charged back, until the dispute is resolved."
+   ],
+   [
+    "h2",
+    "7. How refunds are paid"
+   ],
+   [
+    "p",
+    "Refunds go back to the original payment method, in the original currency. We start the refund at once; your bank or card issuer usually shows it within 5–10 business days, which is outside our control. Each refund appears in your billing history as processing, refunded, or failed. If the payment provider cannot complete a refund, we retry automatically; if it is refused for good, the credits are restored to your balance and we contact you."
+   ],
+   [
+    "h2",
+    "8. Questions"
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/privacy",
+    "label": "Privacy"
+   },
+   {
+    "href": "/terms",
+    "label": "Terms"
+   },
+   {
+    "href": "/subscription-terms",
+    "label": "Subscriptions & credits"
+   },
+   {
+    "href": "/risk-disclosure",
+    "label": "Risk disclosure"
+   },
+   {
+    "href": "/cookies",
+    "label": "Cookies"
+   },
+   {
+    "href": "/legal",
+    "label": "Legal notice"
+   }
+  ]
+ },
+ "/risk-disclosure": {
+  "blocks": [
+   [
+    "h1",
+    "Financial risk disclosure"
+   ],
+   [
+    "p",
+    "Trading financial instruments involves substantial risk, including the loss of all capital invested. Read this disclosure before relying on anything Convolve produces."
+   ],
+   [
+    "p",
+    "This document is being finalised. Details shown in [square brackets] have not been completed yet."
+   ],
+   [
+    "h2",
+    "What Convolve is and is not"
+   ],
+   [
+    "p",
+    "Convolve is research software. It is not a bank, securities firm, broker, portfolio manager or financial adviser. It does not give personal recommendations, does not manage or hold your money or securities, has no connection to any brokerage account and does not execute real trades. Nothing on the website or in the workspace is an offer, solicitation or recommendation to buy or sell any financial instrument."
+   ],
+   [
+    "p",
+    "A paid subscription or credit pack buys access to software and computation for your own research. It is not a fee for advice, trading signals, model portfolios or the management of assets, and Convolve does not publish its own models, signals or strategies to subscribers."
+   ],
+   [
+    "p",
+    "This disclosure explains risks; it does not change the legal or regulatory obligations that may apply to you or to us."
+   ],
+   [
+    "h2",
+    "Four different activities"
+   ],
+   [
+    "h2",
+    "Model predictions"
+   ],
+   [
+    "li",
+    "A convolutional network learns statistical patterns in chart images. Those patterns may be noise, may not persist, and may fail suddenly when market conditions change."
+   ],
+   [
+    "li",
+    "A prediction is a probability produced by a model, not a statement about what will happen."
+   ],
+   [
+    "li",
+    "Interpretability tools such as Grad-CAM show where a model reacts in an image; they do not prove the model is right or that its reasoning is sound."
+   ],
+   [
+    "h2",
+    "Backtests"
+   ],
+   [
+    "li",
+    "Past performance, real or simulated, does not guarantee future results."
+   ],
+   [
+    "li",
+    "Testing many label rules, thresholds or models on the same history increases the chance that a good result is luck (overfitting and data snooping)."
+   ],
+   [
+    "li",
+    "Information leaking from the future into training or threshold selection can make results look better than they could have been."
+   ],
+   [
+    "li",
+    "Assumed commissions and slippage are simplifications. Real costs, spreads, liquidity, taxes and market impact can be higher and can turn a profitable backtest into a loss."
+   ],
+   [
+    "li",
+    "Historical data can contain errors, gaps, survivorship bias and adjustments. Convolve currently uses free, unlicensed data from Yahoo Finance (via yfinance), which is provided without any warranty of accuracy or availability."
+   ],
+   [
+    "h2",
+    "Paper trading"
+   ],
+   [
+    "li",
+    "Paper trades are simulated. No order reaches a market and no real position exists."
+   ],
+   [
+    "li",
+    "Simulated fills assume prices and quantities that may not have been available, and ignore partial fills, queue position, halts and outages."
+   ],
+   [
+    "li",
+    "Scheduled runs depend on data availability and infrastructure and can be delayed, skipped or paused."
+   ],
+   [
+    "li",
+    "Good paper-trading results do not mean the same strategy would make money with real funds."
+   ],
+   [
+    "h2",
+    "Trading with real money"
+   ],
+   [
+    "p",
+    "If you decide to trade a strategy developed with Convolve, you do so outside Convolve, at your own risk and under your broker's terms. Automated strategies can lose money quickly, including through software errors, connectivity problems and unexpected market events. Only trade money you can afford to lose and consider seeking independent professional advice."
+   ],
+   [
+    "h2",
+    "Your responsibility"
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/privacy",
+    "label": "Privacy"
+   },
+   {
+    "href": "/terms",
+    "label": "Terms"
+   },
+   {
+    "href": "/subscription-terms",
+    "label": "Subscriptions & credits"
+   },
+   {
+    "href": "/refunds",
+    "label": "Refunds & cancellation"
+   },
+   {
+    "href": "/cookies",
+    "label": "Cookies"
+   },
+   {
+    "href": "/legal",
+    "label": "Legal notice"
+   }
+  ]
+ },
+ "/cookies": {
+  "blocks": [
+   [
+    "h1",
+    "Cookies and browser storage"
+   ],
+   [
+    "p",
+    "Convolve sets no cookies and uses no analytics, advertising or tracking technologies. The website only keeps what it needs to work in your browser's local and session storage, so there is no consent banner."
+   ],
+   [
+    "p",
+    "This document is being finalised. Details shown in [square brackets] have not been completed yet."
+   ],
+   [
+    "h2",
+    "What is stored in your browser"
+   ],
+   [
+    "h2",
+    "Third parties"
+   ],
+   [
+    "p",
+    "The website loads typefaces from Google Fonts; your browser therefore sends your IP address to Google. Google Fonts does not set cookies. If you choose to sign in with Google, Google sets its own cookies on its sign-in pages under Google's privacy policy."
+   ],
+   [
+    "p",
+    "When you buy a subscription or credits, or manage your billing, you are taken to our payment provider's checkout or billing pages. The provider sets its own cookies there, for example to prevent fraud and remember the payment session, under its own policy. Convolve's own pages still set no cookies."
+   ],
+   [
+    "h2",
+    "Your choices"
+   ],
+   [
+    "p",
+    "You can delete local storage at any time in your browser settings. Signing out removes the session. If you clear storage you will be signed out and the workspace will forget local preferences; your research stored on our servers is not affected."
+   ],
+   [
+    "p",
+    "If we ever introduce optional analytics or similar technologies, we will ask for your consent first and let you change that choice at any time."
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/privacy",
+    "label": "Privacy"
+   },
+   {
+    "href": "/terms",
+    "label": "Terms"
+   },
+   {
+    "href": "/subscription-terms",
+    "label": "Subscriptions & credits"
+   },
+   {
+    "href": "/refunds",
+    "label": "Refunds & cancellation"
+   },
+   {
+    "href": "/risk-disclosure",
+    "label": "Risk disclosure"
+   },
+   {
+    "href": "/legal",
+    "label": "Legal notice"
+   }
+  ]
+ },
+ "/legal": {
+  "blocks": [
+   [
+    "h1",
+    "Legal notice"
+   ],
+   [
+    "p",
+    "This document is being finalised. Details shown in [square brackets] have not been completed yet."
+   ],
+   [
+    "h2",
+    "Operator"
+   ],
+   [
+    "h2",
+    "Disclaimer"
+   ],
+   [
+    "p",
+    "We take care to keep the information on this website accurate but give no warranty for its completeness or timeliness. Links to third-party websites are provided for convenience; we are not responsible for their content."
+   ],
+   [
+    "h2",
+    "Paid services"
+   ],
+   [
+    "h2",
+    "Market data"
+   ],
+   [
+    "h2",
+    "Copyright"
+   ]
+  ],
+  "links": [
+   {
+    "href": "/",
+    "label": "convolve."
+   },
+   {
+    "href": "/products",
+    "label": "Products"
+   },
+   {
+    "href": "/about",
+    "label": "About"
+   },
+   {
+    "href": "/contact",
+    "label": "Contact"
+   },
+   {
+    "href": "/privacy",
+    "label": "Privacy"
+   },
+   {
+    "href": "/terms",
+    "label": "Terms"
+   },
+   {
+    "href": "/subscription-terms",
+    "label": "Subscriptions & credits"
+   },
+   {
+    "href": "/refunds",
+    "label": "Refunds & cancellation"
+   },
+   {
+    "href": "/risk-disclosure",
+    "label": "Risk disclosure"
+   },
+   {
+    "href": "/cookies",
+    "label": "Cookies"
+   }
+  ]
+ }
+}

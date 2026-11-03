@@ -1,17 +1,19 @@
 import { ArrowUpRight, Download } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type { ReviewRun } from "@/lib/api";
 import { AuthorizedDownloadLink } from "@/components/AuthorizedDownloadLink";
 import { useReview } from "../ReviewContext";
 import { formatDate, formatDuration } from "../lib/format";
 import { TOOL_LABELS } from "../lib/naming";
 import { runSummary } from "../lib/runSummary";
+import { producedListedAsset } from "../lib/runs";
 import { DataTable, type Column } from "../components/DataTable";
 import { LibraryToolbar, useLibraryFilter } from "../components/LibraryToolbar";
 import { FavoriteToggle } from "../components/LabelEditor";
 import { AssetTitle, useRunRoute } from "../components/assets";
 import { btnSm, Chip, cx, EmptyState, KindTag, Missing, StatusPill } from "../components/primitives";
+import { BacktestsView } from "./BacktestsView";
 
 const STATUS_GROUPS: Record<string, string[]> = {
   active: ["running", "queued"],
@@ -31,8 +33,11 @@ const RUN_FAMILIES = [
 export function RunsView() {
   const { data, names, graph, inspect, inspected, patchLabel } = useReview();
   const routeFor = useRunRoute();
-  const runs = useMemo(() => data?.runs ?? [], [data]);
-  const [tool, setTool] = useState("all");
+  const allRuns = useMemo(() => data?.runs ?? [], [data]);
+  const runs = useMemo(() => (data ? allRuns.filter((r) => !producedListedAsset(r, data)) : []), [allRuns, data]);
+  const folded = allRuns.length - runs.length;
+  const [params] = useSearchParams();
+  const [tool, setTool] = useState(() => params.get("type") ?? "all");
   const [status, setStatus] = useState<"all" | keyof typeof STATUS_GROUPS>("all");
 
   const hay = useCallback((r: ReviewRun) => `${names.run.get(r.id)} ${r.id} ${r.tool} ${r.status} ${r.error ?? ""}`, [names]);
@@ -43,7 +48,40 @@ export function RunsView() {
   const f = useLibraryFilter(runs, hay, extra);
   const tools = useMemo(() => [...new Set(runs.map((r) => r.tool))], [runs]);
 
-  if (runs.length === 0) return <EmptyState title="No runs yet" body="Runs from every research tool appear here with their configuration, outcome and outputs." />;
+  if (runs.length === 0)
+    return (
+      <EmptyState
+        title={allRuns.length ? "Every run is listed under Models or Datasets" : "No runs yet"}
+        body="Label searches, analyses, backtests and runs that produced no model or dataset appear here with their configuration, outcome and outputs."
+      />
+    );
+
+  const toolSelect = (
+    <select
+      value={tool}
+      onChange={(e) => setTool(e.target.value)}
+      aria-label="Filter by run type"
+      className="h-9 rounded-lg border border-white/[0.1] bg-black px-3 text-[13px] font-medium text-white/85 transition hover:border-white/20 focus:border-white/30 focus:outline-none"
+    >
+      <option value="all">All types</option>
+      {tools.map((t) => (
+        <option key={t} value={t}>
+          {TOOL_LABELS[t] ?? t} ({runs.filter((r) => r.tool === t).length})
+        </option>
+      ))}
+    </select>
+  );
+
+  if (tool === "backtester")
+    return (
+      <div>
+        <div className="mb-3 flex items-center gap-3">
+          {toolSelect}
+          <span className="text-[13px] text-white/45">Backtests show method, net result and cost assumptions; select two or more to compare.</span>
+        </div>
+        <BacktestsView />
+      </div>
+    );
 
   const columns: Column<ReviewRun>[] = [
     {
@@ -105,19 +143,7 @@ export function RunsView() {
   return (
     <div>
       <LibraryToolbar f={f} noun="runs" total={runs.length}>
-        <select
-          value={tool}
-          onChange={(e) => setTool(e.target.value)}
-          aria-label="Filter by run type"
-          className="h-9 rounded-lg border border-white/[0.1] bg-black px-3 text-[13px] font-medium text-white/85 transition hover:border-white/20 focus:border-white/30 focus:outline-none"
-        >
-          <option value="all">All types</option>
-          {tools.map((t) => (
-            <option key={t} value={t}>
-              {TOOL_LABELS[t] ?? t} ({runs.filter((r) => r.tool === t).length})
-            </option>
-          ))}
-        </select>
+        {toolSelect}
         {(["all", "active", "done", "failed"] as const).map((s) => (
           <Chip key={s} active={status === s} onClick={() => setStatus(s)}>
             {s === "all" ? "Any status" : s === "done" ? "Completed" : s === "active" ? "Active" : "Failed"}
@@ -135,6 +161,11 @@ export function RunsView() {
         rowClassName={(r) => (r.archived ? "opacity-60" : undefined)}
         minWidth={1040}
       />
+      {folded ? (
+        <p className="mt-3 text-[13px] text-white/40">
+          {folded} run{folded > 1 ? "s" : ""} that produced a model or dataset {folded > 1 ? "are" : "is"} listed under Models and Datasets instead.
+        </p>
+      ) : null}
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[13px] text-white/40">
         <span className="text-white/55">Per-tool history in this browser</span>
         {RUN_FAMILIES.map((fam) => (

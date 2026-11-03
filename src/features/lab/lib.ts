@@ -114,6 +114,7 @@ export const MODULE_LABEL: Record<ExperimentKind, string> = {
   faithfulness: "Sensitivity",
   features: "Feature laboratory",
   embedding: "Representation",
+  stability: "Diagnostics",
 };
 
 export const TAB_FOR_KIND: Record<ExperimentKind, string> = {
@@ -122,6 +123,7 @@ export const TAB_FOR_KIND: Record<ExperimentKind, string> = {
   faithfulness: "sensitivity",
   features: "features",
   embedding: "representation",
+  stability: "diagnostics",
 };
 
 /** Formats a finding value in its unit; differences of shares are shown in percentage points. */

@@ -48,8 +48,8 @@ export function CompareView() {
             <button type="button" className={btn} onClick={() => setTab("models")}>
               Models
             </button>
-            <button type="button" className={btn} onClick={() => setTab("backtests")}>
-              Backtests
+            <button type="button" className={btn} onClick={() => setTab("runs")}>
+              Runs
             </button>
           </div>
         }

@@ -12,7 +12,10 @@ import ThresholdTab from "./tabs/ThresholdTab";
 import TradesTab from "./tabs/TradesTab";
 import RobustnessTab from "./tabs/RobustnessTab";
 import FindingsTab from "./tabs/FindingsTab";
+import BaselinesTab from "./tabs/BaselinesTab";
 import LegacyView from "./LegacyView";
+import AiPromptButton from "@/features/aiPrompt/AiPromptButton";
+import { collectBacktest } from "@/features/aiPrompt/collect";
 
 const TABS = [
   { id: "overview", label: "Overview" },
@@ -20,6 +23,7 @@ const TABS = [
   { id: "threshold", label: "Threshold lab" },
   { id: "trades", label: "Trade explorer" },
   { id: "robustness", label: "Robustness" },
+  { id: "baselines", label: "Baselines" },
   { id: "findings", label: "Findings" },
 ] as const;
 
@@ -162,13 +166,20 @@ export default function BacktestWorkspace() {
             {status?.started_at ? <span>· started {fmtDateTime(status.started_at)}</span> : null}
           </div>
         </div>
-        {summary && isV2(summary) ? (
+        {summary ? (
           <div className="flex flex-wrap gap-2">
-            {(["trades", "equity", "predictions"] as const).map((a) => (
-              <button key={a} type="button" className={btnSm} onClick={() => void backtestApi.downloadArtifact(runId, a)}>
-                <Download className="h-3.5 w-3.5" /> {a}.csv
-              </button>
-            ))}
+            <AiPromptButton
+              className={btnSm}
+              fileName={`convolve_backtest_${runId.slice(0, 8)}_ai_prompt`}
+              collect={() => collectBacktest({ runId, summary, metrics, equity, trades })}
+            />
+            {isV2(summary)
+              ? (["trades", "equity", "predictions"] as const).map((a) => (
+                  <button key={a} type="button" className={btnSm} onClick={() => void backtestApi.downloadArtifact(runId, a)}>
+                    <Download className="h-3.5 w-3.5" /> {a}.csv
+                  </button>
+                ))
+              : null}
           </div>
         ) : null}
       </header>
@@ -207,6 +218,7 @@ export default function BacktestWorkspace() {
           {tab === "threshold" ? <ThresholdTab /> : null}
           {tab === "trades" ? <TradesTab /> : null}
           {tab === "robustness" ? <RobustnessTab /> : null}
+          {tab === "baselines" ? <BaselinesTab /> : null}
           {tab === "findings" ? <FindingsTab /> : null}
         </Ctx.Provider>
       ) : null}

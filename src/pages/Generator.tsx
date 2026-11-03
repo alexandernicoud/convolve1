@@ -7,7 +7,10 @@ import FieldTip from "@/components/generator/FieldTip";
 import StepSection from "@/components/generator/StepSection";
 import SymbolBasket from "@/components/generator/SymbolBasket";
 import { TIMESPAN_PRESETS } from "@/components/generator/timespanPresets";
-import { trainingChartGeneratorApi, ApiError, type ChartPreviewResult } from "@/lib/api";
+import { reviewApi, trainingChartGeneratorApi, ApiError, type ChartPreviewResult } from "@/lib/api";
+import { datasetHealth, type TestSetRef } from "@/features/generator/health";
+import { FindingsList } from "@/features/research/FindingsList";
+import { worstSeverity } from "@/features/research/findings";
 import { useRunsStore } from "@/state/runsStore";
 import { confirmRun, chargeRunCredits, useCreditsStore } from "@/state/creditsStore";
 import { RunCost, RunCostHint } from "@/components/RunCostHint";
@@ -68,6 +71,8 @@ function inputCls(invalid: boolean, extra = ""): string {
       : "border-white/12 focus:border-white/30 focus:ring-white/50"
   }`;
 }
+
+const countLabel = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
 function FieldError({ field, message }: { field: FieldKey; message?: string }) {
   if (!message) return null;
@@ -134,6 +139,7 @@ export default function Generator() {
   const [nameEdited, setNameEdited] = useState(false);
   const [estimate, setEstimate] = useState<ChartEstimate | null>(null);
   const [estimateLoading, setEstimateLoading] = useState(false);
+  const [testSets, setTestSets] = useState<TestSetRef[] | undefined>(undefined);
   /** Validation shows every error after a blocked run attempt, before that only for visited fields. */
   const [attempted, setAttempted] = useState(false);
   const [touched, setTouched] = useState<Partial<Record<FieldKey, boolean>>>({});
@@ -144,6 +150,29 @@ export default function Generator() {
 
   useEffect(() => {
     void useRunsStore.getState().mergeRunsFromBackendList(200);
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    reviewApi
+      .getOverview()
+      .then((o) => {
+        if (!live) return;
+        setTestSets(
+          o.datasets
+            .filter((d) => d.kind === "test" && d.symbols && d.period_start && d.period_end)
+            .map((d) => ({
+              name: d.name || d.dataset_id || d.id,
+              symbols: String(d.symbols).split(/[,\s]+/).filter(Boolean),
+              start: String(d.period_start).slice(0, 10),
+              end: String(d.period_end).slice(0, 10),
+            })),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -305,6 +334,25 @@ export default function Generator() {
         fallbackStart,
       }),
     [estimate, estimateLoading, volumeMode, trainingStartIso, effectiveEndIso, requestedTotal, config.chartsPerLabel, fallbackStart],
+  );
+
+  const health = useMemo(
+    () =>
+      estimate?.ok
+        ? datasetHealth({
+            estimate,
+            timeframe: config.timeframe,
+            horizonBars: config.horizonBars,
+            timespanUnit: config.timespanUnit,
+            timespanCount: config.timespanCount,
+            balanceMode: config.balanceMode,
+            volumeMode,
+            symbols: selectedSymbols,
+            todayIso: todayIsoMax,
+            testSets,
+          })
+        : null,
+    [estimate, config.timeframe, config.horizonBars, config.timespanUnit, config.timespanCount, config.balanceMode, volumeMode, selectedSymbols, todayIsoMax, testSets],
   );
 
   const addSymbol = useCallback((sym: string) => {
@@ -1294,6 +1342,39 @@ export default function Generator() {
           </details>
         </div>
       </details>
+
+      <section className="rounded-2xl border border-white/[0.1] bg-white/[0.02] p-5 md:p-6" aria-labelledby="gen-health-title" data-testid="dataset-health">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id="gen-health-title" className="text-base font-semibold text-white">
+            Dataset health
+          </h3>
+          <span className="text-xs text-white/45">
+            {health
+              ? `${countLabel(health.filter((f) => f.severity === "problem").length, "problem")} · ${countLabel(health.filter((f) => f.severity === "warning").length, "warning")}${estimateLoading ? " · updating…" : ""}`
+              : estimateLoading
+                ? "Checking market data…"
+                : "Runs when stocks and a valid window are set"}
+          </span>
+        </div>
+        {health ? (
+          <>
+            <p className="mb-3 text-sm leading-relaxed text-white/50">
+              Checked against real market data with the same sample walk the run uses, before anything is generated.{" "}
+              {worstSeverity(health) === "problem" ? "You can still generate; the problems below explain what the dataset will look like." : null} Settings are never changed for you.
+            </p>
+            <FindingsList
+              findings={health}
+              onTarget={(t) => {
+                if (t === "balance") {
+                  document.querySelector('[data-help="gen-balance"]')?.scrollIntoView({ block: "center", behavior: "smooth" });
+                  return;
+                }
+                if (t in FIELD_IDS) focusField(t as FieldKey);
+              }}
+            />
+          </>
+        ) : null}
+      </section>
 
       {error && (
         <div className="rounded-lg border border-[#f87171]/20 bg-[#f87171]/10 p-4">

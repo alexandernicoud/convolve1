@@ -13,7 +13,7 @@ import { useRunsStore } from "@/state/runsStore";
 import { buildGraph, type AssetRefKind, type Graph } from "./lib/graph";
 import { datasetName, disambiguate, modelName, runName } from "./lib/naming";
 
-export const TABS = ["overview", "models", "datasets", "backtests", "runs", "lineage", "compare"] as const;
+export const TABS = ["lineage", "overview", "models", "datasets", "runs", "compare"] as const;
 export type TabId = (typeof TABS)[number];
 
 export interface AssetRef {
@@ -199,6 +199,8 @@ export function ReviewProvider({ children }: { children: React.ReactNode }) {
           const b = index.bots.get(ref.id);
           return b ? { kind: "bot", item: b } : null;
         }
+        default:
+          return null;
       }
     },
     [index],
@@ -261,7 +263,8 @@ export function ReviewProvider({ children }: { children: React.ReactNode }) {
 
   // ---- URL state: ?tab=&inspect=kind:id&compare=kind:id,kind:id&focus=nodeKey
   const tabParam = params.get("tab");
-  const tab: TabId = (TABS as readonly string[]).includes(tabParam ?? "") ? (tabParam as TabId) : "overview";
+  // "backtests" was folded into Runs; old links land there.
+  const tab: TabId = tabParam === "backtests" ? "runs" : (TABS as readonly string[]).includes(tabParam ?? "") ? (tabParam as TabId) : "lineage";
   const inspected = parseRef(params.get("inspect"));
   const compare = useMemo(
     () =>
@@ -288,7 +291,7 @@ export function ReviewProvider({ children }: { children: React.ReactNode }) {
     [setParams],
   );
 
-  const setTab = useCallback((t: TabId) => update((p) => (t === "overview" ? p.delete("tab") : p.set("tab", t))), [update]);
+  const setTab = useCallback((t: TabId) => update((p) => (t === "lineage" ? p.delete("tab") : p.set("tab", t))), [update]);
   const inspect = useCallback((r: AssetRef | null) => update((p) => (r ? p.set("inspect", refKey(r)) : p.delete("inspect"))), [update]);
   const setFocus = useCallback((k: string | null) => update((p) => (k ? p.set("focus", k) : p.delete("focus"))), [update]);
   const setCompare = useCallback(
@@ -308,7 +311,7 @@ export function ReviewProvider({ children }: { children: React.ReactNode }) {
   const open = useCallback(
     (t: TabId, r?: AssetRef | null) =>
       update((p) => {
-        if (t === "overview") p.delete("tab");
+        if (t === "lineage") p.delete("tab");
         else p.set("tab", t);
         if (r) p.set("inspect", refKey(r));
       }),
@@ -317,7 +320,7 @@ export function ReviewProvider({ children }: { children: React.ReactNode }) {
   const showLineage = useCallback(
     (k: string) =>
       update((p) => {
-        p.set("tab", "lineage");
+        p.delete("tab");
         p.set("focus", k);
       }),
     [update],

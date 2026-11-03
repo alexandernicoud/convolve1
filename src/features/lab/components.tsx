@@ -30,7 +30,8 @@ export type LabShared = {
   context: LabContext;
   sessionId: string | null;
   session: LabSessionState;
-  run: (kind: ExperimentKind, params: Record<string, unknown>) => Promise<void>;
+  /** Returns the session the job was queued in; ``into`` targets a session created earlier in the same handler. */
+  run: (kind: ExperimentKind, params: Record<string, unknown>, into?: string | null) => Promise<string | undefined>;
   cancel: (jobId: string) => Promise<void>;
   openImage: (imageId: string) => void;
   goTab: (tab: string) => void;

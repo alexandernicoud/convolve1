@@ -10,6 +10,8 @@ Five categories are kept apart because they have different consequences:
                             only bars available at each decision time                      -> informational
 4. ``dataset_reuse``        the same dataset / images are used for training and testing    -> blocks
 5. ``selection_on_test``    threshold or hyperparameters chosen with final test outcomes    -> exploratory
+6. ``selection_history``    the model was designed (Improve) after inspecting backtest
+                            results on overlapping dates                                   -> exploratory
 
 The audit never declares an evaluation independent when the information to check it is missing; it
 then classifies the run as ``exploratory`` and says what was missing.
@@ -124,8 +126,10 @@ def run_audit(
     embargo_bars: int = 0,
     prior_runs_same_pair: int = 0,
     allow_reuse_override: bool = False,
+    selection_history: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Run all checks. ``test_samples`` are provenance records (empty for legacy datasets)."""
+    """Run all checks. ``test_samples`` are provenance records (empty for legacy datasets).
+    ``selection_history`` is the model's Improve record (None when it has none)."""
     checks: List[Check] = []
     purged: List[str] = []
     missing: List[str] = []
@@ -271,6 +275,22 @@ def run_audit(
         if sel.status == PASS:
             sel.status = WARN
     checks.append(sel)
+
+    # 6. Experiment selection history -------------------------------------------------------------
+    from app.services.experiments import selection_check
+
+    decisions = sorted(d for d in (_ts(s.get("decision_ts")) for s in test_samples) if d is not None)
+    if not decisions:
+        decisions = sorted(pd.Timestamp(p["end"]) for p in (parse_chart_name(n) for n in test_names) if p)
+    hist = selection_check(
+        selection_history, test_dataset_id,
+        str(decisions[0].date()) if decisions else None, str(decisions[-1].date()) if decisions else None,
+    )
+    checks.append(Check(
+        "selection_history", "selection_history", {"pass": PASS, "fail": FAIL}.get(hist["status"], INFO),
+        "Model not designed after seeing these test outcomes", hist["detail"],
+        n_affected=len(hist["overlaps"]) or None, data={"overlaps": hist["overlaps"], "recorded": selection_history is not None},
+    ))
 
     # Classification ---------------------------------------------------------------------------
     future_fail = any(c.id == "future_in_image" and c.status == FAIL for c in checks)

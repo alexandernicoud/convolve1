@@ -54,6 +54,8 @@ class Architecture:
     gradcam_layer: Optional[str] = None
     status_note: str = ""
     stages: Tuple[str, ...] = field(default_factory=tuple)
+    # False: trainable (Improve comparisons, existing runs) but not offered in the Trainer's picker.
+    listed: bool = True
 
 
 ARCHITECTURES: Dict[str, Architecture] = {
@@ -98,6 +100,17 @@ ARCHITECTURES: Dict[str, Architecture] = {
             dense_units=128,
             experimental=True,
             status_note="Kept for existing runs; collapsed to one class in the first comparison.",
+        ),
+        Architecture(
+            id="convolve-cnn-dense32-v1",
+            label="v1 with a 32-unit dense layer (experimental)",
+            description="The original conv blocks (32-64-128) with a 32-unit dense layer instead of 128: "
+            "about 4x fewer parameters than v1, same convolutional features.",
+            conv_blocks=((32, 3), (64, 3), (128, 3)),
+            dense_units=32,
+            experimental=True,
+            status_note="Controlled comparison for v1: only the dense layer differs. Not yet measured.",
+            listed=False,
         ),
         Architecture(
             id="convolve-cnn-gap-v1",
@@ -194,6 +207,7 @@ def public_catalog() -> List[Dict[str, Any]]:
                 "label": arch.label,
                 "description": arch.description,
                 "experimental": arch.experimental,
+                "listed": arch.listed,
                 "default": arch.id == DEFAULT_ARCHITECTURE,
                 "family": arch.family,
                 "parameters_224": params,

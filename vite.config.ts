@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react-swc";
 import fs from "fs";
 import path from "path";
 import { PUBLIC_ROUTES, SITE_URL, type RouteMeta } from "./src/lib/seoRoutes";
+import { renderSeoBody, type SeoPage } from "./src/lib/seoHtml";
+import seoContent from "./src/lib/seoContent.json";
 
 // https://vitejs.dev/config/
 // Match `npm run dev:backend` (port 8001). For `uvicorn` on 8000, run with:
@@ -22,7 +24,13 @@ function withHead(html: string, r: RouteMeta, url: string | null, robots: string
     .replace(/(<meta property="og:description" content=")[^"]*"/, `$1${d}"`)
     .replace(/(<meta name="twitter:title" content=")[^"]*"/, `$1${t}"`)
     .replace(/(<meta name="twitter:description" content=")[^"]*"/, `$1${d}"`)
-    .replace(/<noscript>[\s\S]*?<\/noscript>/, `<noscript><h1>${t}</h1><p>${d} Convolve needs JavaScript to run.</p></noscript>`);
+    .replace(/<noscript>[\s\S]*?<\/noscript>/, () =>
+      url ? `<noscript>${renderSeoBody(r.path, (seoContent as unknown as Record<string, SeoPage>)[r.path], r)}</noscript>` : `<noscript><h1>${t}</h1><p>${d}</p></noscript>`,
+    );
+  if (url) {
+    const page = { "@context": "https://schema.org", "@type": "WebPage", "@id": `${url}#webpage`, url, name: r.title, description: r.description, isPartOf: { "@id": `${SITE_URL}/#website` } };
+    out = out.replace("</head>", () => `  <script type="application/ld+json">${JSON.stringify(page).replace(/</g, "\\u003c")}</script>\n  </head>`);
+  }
   out = url
     ? out.replace(/(<link rel="canonical" href=")[^"]*"/, `$1${url}"`).replace(/(<meta property="og:url" content=")[^"]*"/, `$1${url}"`)
     : out.replace(/\s*<link rel="canonical"[^>]*>/, "").replace(/\s*<meta property="og:url"[^>]*>/, "");
@@ -47,6 +55,7 @@ function seoPages(): Plugin {
       }
       const notFound = { path: "", title: "Page not found | Convolve", description: "This page does not exist." };
       fs.writeFileSync(path.join(outDir, "404.html"), withHead(index, notFound, null, "noindex"));
+      fs.writeFileSync(path.join(outDir, "index.html"), withHead(index, PUBLIC_ROUTES[0], SITE_URL + "/", "index, follow"));
       const urls = PUBLIC_ROUTES.map(
         (r) =>
           `  <url><loc>${SITE_URL}${r.path}</loc>${r.changefreq ? `<changefreq>${r.changefreq}</changefreq>` : ""}${

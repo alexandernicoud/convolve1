@@ -7,7 +7,7 @@ import {
   Tags,
   LineChart,
   Rocket,
-  BarChart3,
+  Network,
   Settings,
   User,
   HelpCircle,
@@ -30,13 +30,13 @@ const formatCreditsCompact = (n: number): string => {
 
 const nav = [
   { to: "/dashboard", label: "Overview", tag: "Manage", icon: LayoutDashboard, tour: "nav-monitor" },
+  { to: "/tools/run-log", label: "Search Hub", tag: "Search", icon: Network, tour: "nav-review" },
   { to: "/tools/generator", label: "Datasets", tag: "Generate", icon: Database, tour: "nav-generate" },
   { to: "/tools/trainer", label: "Models", tag: "Train", icon: Brain, tour: "nav-train" },
   { to: "/tools/analysis", label: "Analysis", tag: "Analyse", icon: Microscope, tour: "nav-analyze" },
   { to: "/tools/backtester", label: "Backtesting", tag: "Test", icon: LineChart, tour: "nav-backtest" },
   { to: "/products/labeling-optimizer/technical", label: "Labeling", tag: "Optimize", icon: Tags, tour: "nav-labeling" },
   { to: "/tools/deploy", label: "Deploy (paper)", tag: "Deploy", icon: Rocket, tour: "nav-deploy" },
-  { to: "/tools/run-log", label: "Run history", tag: "Review", icon: BarChart3, tour: "nav-review" },
 ] as const;
 
 function SideLink({

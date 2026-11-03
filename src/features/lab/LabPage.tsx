@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { LineChart } from "lucide-react";
+import { LineChart, Wrench } from "lucide-react";
 import { cx, KV, Panel, surface } from "@/features/review/components/primitives";
 import { datasetsApi, internalModelsApi, type DatasetListItem, type InternalModel } from "@/lib/api";
 import { fmtInt } from "@/lib/viz/format";
@@ -13,7 +13,11 @@ import SensitivityView from "./SensitivityView";
 import FeaturesView from "./FeaturesView";
 import RepresentationView from "./RepresentationView";
 import FindingsView from "./FindingsView";
+import DiagnosticsView from "./DiagnosticsView";
+import { improveLink } from "./diagnostics";
 import { LoadingRegion, SkeletonPanel } from "@/components/skeleton/Skeleton";
+import AiPromptButton from "@/features/aiPrompt/AiPromptButton";
+import { collectAnalysis } from "@/features/aiPrompt/collect";
 
 const TABS = [
   { id: "explorer", label: "Image explorer" },
@@ -21,6 +25,7 @@ const TABS = [
   { id: "sensitivity", label: "Sensitivity" },
   { id: "features", label: "Features" },
   { id: "representation", label: "Representation" },
+  { id: "diagnostics", label: "Diagnostics" },
   { id: "findings", label: "Findings" },
 ] as const;
 
@@ -131,11 +136,13 @@ export default function LabPage() {
   const session = useLabSession(sessionId);
 
   const run = useCallback(
-    async (kind: ExperimentKind, params: Record<string, unknown>) => {
-      if (!ref) return;
-      const res = await labApi.submit(ref, { session_id: sessionId, kind, params });
+    async (kind: ExperimentKind, params: Record<string, unknown>, into?: string | null) => {
+      if (!ref) return undefined;
+      const sid = into ?? sessionId;
+      const res = await labApi.submit(ref, { session_id: sid, kind, params });
       if (res.session_id !== sessionId) patch({ session: res.session_id }, true);
       else await session.refresh();
+      return res.session_id;
     },
     [ref, sessionId, patch, session],
   );
@@ -174,9 +181,17 @@ export default function LabPage() {
             seed and method so it can be reproduced.
           </p>
         </div>
-        <Link to="/tools/analysis/legacy" className="text-[13px] text-white/45 underline-offset-4 transition hover:text-white hover:underline">
-          One-shot analysis report (previous version)
-        </Link>
+        <div className="flex flex-col items-end gap-2">
+          {model && context?.dataset ? (
+            <AiPromptButton
+              fileName={`convolve_analysis_${model.id.slice(0, 12)}_ai_prompt`}
+              collect={() => collectAnalysis({ sessionId, context, model })}
+            />
+          ) : null}
+          <Link to="/tools/analysis/legacy" className="text-[13px] text-white/45 underline-offset-4 transition hover:text-white hover:underline">
+            One-shot analysis report (previous version)
+          </Link>
+        </div>
       </header>
 
       <section className={cx(surface, "grid gap-4 px-5 py-4 md:grid-cols-2")} data-tour="lab-select">
@@ -224,7 +239,7 @@ export default function LabPage() {
         )
       ) : (
         <>
-          <BacktestCta model={model} />
+          <BacktestCta model={model} improveTo={improveLink(model.kind, model.id, sessionId, null)} />
           <div data-help="lab-context">
             <ContextStrip context={context} sessionId={sessionId} />
           </div>
@@ -257,6 +272,7 @@ export default function LabPage() {
               {tab === "sensitivity" ? <SensitivityView /> : null}
               {tab === "features" ? <FeaturesView /> : null}
               {tab === "representation" ? <RepresentationView /> : null}
+              {tab === "diagnostics" ? <DiagnosticsView /> : null}
               {tab === "findings" ? <FindingsView /> : null}
             </LabCtx.Provider>
           ) : null}
@@ -266,7 +282,8 @@ export default function LabPage() {
   );
 
   function TabDot({ kind }: { kind: string }) {
-    const kinds: ExperimentKind[] = kind === "sensitivity" ? ["sensitivity", "faithfulness"] : kind === "representation" ? ["embedding"] : [kind as ExperimentKind];
+    const kinds: ExperimentKind[] =
+      kind === "sensitivity" ? ["sensitivity", "faithfulness"] : kind === "representation" ? ["embedding"] : kind === "diagnostics" ? ["stability"] : [kind as ExperimentKind];
     const states = kinds.map((k) => session.forKind(k));
     const live = states.some((s) => s.latest && (s.latest.status === "queued" || s.latest.status === "running"));
     const done = states.some((s) => s.resultJob);
@@ -275,7 +292,7 @@ export default function LabPage() {
   }
 }
 
-function BacktestCta({ model }: { model: { kind: ModelKind; id: string } }) {
+function BacktestCta({ model, improveTo }: { model: { kind: ModelKind; id: string }; improveTo: string | null }) {
   const to = model.kind === "trained" ? `/tools/backtester?modelRunId=${encodeURIComponent(model.id)}` : `/tools/backtester?modelId=${encodeURIComponent(model.id)}`;
   return (
     <section className="flex flex-col gap-3 rounded-2xl border border-white/15 bg-white/[0.04] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -285,12 +302,19 @@ function BacktestCta({ model }: { model: { kind: ModelKind; id: string } }) {
           The maps below show where the model looks. A backtest shows whether its signals would have made money on periods it never saw.
         </p>
       </div>
-      <Link
-        to={to}
-        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
-      >
-        <LineChart className="h-4 w-4" /> Backtest this model
-      </Link>
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        {improveTo ? (
+          <Link to={improveTo} className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/[0.06]">
+            <Wrench className="h-4 w-4" /> Improve model
+          </Link>
+        ) : null}
+        <Link
+          to={to}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+        >
+          <LineChart className="h-4 w-4" /> Backtest this model
+        </Link>
+      </div>
     </section>
   );
 }

@@ -30,6 +30,7 @@ from app.services import leakage_audit as la
 from app.services import trade_outcomes as to
 from . import benchmarks as bm
 from . import findings as fd
+from . import incremental as inc
 from . import metrics as mt
 from . import thresholds as th
 from .simulation import ENGINE_VERSION, METHODOLOGY_ID, METHODOLOGY_VERSION, Signal, SimConfig, simulate
@@ -183,6 +184,7 @@ def run(config: Dict[str, Any], progress: Optional[Callable[[float, str], None]]
         embargo_bars=int(config.get("embargo_bars", 0)),
         prior_runs_same_pair=int(config.get("prior_runs_same_pair", 0)),
         allow_reuse_override=bool(config.get("allow_reuse_override", False)),
+        selection_history=config.get("selection_history"),
     )
     if audit["blocked"]:
         _write_json(out_dir / "leakage_audit.json", audit)
@@ -228,6 +230,11 @@ def run(config: Dict[str, Any], progress: Optional[Callable[[float, str], None]]
     # 7. Robustness + sweep (re-simulations on the same signals) ---------------------------------
     _progress(progress, 0.78, "Robustness analysis")
     rob = _robustness(res, signals, bars, spec, sim_cfg, thr, start, purged, timeframe, sim_summary, outcomes)
+    _progress(progress, 0.84, "Comparing against no-model baselines")
+    incremental = inc.compute_incremental(
+        cnn_res=res, cnn_metrics=tm, signals=signals, bars=bars, spec=spec, cfg=sim_cfg, threshold=thr, start=start,
+        purged=purged, outcomes=outcomes, benchmarks=bench, timeframe=timeframe, evaluation_class=audit["evaluation_class"],
+    )
     _progress(progress, 0.88, "Threshold sensitivity (in-sample)")
     sweep = th.sensitivity_sweep(
         lambda t: sim_summary(simulate(signals, bars, spec, sim_cfg, threshold=t, start_date=start, purged=purged, outcomes=outcomes)),
@@ -284,6 +291,7 @@ def run(config: Dict[str, Any], progress: Optional[Callable[[float, str], None]]
         "classification_metrics": cm,
         "benchmarks": {k: v for k, v in bench.items() if k != "series"},
         "robustness": rob,
+        "incremental": incremental,
         "threshold_sweep": sweep,
         "diagnostics": res.diagnostics,
         "warnings": warnings,

@@ -59,6 +59,7 @@ const Trainer = lazy(() => import("./pages/Trainer"));
 const AnalysisTechnical = lazy(() => import("./pages/AnalysisTechnical"));
 const LabPage = lazy(() => import("./features/lab/LabPage"));
 const TrainingSessionPage = lazy(() => import("./features/trainer/TrainingSessionPage"));
+const ImprovePage = lazy(() => import("./features/improve/ImprovePage"));
 const LegacyTrainerAnalysisRedirect = lazy(() =>
   import("./features/trainer/TrainingSessionPage").then((m) => ({ default: m.LegacyTrainerAnalysisRedirect })),
 );
@@ -331,6 +332,16 @@ function AppShell() {
           />
           <Route path="/tools/trainer/runs/:runId/analysis" element={<LegacyTrainerAnalysisRedirect />} />
           <Route
+            path="/tools/improve"
+            element={
+              <PageWrapper>
+                <TechnicalLayout>
+                  <ImprovePage />
+                </TechnicalLayout>
+              </PageWrapper>
+            }
+          />
+          <Route
             path="/tools/analysis"
             element={
               <PageWrapper>
@@ -381,6 +392,7 @@ function AppShell() {
               </PageWrapper>
             }
           />
+          <Route path="/tools/search-hub" element={<Navigate to="/tools/run-log" replace />} />
           <Route
             path="/tools/run-log"
             element={

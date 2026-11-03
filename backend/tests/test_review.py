@@ -324,3 +324,13 @@ def test_legacy_bot_without_provenance_is_unknown(client, user_a, cleanup_users)
     bot = next(b for b in body["bots"] if b["id"] == bot_id)
     assert bot["provenance"] == "unknown"
     assert not any(e["target"] == f"bot:{bot_id}" for e in body["edges"])
+
+
+def test_backtest_dataset_link_skips_per_user_directory():
+    from app.main import _parse_backtest_links
+
+    uid = "4360ae61-d935-4ebc-a43b-acbbfb121024"
+    per_user = _parse_backtest_links({"dataset_path": f"/srv/backend/datasets/{uid}/dataset_20261022_121356_ab12/images"})
+    assert per_user["dataset_id"] == "dataset_20261022_121356_ab12"
+    legacy = _parse_backtest_links({"dataset_path": "/srv/backend/datasets/0157e541/images"})
+    assert legacy["dataset_id"] == "0157e541"

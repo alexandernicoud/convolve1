@@ -38,6 +38,55 @@ export interface Finding {
   assumptions: string;
   limitations: string;
   interpretation: string;
+  action?: { kind: string; label: string } | null;
+}
+
+export interface IncrementalStrategy {
+  label?: string;
+  total_return: number | null;
+  gross_return?: number | null;
+  annualized_return?: number | null;
+  sharpe?: number | null;
+  max_drawdown?: number | null;
+  avg_exposure?: number | null;
+  expectancy_return?: number | null;
+  closed_trades?: number;
+  executed_trades?: number;
+}
+
+export interface PairedComparison {
+  method: string;
+  n_periods: number;
+  block_length: number;
+  n_boot: number;
+  mean_diff_annualized: number | null;
+  ci95_annualized: [number, number] | null;
+  p_diff_le_0: number | null;
+  total_return_diff: number | null;
+}
+
+export interface IncrementalValue {
+  version: number;
+  method: string;
+  same_as_cnn: string;
+  cnn: IncrementalStrategy;
+  candidates: { cnn: number; eligible: number };
+  always_eligible?: IncrementalStrategy;
+  random_entry?: {
+    label: string;
+    draws: number;
+    median_total_return: number | null;
+    p05_total_return: number | null;
+    p95_total_return: number | null;
+    median_executed_trades: number | null;
+    cnn_percentile: number | null;
+    p_random_ge_cnn: number | null;
+  };
+  passive?: { label: string; total_return: number | null };
+  paired?: { always_eligible?: PairedComparison; passive?: PairedComparison };
+  by_year?: { year: string; cnn: number | null; always_eligible: number | null; diff: number | null }[];
+  years_cnn_ahead?: number;
+  verdict: { id: "edge" | "inconclusive" | "no_edge" | "invalid"; label: string; reasons: string[] };
 }
 
 export interface BenchmarkSummary {
@@ -79,6 +128,8 @@ export interface V2Summary {
   diagnostics: Record<string, any>;
   warnings: string[];
   findings: Finding[];
+  /** Absent on runs created before the no-model baselines existed. */
+  incremental?: IncrementalValue | null;
 }
 
 export interface V1Summary {

@@ -8,6 +8,7 @@ import {
   runsApi,
   trainingChartGeneratorApi,
   datasetsApi,
+  reviewApi,
   type GlobalRun,
   type DatasetListItem,
   type TrainerCatalog,
@@ -185,7 +186,8 @@ const runStatus = (s: string) => (s === "done" ? "succeeded" : s);
 export default function Trainer() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const forceNew = searchParams.get("new") === "1";
+  const wantedDatasetId = searchParams.get("datasetId");
+  const forceNew = searchParams.get("new") === "1" || !!wantedDatasetId;
   const legacyRunId = searchParams.get("runId");
 
   const [config, setConfig] = useState<TrainerConfig>(defaultConfig);
@@ -211,6 +213,8 @@ export default function Trainer() {
   const [generatorDataset, setGeneratorDataset] = useState<UploadedDataset | null>(null);
   /** Optional override from the upload dropzone only (UI stays empty until user drops a file here). */
   const [manualUploadedDataset, setManualUploadedDataset] = useState<UploadedDataset | null>(null);
+  /** Existing workspace dataset preselected with `?datasetId=` (Search Hub "Train a model on it"). */
+  const [libraryDataset, setLibraryDataset] = useState<UploadedDataset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [ingestingGenZip, setIngestingGenZip] = useState(false);
@@ -316,7 +320,29 @@ export default function Trainer() {
     [runsById],
   );
 
-  const trainingDataset = manualUploadedDataset ?? generatorDataset;
+  const trainingDataset = manualUploadedDataset ?? libraryDataset ?? generatorDataset;
+
+  useEffect(() => {
+    if (!wantedDatasetId || libraryDataset?.dataset_id === wantedDatasetId) return;
+    const d = datasetsById[wantedDatasetId];
+    if (!d) return;
+    if (d.kind === "test") {
+      setError("This dataset is a test set. Train on a training dataset and keep test sets for backtests.");
+      return;
+    }
+    setLibraryDataset({
+      dataset_id: d.dataset_id,
+      extracted_path: "",
+      summary: { total_images: d.total_images ?? 0, label_distribution: {}, example_filenames: d.example_filenames ?? [] },
+    });
+    reviewApi
+      .getOverview()
+      .then((o) => {
+        const dist = o.datasets.find((x) => x.dataset_id === wantedDatasetId)?.label_distribution;
+        if (dist) setLibraryDataset((cur) => (cur && cur.dataset_id === wantedDatasetId ? { ...cur, summary: { ...cur.summary, label_distribution: dist as Record<string, number> } } : cur));
+      })
+      .catch(() => undefined);
+  }, [wantedDatasetId, datasetsById, libraryDataset?.dataset_id]);
 
   /** When “latest” in the store advances and we are not pinned to an older run, allow re-import of the new latest. */
   useEffect(() => {
@@ -339,7 +365,7 @@ export default function Trainer() {
 
   useEffect(() => {
     const run = effectiveGeneratorRun;
-    if (!run?.id || manualUploadedDataset) return;
+    if (!run?.id || manualUploadedDataset || wantedDatasetId) return;
     if (loadedGeneratorRunIdRef.current === run.id && generatorDataset?.dataset_id) return;
 
     let cancelled = false;
@@ -370,7 +396,7 @@ export default function Trainer() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveGeneratorRun?.id, manualUploadedDataset, generatorDataset?.dataset_id]);
+  }, [effectiveGeneratorRun?.id, manualUploadedDataset, generatorDataset?.dataset_id, wantedDatasetId]);
 
   const validateConfig = (): string | null => {
     if (ingestingGenZip) return "Still importing the training dataset from your latest chart generator run.";
@@ -405,8 +431,13 @@ export default function Trainer() {
   const effSeed = config.use_standard_config ? STANDARD.seed : config.random_seed ?? STANDARD.seed;
   const effValSplit = config.use_standard_config ? STANDARD.val_split : config.val_split ?? STANDARD.val_split;
   const effEpochs = config.use_standard_config ? STANDARD.epochs : config.epochs ?? STANDARD.epochs;
-  const lineageGeneratorRunId =
-    !manualUploadedDataset && generatorDataset ? generatorDatasetRunId ?? loadedGeneratorRunIdRef.current ?? undefined : undefined;
+  const lineageGeneratorRunId = manualUploadedDataset
+    ? undefined
+    : libraryDataset
+      ? datasetsById[libraryDataset.dataset_id]?.generator_run_id ?? undefined
+      : generatorDataset
+        ? generatorDatasetRunId ?? loadedGeneratorRunIdRef.current ?? undefined
+        : undefined;
   const changed = changedSections(opts, effSeed);
 
   const splitRequest = useMemo((): SplitPreviewRequest | null => {
@@ -1094,6 +1125,23 @@ export default function Trainer() {
             Importing generator dataset…
           </div>
         ) : null}
+        {libraryDataset && !manualUploadedDataset ? (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[13px] text-white/75">
+            <span className="min-w-0 truncate">
+              From your workspace: {datasetsById[libraryDataset.dataset_id]?.display_name || datasetsById[libraryDataset.dataset_id]?.name || libraryDataset.dataset_id}
+            </span>
+            <button
+              type="button"
+              className="shrink-0 text-[12.5px] text-white/50 hover:text-white"
+              onClick={() => {
+                setLibraryDataset(null);
+                navigate("/tools/trainer?new=1", { replace: true });
+              }}
+            >
+              Use another dataset
+            </button>
+          </div>
+        ) : null}
         <label className={cx(smallLabel, "mb-2 block")}>Upload your own ZIP (optional)</label>
         <DatasetUploader
           onDatasetUploaded={(dataset) => {
@@ -1195,7 +1243,7 @@ export default function Trainer() {
                 }}
                 className={`mt-1 ${fieldClass} text-sm`}
               >
-                {(catalog?.architectures ?? [{ id: DEFAULT_ARCHITECTURE, label: "Original (v1)" }]).map((a) => (
+                {(catalog?.architectures.filter((a) => a.listed !== false || a.id === config.architecture) ?? [{ id: DEFAULT_ARCHITECTURE, label: "Original (v1)" }]).map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.label}
                     {"default" in a && a.default ? " · default" : ""}

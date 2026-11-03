@@ -15,7 +15,7 @@ from . import core
 from .stats import cohen_d, diff_ci, mean_ci, pearson, wilson
 
 BATCH = 32
-LIMITS = {"atlas": 400, "sensitivity": 200, "faithfulness": 150, "features": 300, "embedding": 1000}
+LIMITS = {"atlas": 400, "sensitivity": 200, "faithfulness": 150, "features": 300, "embedding": 1000, "stability": 200}
 MAX_SCAN = 3000
 
 TIME_REGIONS = ("oldest", "middle", "recent")
@@ -246,6 +246,16 @@ REGION_NOTE_ASSUMED = (
 )
 
 
+def _border_mask(shape: Tuple[int, int]) -> np.ndarray:
+    """The outermost row/column of cells (at least 1/16 of each side): where padding and frame artifacts live."""
+    h, w = shape
+    bh, bw = max(1, round(h / 16)), max(1, round(w / 16))
+    m = np.zeros((h, w), dtype=bool)
+    m[:bh, :] = m[-bh:, :] = True
+    m[:, :bw] = m[:, -bw:] = True
+    return m
+
+
 def _target_for(item: Dict[str, Any], target: Any) -> int:
     return int(item["pred"]) if target in (None, "predicted") else int(target)
 
@@ -291,6 +301,7 @@ def run_atlas(ctx: Ctx, params: Dict[str, Any]) -> Dict[str, Any]:
             mass = cam / cam.sum()
             att = region_shares(mass)
             ink = region_shares(fgc) if fgc.sum() > 0 else None
+            border = _border_mask(grid)
             row.update(
                 {
                     "time": att["time"],
@@ -299,6 +310,8 @@ def run_atlas(ctx: Ctx, params: Dict[str, Any]) -> Dict[str, Any]:
                     "ink_price": ink["price"] if ink else None,
                     "foreground_share": float((mass * fgc).sum() / max(float(mass.sum()), 1e-12)),
                     "foreground_area": float(fgc.mean()),
+                    "border_share": float(mass[border].sum()),
+                    "border_ink": float(fgc[border].sum() / fgc.sum()) if fgc.sum() > 0 else None,
                     "col_profile": (mass.sum(axis=0) * grid[1]).astype(np.float32),
                     "row_profile": (mass.sum(axis=1) * grid[0]).astype(np.float32),
                 }
@@ -342,6 +355,11 @@ def run_atlas(ctx: Ctx, params: Dict[str, Any]) -> Dict[str, Any]:
                 }
         out["foreground_share"] = mean_ci([r["foreground_share"] for r in subset], seed=seed + seed_off + 3)
         out["foreground_area"] = mean_ci([r["foreground_area"] for r in subset], seed=seed + seed_off + 4)
+        out["border"] = {
+            "attention": mean_ci([r["border_share"] for r in subset], seed=seed + seed_off + 5),
+            "ink": mean_ci([r["border_ink"] for r in subset if r.get("border_ink") is not None], seed=seed + seed_off + 6),
+            "area": float(_border_mask(grid).mean()) if grid else None,
+        }
         cols = np.stack([r["col_profile"] for r in subset])
         rws = np.stack([r["row_profile"] for r in subset])
         out["col_profile"] = {"mean": cols.mean(axis=0).round(4).tolist(), "sd": cols.std(axis=0).round(4).tolist()}
@@ -967,6 +985,7 @@ def run_embedding(ctx: Ctx, params: Dict[str, Any]) -> Dict[str, Any]:
     dead_units = int((P.max(axis=0) <= 0).sum())
     return {
         "kind": "embedding",
+        "splits": _split_comparison(items, P, seed),
         "sample": {k: v for k, v in sample.items() if k != "items"},
         "summary": sample_summary(ctx, items),
         "dim": int(P.shape[1]),
@@ -984,6 +1003,7 @@ def run_embedding(ctx: Ctx, params: Dict[str, Any]) -> Dict[str, Any]:
                 "p1": it["probs"][-1],
                 "symbol": it["symbol"],
                 "correct": it["correct"],
+                "split": it.get("split"),
             }
             for i, it in enumerate(items)
         ],
@@ -995,13 +1015,126 @@ def run_embedding(ctx: Ctx, params: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _split_comparison(items: List[Dict[str, Any]], P: np.ndarray, seed: int) -> Optional[Dict[str, Any]]:
+    """Training vs validation images in the penultimate space: accuracy, confidence and centroid shift.
+
+    The shift is the distance between the two split centroids divided by the typical distance of an image from
+    its own split's centroid, so 0 means the splits overlap and values near 1 mean they sit apart by about one
+    typical spread. None when split membership is unknown or either split has fewer than 5 images.
+    """
+    idx = {s: [i for i, it in enumerate(items) if it.get("split") == s] for s in ("training", "validation")}
+    if any(len(v) < 5 for v in idx.values()):
+        return None
+    out: Dict[str, Any] = {}
+    for s, ii in idx.items():
+        sub = [items[i] for i in ii]
+        labeled = [it for it in sub if it["label"] is not None]
+        out[s] = {
+            "n": len(sub),
+            "accuracy": wilson(sum(1 for it in labeled if it["correct"]), len(labeled)) if labeled else None,
+            "confidence": mean_ci([it["confidence"] for it in sub], seed=seed + (11 if s == "training" else 12)),
+        }
+    a, b = P[idx["training"]], P[idx["validation"]]
+    ca, cb = a.mean(axis=0), b.mean(axis=0)
+    spread = float(np.sqrt(np.concatenate([((a - ca) ** 2).sum(axis=1), ((b - cb) ** 2).sum(axis=1)]).mean()))
+    out["centroid_shift"] = float(np.linalg.norm(ca - cb) / spread) if spread > 0 else None
+    return out
+
+
+def _shift(x: np.ndarray, dy: int, dx: int) -> np.ndarray:
+    """Translate (H,W,3) by whole pixels, filling uncovered pixels with the white background."""
+    out = np.ones_like(x)
+    h, w = x.shape[:2]
+    ys, yd = (slice(0, h - dy), slice(dy, h)) if dy >= 0 else (slice(-dy, h), slice(0, h + dy))
+    xs, xd = (slice(0, w - dx), slice(dx, w)) if dx >= 0 else (slice(-dx, w), slice(0, w + dx))
+    out[yd, xd] = x[ys, xs]
+    return out
+
+
+def _rescale(x: np.ndarray, factor: float) -> np.ndarray:
+    tf = core._tf()
+    h, w = x.shape[:2]
+    small = tf.image.resize(x[None], [max(1, int(round(h * factor))), max(1, int(round(w * factor)))], method="area")
+    return tf.image.resize(small, [h, w], method="bilinear").numpy()[0].astype(np.float32)
+
+
+PERTURBATIONS = {
+    "shift_right_2px": ("Whole chart shifted 2 px right (white fill)", lambda x: _shift(x, 0, 2)),
+    "shift_left_2px": ("Whole chart shifted 2 px left (white fill)", lambda x: _shift(x, 0, -2)),
+    "shift_down_2px": ("Whole chart shifted 2 px down (white fill)", lambda x: _shift(x, 2, 0)),
+    "rescale_90": ("Downscaled to 90% and back (resampling softness)", lambda x: _rescale(x, 0.9)),
+    "blur_light": ("Gaussian blur, σ = 0.75 px (anti-aliasing differences)", lambda x: blur_images(x[None], 0.75)[0]),
+    "quantize_32": ("Colours quantized to 32 levels per channel (compression / palette)", lambda x: np.round(x * 31) / 31),
+}
+
+
+def run_stability(ctx: Ctx, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Prediction change under small rendering perturbations that should not change a chart's meaning."""
+    lm = ctx.lm
+    n = max(4, min(int(params.get("n") or 100), LIMITS["stability"]))
+    seed = int(params.get("seed") or 0)
+    filters = params.get("filters") or {}
+    sample = draw_sample(ctx, n, seed, filters, progress_span=(0.0, 0.2))
+    items = sample["items"]
+    if len(items) < 4:
+        raise ValueError(f"Only {len(items)} images matched the filters; at least 4 are needed")
+    keys = list(PERTURBATIONS)
+    p_orig = np.array([it["probs"][it["pred"]] for it in items])
+    deltas = {k: np.zeros(len(items)) for k in keys}
+    flips = {k: np.zeros(len(items), dtype=bool) for k in keys}
+    for start in range(0, len(items), 8):
+        ctx.check()
+        part = items[start : start + 8]
+        x = ctx.load([it["id"] for it in part])
+        variants = [PERTURBATIONS[k][1](x[i]) for i in range(len(part)) for k in keys]
+        probs = np.concatenate([core.predict(lm, np.stack(variants[q : q + 64]))[0] for q in range(0, len(variants), 64)])
+        for j, p in enumerate(probs):
+            i, k = divmod(j, len(keys))
+            gi, key = start + i, keys[k]
+            t = items[gi]["pred"]
+            deltas[key][gi] = float(p[t] - p_orig[gi])
+            flips[key][gi] = int(np.argmax(p)) != t
+        ctx.report(0.2 + 0.75 * min(1.0, (start + len(part)) / len(items)), f"Perturbations: {start + len(part)} of {len(items)}")
+    rows = [
+        {
+            "perturbation": k,
+            "description": PERTURBATIONS[k][0],
+            "abs_delta": mean_ci(np.abs(deltas[k]).tolist(), seed=seed + 1 + ki),
+            "delta": mean_ci(deltas[k].tolist(), seed=seed + 20 + ki),
+            "flip_rate": wilson(int(flips[k].sum()), len(items)),
+        }
+        for ki, k in enumerate(keys)
+    ]
+    any_flip = np.any(np.stack([flips[k] for k in keys]), axis=0)
+    near = np.array([abs(it["confidence"] - 0.5) < 0.05 for it in items]) if lm.n_classes == 2 else np.zeros(len(items), dtype=bool)
+    return {
+        "kind": "stability",
+        "sample": {k: v for k, v in sample.items() if k != "items"},
+        "summary": sample_summary(ctx, items),
+        "rows": rows,
+        "any_flip": wilson(int(any_flip.sum()), len(items)),
+        "any_flip_confident": wilson(int((any_flip & ~near).sum()), int((~near).sum())) if (~near).any() else None,
+        "worst_abs_delta": float(max(np.abs(deltas[k]).max() for k in keys)),
+        "design": (
+            "Each sampled chart is re-fed with small edits that a different renderer, screen scale or image pipeline "
+            "could introduce. None of them changes the prices drawn. Δ is the change in the probability of the "
+            "originally predicted class; a flip means the predicted class changed."
+        ),
+        "limitations": [
+            "These are image-level edits of the stored chart, not a re-render from price data with different settings.",
+            "Images close to the decision boundary flip under almost any edit; the confident-only flip rate excludes those within 0.05 of 0.5.",
+        ],
+    }
+
+
 EXPERIMENTS = {
     "atlas": run_atlas,
     "sensitivity": run_sensitivity,
     "faithfulness": run_faithfulness,
     "features": run_features,
     "embedding": run_embedding,
+    "stability": run_stability,
 }
 
 # Bump when an experiment's computation changes so stored results are not reused across versions.
-METHOD_VERSION = {"atlas": 3, "sensitivity": 1, "faithfulness": 1, "features": 1, "embedding": 1}
+METHOD_VERSION = {"atlas": 4, "sensitivity": 1, "faithfulness": 1, "features": 1, "embedding": 2, "stability": 1}

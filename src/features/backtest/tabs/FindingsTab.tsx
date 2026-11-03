@@ -1,8 +1,11 @@
-import { cx, EmptyState, surface } from "@/features/review/components/primitives";
+import { Link } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
+import { btnSm, cx, EmptyState, surface } from "@/features/review/components/primitives";
 import { fmtInt } from "@/lib/viz/format";
 import { SEMANTIC } from "@/lib/viz/tokens";
 import type { Finding } from "../api";
 import { useWorkspace } from "../BacktestWorkspace";
+import { findingActionLink } from "../findingActions";
 
 const SEVERITY: Record<Finding["severity"], { label: string; color: string }> = {
   negative: { label: "Against the strategy", color: SEMANTIC.negative },
@@ -13,7 +16,13 @@ const SEVERITY: Record<Finding["severity"], { label: string; color: string }> = 
 const ORDER: Finding["severity"][] = ["negative", "caution", "neutral", "positive"];
 
 export default function FindingsTab() {
-  const { summary } = useWorkspace();
+  const { summary, runId } = useWorkspace();
+  const actionCtx = {
+    runId,
+    trainerRunId: summary.model.trainer_run_id ?? summary.model.training_run_id ?? null,
+    modelId: summary.model.model_id ?? null,
+    datasetId: summary.dataset.dataset_id ?? null,
+  };
   const findings = [...summary.findings].sort((a, b) => ORDER.indexOf(a.severity) - ORDER.indexOf(b.severity));
   if (!findings.length) return <EmptyState title="No findings" body="No rule produced a finding for this run." />;
   return (
@@ -24,6 +33,7 @@ export default function FindingsTab() {
       <div className="grid gap-3 lg:grid-cols-2">
         {findings.map((f) => {
           const s = SEVERITY[f.severity] ?? SEVERITY.neutral;
+          const action = findingActionLink(f.action, actionCtx);
           return (
             <article key={f.id} className={cx(surface, "p-4")} style={{ borderLeft: `2px solid ${s.color}` }}>
               <p className="text-[11.5px] uppercase tracking-wide" style={{ color: s.color }}>{s.label}</p>
@@ -37,6 +47,12 @@ export default function FindingsTab() {
                 {f.assumptions ? (<><dt>Assumes</dt><dd>{f.assumptions}</dd></>) : null}
                 {f.limitations ? (<><dt>Limits</dt><dd>{f.limitations}</dd></>) : null}
               </dl>
+              {action ? (
+                <Link to={action.to} className={cx(btnSm, "mt-3 inline-flex items-center gap-1.5")}>
+                  {action.label}
+                  <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                </Link>
+              ) : null}
             </article>
           );
         })}

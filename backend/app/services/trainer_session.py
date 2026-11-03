@@ -409,6 +409,7 @@ def build_session(
         "architecture": architecture,
         "trainer_protocol": config["trainer_protocol"],
         "options": options,
+        "experiment": cfg.get("experiment") if isinstance(cfg.get("experiment"), dict) else None,
         "selection_metric": {"name": selection, "mode": mode},
         "train_samples": summary.get("train_samples", state.get("train_samples")),
         "val_samples": val_samples,

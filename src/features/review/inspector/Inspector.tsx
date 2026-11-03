@@ -7,7 +7,8 @@ import { AuthorizedDownloadLink } from "@/components/AuthorizedDownloadLink";
 import { refKey, useReview, type Asset } from "../ReviewContext";
 import { TOOL_LABELS } from "../lib/naming";
 import { useAssetDetail } from "../useAssetDetail";
-import { backtestRouteForModel, datasetActions, deployRouteForModel, useRunRoute } from "../components/assets";
+import { datasetActions, useRunRoute } from "../components/assets";
+import { modelActions } from "../lib/nodeActions";
 import { LabelEditor } from "../components/LabelEditor";
 import { btn, KindTag } from "../components/primitives";
 import { LinkedAssets, Section } from "./sections";
@@ -109,14 +110,13 @@ function InspectorPanel() {
         </AuthorizedDownloadLink>,
       );
   } else if (asset.kind === "model") {
-    actions.push(
-      <Link key="bt" to={backtestRouteForModel(asset.item)} className={btn}>
-        Backtest
-      </Link>,
-      <Link key="dep" to={deployRouteForModel(asset.item)} className={btn}>
-        Deploy
-      </Link>,
-    );
+    for (const a of modelActions(asset.item))
+      if (a.to)
+        actions.push(
+          <Link key={a.id} to={a.to} className={btn}>
+            {a.label.replace(/ model$/, "")}
+          </Link>,
+        );
     if (asset.item.download_url)
       actions.push(
         <AuthorizedDownloadLink key="dl" path={asset.item.download_url} filename={asset.item.auto_name || `${asset.item.id}.keras`} className={btn}>

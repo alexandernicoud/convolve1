@@ -1,4 +1,4 @@
-import { Boxes, Database, GitBranch, GitCompare, LayoutGrid, LineChart, ListTree, RefreshCw } from "lucide-react";
+import { Boxes, Database, GitBranch, GitCompare, LayoutGrid, ListTree, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ReviewProvider, TABS, useReview, type TabId } from "./ReviewContext";
@@ -8,8 +8,8 @@ import { btn, cx, PanelTitle, surface } from "./components/primitives";
 import { OverviewView } from "./views/OverviewView";
 import { ModelsView } from "./views/ModelsView";
 import { DatasetsView } from "./views/DatasetsView";
-import { BacktestsView } from "./views/BacktestsView";
 import { RunsView } from "./views/RunsView";
+import { producedListedAsset } from "./lib/runs";
 import { LineageView } from "./views/LineageView";
 import { CompareView } from "./views/CompareView";
 import { Inspector } from "./inspector/Inspector";
@@ -19,9 +19,8 @@ const TAB_META: Record<TabId, { label: string; icon: typeof LayoutGrid }> = {
   overview: { label: "Overview", icon: LayoutGrid },
   models: { label: "Models", icon: Boxes },
   datasets: { label: "Datasets", icon: Database },
-  backtests: { label: "Backtests", icon: LineChart },
   runs: { label: "Runs", icon: ListTree },
-  lineage: { label: "Lineage", icon: GitBranch },
+  lineage: { label: "Lineage graph", icon: GitBranch },
   compare: { label: "Compare", icon: GitCompare },
 };
 
@@ -52,8 +51,7 @@ function Workspace() {
     ? {
         models: data.models.length,
         datasets: data.datasets.length,
-        backtests: data.runs.filter((r) => r.tool === "backtester").length,
-        runs: data.runs.length,
+        runs: data.runs.filter((r) => !producedListedAsset(r, data)).length,
         lineage: data.edges?.length ?? 0,
         compare: compare.length,
       }
@@ -61,8 +59,15 @@ function Workspace() {
 
   return (
     <div className={cx("pb-6 transition-[padding]", inspected && "xl:pr-[min(560px,90vw)]")}>
+      <header className="mb-3 pt-1">
+        <h2 className="text-[26px] font-semibold tracking-tight text-white">Search Hub</h2>
+        <p className="mt-1 max-w-3xl text-[14px] leading-relaxed text-white/55">
+          Every stock, label search, dataset, model, analysis, test set, backtest and bot you created, connected by the lineage the tools recorded. Click a node to trace it
+          and to analyse, backtest, deploy or improve it.
+        </p>
+      </header>
       <div className="sticky top-0 z-20 mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b border-white/[0.1] bg-black">
-        <nav className="-mb-px flex flex-wrap" role="tablist" aria-label="Review sections">
+        <nav className="-mb-px flex flex-wrap" role="tablist" aria-label="Search Hub sections">
           {TABS.map((t, i) => {
             const M = TAB_META[t];
             const active = tab === t;
@@ -114,7 +119,7 @@ function Workspace() {
       ) : null}
 
       {loading && !data ? (
-        <LoadingRegion label="Loading research workspace" className="space-y-4">
+        <LoadingRegion label="Loading Search Hub" className="space-y-4">
           <SkeletonStatGrid />
           <div className="grid gap-4 xl:grid-cols-12">
             <SkeletonTable rows={7} cols={4} className="xl:col-span-8" />
@@ -123,7 +128,7 @@ function Workspace() {
         </LoadingRegion>
       ) : error && !data ? (
         <div className={cx(surface, "px-6 py-8")}>
-          <PanelTitle muted>Review is unavailable</PanelTitle>
+          <PanelTitle muted>Search Hub is unavailable</PanelTitle>
           <p className="mt-2 pl-4 text-[14px] text-red-300/85">{error}</p>
           <p className="mt-2 max-w-2xl pl-4 text-[14px] leading-relaxed text-white/50">
             The backend may be offline. Per-tool run history stored in this browser is still available:
@@ -141,7 +146,6 @@ function Workspace() {
           {tab === "overview" && <OverviewView />}
           {tab === "models" && <ModelsView />}
           {tab === "datasets" && <DatasetsView />}
-          {tab === "backtests" && <BacktestsView />}
           {tab === "runs" && <RunsView />}
           {tab === "lineage" && <LineageView />}
           {tab === "compare" && <CompareView />}

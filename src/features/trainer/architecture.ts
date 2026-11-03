@@ -19,6 +19,7 @@ const LAYOUTS: Record<string, { family: string; filters: number[]; dense: number
   "convolve-cnn-compact-v1": { family: "Compact", filters: [16, 32, 64, 64], dense: 64 },
   "convolve-cnn-balanced-v1": { family: "Balanced (experimental)", filters: [24, 48, 96, 96], dense: 96 },
   "convolve-cnn-deep-v1": { family: "Higher capacity (experimental)", filters: [32, 64, 128, 128, 256], dense: 128 },
+  "convolve-cnn-dense32-v1": { family: "v1 with a 32-unit dense layer (experimental)", filters: [32, 64, 128], dense: 32 },
 };
 
 /** Catalog fields needed to describe a builder network (see TrainerArchitecture). */

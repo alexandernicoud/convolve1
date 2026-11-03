@@ -1,5 +1,7 @@
 import { AlertTriangle } from "lucide-react";
-import type { ReviewAssetDetail, ReviewBot, ReviewDataset, ReviewModel, ReviewRun } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { ModelHealthPanel } from "@/features/trainer/ModelHealthPanel";
+import { trainerApi, type ReviewAssetDetail, type ReviewBot, type ReviewDataset, type ReviewModel, type ReviewRun, type TrainingSession } from "@/lib/api";
 import { AuthorizedImage } from "@/components/AuthorizedImage";
 import { LoadingRegion, SkeletonText } from "@/components/skeleton/Skeleton";
 import { useReview } from "../ReviewContext";
@@ -112,7 +114,39 @@ export function ModelPanel({ m, detail, loading, error }: { m: ReviewModel; deta
         )}
         {backtests.length ? <Caveat>Net of each backtest's modelled costs; periods and assumptions may differ.</Caveat> : null}
       </Section>
+      {m.source === "trained" && m.training_run_id ? <ModelHealthSection runId={m.training_run_id} /> : null}
     </>
+  );
+}
+
+function ModelHealthSection({ runId }: { runId: string }) {
+  const [session, setSession] = useState<TrainingSession | null>(null);
+  const [state, setState] = useState<"loading" | "ready" | "missing">("loading");
+  useEffect(() => {
+    let live = true;
+    setState("loading");
+    trainerApi
+      .getProgress(runId)
+      .then((r) => {
+        if (!live) return;
+        setSession(r.session ?? null);
+        setState(r.session && r.status === "done" ? "ready" : "missing");
+      })
+      .catch(() => live && setState("missing"));
+    return () => {
+      live = false;
+    };
+  }, [runId]);
+  return (
+    <Section title="Model health">
+      {state === "loading" ? (
+        <SkeletonText lines={3} />
+      ) : state === "ready" && session ? (
+        <ModelHealthPanel session={session} runId={runId} compact />
+      ) : (
+        <p className="text-[13px] text-white/45">No finished training record is available for this model, so health checks cannot run.</p>
+      )}
+    </Section>
   );
 }
 

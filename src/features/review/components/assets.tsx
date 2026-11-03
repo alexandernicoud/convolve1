@@ -66,17 +66,7 @@ export function OpenInTool({ to, label = "Open in tool" }: { to: string; label?:
   );
 }
 
-export function backtestRouteForModel(m: ReviewModel): string {
-  if (m.source === "trained" && m.training_run_id) return `/tools/backtester?modelRunId=${encodeURIComponent(m.training_run_id)}`;
-  if (m.source === "uploaded") return `/tools/backtester?modelId=${encodeURIComponent(m.id)}`;
-  return "/tools/backtester";
-}
-
-export function deployRouteForModel(m: ReviewModel): string {
-  return m.source === "trained" && m.training_run_id
-    ? `/tools/deploy?trainingRunId=${encodeURIComponent(m.training_run_id)}`
-    : `/tools/deploy?modelId=${encodeURIComponent(m.id)}`;
-}
+export { backtestRouteForModel, deployRouteForModel } from "../lib/nodeActions";
 
 export function datasetActions(d: ReviewDataset): { to: string; label: string }[] {
   const out: { to: string; label: string }[] = [];

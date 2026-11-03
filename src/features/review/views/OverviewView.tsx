@@ -1,6 +1,6 @@
 import { AlertTriangle, ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import type { ReviewRun } from "@/lib/api";
 import { useReview } from "../ReviewContext";
 import { formatDuration, formatRelative, int, pctFrac, pctUnits, num, formatPeriod } from "../lib/format";
@@ -32,6 +32,13 @@ function SeeAll({ onClick, children }: { onClick: () => void; children: ReactNod
 
 export function OverviewView() {
   const { data, setTab, inspect, names, graph, open } = useReview();
+  const [, setParams] = useSearchParams();
+  const openBacktests = () =>
+    setParams((p) => {
+      p.set("tab", "runs");
+      p.set("type", "backtester");
+      return p;
+    });
   if (!data) return null;
   const { summary, runs, models, bots, datasets } = data;
 
@@ -71,7 +78,7 @@ export function OverviewView() {
   if (failed.length) attention.push({ text: `${plural(failed.length, "failed or interrupted run")}`, onClick: () => setTab("runs") });
   if (recovered) attention.push({ text: `${plural(recovered, "lineage link")} recovered heuristically, not recorded`, onClick: () => setTab("lineage") });
   if (unresolved) attention.push({ text: `${plural(unresolved, "referenced asset")} missing from this workspace`, onClick: () => setTab("lineage") });
-  if (thinSamples) attention.push({ text: `${plural(thinSamples, "backtest")} with too few trades for stable ratios`, onClick: () => setTab("backtests") });
+  if (thinSamples) attention.push({ text: `${plural(thinSamples, "backtest")} with too few trades for stable ratios`, onClick: () => openBacktests() });
   if (noMeta) attention.push({ text: `${plural(noMeta, "model")} without training metadata`, onClick: () => setTab("models") });
   if (unknownBots) attention.push({ text: `${plural(unknownBots, "deployed bot")} with unknown model provenance`, onClick: () => setTab("lineage") });
 
@@ -108,7 +115,7 @@ export function OverviewView() {
           value={int(summary.totalBacktests)}
           tone={summary.totalBacktests ? undefined : "muted"}
           sub={latestBt ? `Latest ${pctUnits(latestBt.return_pct, 2, true)} net` : "None recorded yet"}
-          onClick={() => setTab("backtests")}
+          onClick={() => openBacktests()}
         />
         <Stat
           className="border-white/[0.08] pr-4 md:border-l md:pl-5"
@@ -217,7 +224,7 @@ export function OverviewView() {
             <Panel
               title="Latest backtests"
               description="Net of each run's modelled commission and slippage. Periods and assumptions differ between rows — use Compare for like-for-like checks."
-              aside={<SeeAll onClick={() => setTab("backtests")}>All backtests</SeeAll>}
+              aside={<SeeAll onClick={() => openBacktests()}>All backtests</SeeAll>}
               bodyClassName="px-0 pb-1"
             >
               <table className="w-full text-left">

@@ -109,6 +109,7 @@ test("every profile preview matches Keras count_params at 224 px", () => {
     "convolve-cnn-compact-v1": 650_465,
     "convolve-cnn-balanced-v1": 1_462_993,
     "convolve-cnn-deep-v1": 1_355_457,
+    "convolve-cnn-dense32-v1": 2_862_209,
   };
   for (const [id, params] of Object.entries(expected)) {
     assert.equal(architecturePreview(id, 224, 224).totalParams, params, id);
