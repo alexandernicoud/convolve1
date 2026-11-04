@@ -19,6 +19,8 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 PRESETS = ("smaller", "gap", "dense", "regularize", "dropout", "l2", "lr", "class_weight", "epochs", "seed")
+VARIANT_KEYS = ("seed", "smaller", "gap", "dense", "regularize", "dropout", "l2", "lr_down", "lr_up", "class_weight", "epochs")
+MAX_REPLICATE = 20
 ORIGIN_KINDS = ("backtest", "analysis", "trainer", "model-health", "search-hub")
 # Origins whose results include outcomes on a test set; the others use validation data only.
 TEST_RESULT_ORIGINS = ("backtest",)
@@ -58,7 +60,24 @@ def sanitize(raw: Any) -> Dict[str, Any]:
     origin = raw.get("origin")
     if origin is not None and (not isinstance(origin, str) or len(origin) > 160):
         raise ExperimentError("experiment.origin must be a string")
-    return {"parent_run_id": parent, "preset": preset, "origin": origin, "changed": list(changed)}
+    anchor = raw.get("anchor_run_id")
+    if anchor is not None and (not isinstance(anchor, str) or not _ID_RE.match(anchor)):
+        raise ExperimentError("experiment.anchor_run_id is invalid")
+    variant_key = raw.get("variant_key")
+    if variant_key is not None and variant_key not in VARIANT_KEYS:
+        raise ExperimentError(f"experiment.variant_key must be one of {', '.join(VARIANT_KEYS)}")
+    replicate = raw.get("replicate", 0)
+    if not isinstance(replicate, int) or isinstance(replicate, bool) or not 0 <= replicate <= MAX_REPLICATE:
+        raise ExperimentError(f"experiment.replicate must be an integer from 0 to {MAX_REPLICATE}")
+    return {
+        "parent_run_id": parent,
+        "preset": preset,
+        "origin": origin,
+        "changed": list(changed),
+        "anchor_run_id": anchor,
+        "variant_key": variant_key,
+        "replicate": replicate,
+    }
 
 
 def history_of(model_metadata: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -86,15 +105,30 @@ def build_record(
     req: Dict[str, Any],
     parent_metadata: Optional[Dict[str, Any]],
     load_backtest_results: Callable[[str], Optional[Dict[str, Any]]],
+    *,
+    anchor_run_id: Optional[str] = None,
+    session_histories: Optional[List[List[Dict[str, Any]]]] = None,
 ) -> Dict[str, Any]:
-    """The stored experiment record. ``load_backtest_results`` must enforce ownership."""
+    """The stored experiment record. ``load_backtest_results`` must enforce ownership.
+
+    ``session_histories``: selection histories of the other runs in the same improvement session.
+    Everything designed in one workspace was designed with the same knowledge, so the union is
+    inherited, not only the direct parent's history.
+    """
+    from app.services.improve_sessions import merge_histories, session_id_for
+
     origin = parse_origin(req.get("origin"))
-    history = history_of(parent_metadata)
+    history = merge_histories([history_of(parent_metadata), *(session_histories or [])], limit=MAX_HISTORY)
     if origin["kind"] in TEST_RESULT_ORIGINS and origin["id"]:
         history = history + [inspection_from_backtest(origin["id"], load_backtest_results(origin["id"]))]
     selection = "test_results" if any(h.get("kind") == "backtest" for h in history) else "validation_only"
+    anchor = anchor_run_id or req.get("anchor_run_id") or req["parent_run_id"]
     return {
-        "version": 1,
+        "version": 2,
+        "anchor_run_id": anchor,
+        "session_id": session_id_for(anchor),
+        "variant_key": req.get("variant_key"),
+        "replicate": req.get("replicate") or 0,
         "parent_run_id": req["parent_run_id"],
         "parent_dataset_id": (parent_metadata or {}).get("dataset_id"),
         "preset": req.get("preset"),

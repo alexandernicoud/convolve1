@@ -3751,7 +3751,181 @@ def _experiment_record(raw: Any, uid: Optional[str]) -> Dict[str, Any]:
 
     if origin["kind"] == "backtest" and not origin["id"]:
         raise HTTPException(status_code=400, detail="A backtest origin needs its run id")
-    return experiments.build_record(req, parent_meta, load_backtest)
+    views = _improve_views(uid)
+    anchor, chain = _improve_resolve(req["parent_run_id"], views)
+    requested = req.get("anchor_run_id")
+    if requested and requested != anchor:
+        # A deliberate new session may only start from the parent itself or one of its recorded ancestors.
+        if requested != req["parent_run_id"] and requested not in chain:
+            raise HTTPException(status_code=400, detail="experiment.anchor_run_id is not an ancestor of the parent model")
+        assert_cross_owned(uid, trainer_run_id=requested)
+        anchor = requested
+    members = [v for rid, v in views.items() if _improve_resolve(rid, views)[0] == anchor]
+    histories = [experiments.history_of(v.metadata) for v in members]
+    if anchor in views:
+        histories.append(experiments.history_of(views[anchor].metadata))
+    return experiments.build_record(req, parent_meta, load_backtest, anchor_run_id=anchor, session_histories=histories)
+
+
+# ---------------------------------------------------------------------------
+# Improve: improvement sessions around one fixed original model
+# ---------------------------------------------------------------------------
+
+
+def _improve_views(uid: Optional[str]):
+    from app.services import improve_store
+
+    return improve_store.run_views(uid, AUTH_REQUIRED)
+
+
+def _improve_experiment(view) -> Optional[Dict[str, Any]]:
+    from app.services import improve_sessions
+
+    if view is None:
+        return None
+    return improve_sessions.experiment_of_summary(view.summary, view.metadata)
+
+
+def _improve_resolve(run_id: str, views: Dict[str, Any]) -> Tuple[str, List[str]]:
+    """Anchor of a run using only runs visible to the caller (unknown parents end the walk)."""
+    from app.services import improve_sessions
+
+    def exp_of(rid: str) -> Optional[Dict[str, Any]]:
+        return _improve_experiment(views.get(rid))
+
+    anchor, chain = improve_sessions.resolve_anchor(run_id, exp_of)
+    if anchor != run_id and anchor not in views:
+        # The recorded ancestor is not visible (another account, or never registered): stop at the last visible run.
+        visible = [r for r in [run_id, *chain] if r in views]
+        last = chain[-1] if chain else run_id
+        anchor = last if last in views else (visible[-1] if visible else run_id)
+        chain = [r for r in chain if r != anchor]
+    return anchor, chain
+
+
+def _improve_session_payload(run_id: str, uid: Optional[str], as_anchor: bool = False) -> Dict[str, Any]:
+    from app.services import experiments, improve_sessions
+
+    views = _improve_views(uid)
+    if run_id not in views:
+        raise HTTPException(status_code=404, detail="Trainer run not found")
+    if as_anchor:
+        # A deliberate new session: only an ordinary model or one the user explicitly kept can be a new original.
+        lifecycle = improve_sessions.lifecycle_of(_improve_experiment(views[run_id]), views[run_id].decision)
+        if lifecycle not in (improve_sessions.LIFECYCLE_MODEL, improve_sessions.LIFECYCLE_KEPT):
+            raise HTTPException(status_code=409, detail="Keep this candidate before starting a new improvement session from it")
+        anchor_id, chain = run_id, []
+    else:
+        anchor_id, chain = _improve_resolve(run_id, views)
+    anchor_view = views.get(anchor_id)
+    if anchor_view is None:
+        raise HTTPException(status_code=404, detail="The original model was not found")
+    member_views = []
+    for rid, v in views.items():
+        if rid == anchor_id:
+            continue
+        a, ch = _improve_resolve(rid, views)
+        if a == anchor_id:
+            member_views.append((v, ch))
+    members = [
+        {
+            "id": v.id,
+            "status": canonical_run_status(v.status) or v.status,
+            "created_at": v.created_at,
+            "summary": v.summary,
+            "experiment": _improve_experiment(v),
+            "decision": v.decision,
+            "name": v.name,
+            "chain": [c for c in ch if c != v.id],
+        }
+        for v, ch in member_views
+    ]
+    anchor = {
+        "id": anchor_id,
+        "status": canonical_run_status(anchor_view.status) or anchor_view.status,
+        "created_at": anchor_view.created_at,
+        "summary": anchor_view.summary,
+        "experiment": _improve_experiment(anchor_view),
+        "name": anchor_view.name,
+    }
+    out = improve_sessions.build_session(anchor, members)
+    histories = [experiments.history_of(anchor_view.metadata)] + [experiments.history_of(v.metadata) for v, _ in member_views]
+    merged = improve_sessions.merge_histories(histories)
+    out["selection"] = {
+        "history": merged,
+        "status": "test_results" if any(h.get("kind") == "backtest" for h in merged) else ("validation_only" if member_views else "original"),
+    }
+    out["requested_run_id"] = run_id
+    out["opened_from_variant"] = run_id != anchor_id
+    out["chain"] = chain
+    labels = _load_library_labels(uid)
+    for e in out["experiments"]:
+        e["display_name"] = _labels_for("model", e["run_id"], labels, user_id=uid).get("display_name")
+    out["anchor"]["display_name"] = _labels_for("model", anchor_id, labels, user_id=uid).get("display_name")
+    return out
+
+
+@app.get("/api/improve/sessions/{run_id}")
+async def get_improve_session(run_id: str, http_request: Request, anchor: Optional[str] = None) -> Dict[str, Any]:
+    """The improvement workspace of a model. A variant's id opens the session of its original model;
+    ``anchor=self`` deliberately opens the session in which this (kept) model is the original."""
+    uid = get_current_user_id(http_request)
+    rid = validate_id(run_id, kind="run")
+    if AUTH_REQUIRED:
+        if not uid:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        assert_cross_owned(uid, trainer_run_id=rid)
+    return await run_in_threadpool(_improve_session_payload, rid, uid, anchor == "self")
+
+
+class ImproveDecisionRequest(BaseModel):
+    decision: str
+    confirm: bool = False
+    preferred: bool = False
+
+
+@app.post("/api/improve/candidates/{run_id}/decision")
+async def decide_improve_candidate(run_id: str, body: ImproveDecisionRequest, http_request: Request) -> Dict[str, Any]:
+    """Keep (promote), discard (archive, never delete) or restore an Improve candidate. Requires ``confirm``."""
+    from app.services import improve_sessions, improve_store
+
+    uid = get_current_user_id(http_request)
+    rid = validate_id(run_id, kind="run")
+    if AUTH_REQUIRED:
+        if not uid:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        assert_cross_owned(uid, trainer_run_id=rid)
+    if body.decision not in improve_sessions.DECISIONS:
+        raise HTTPException(status_code=400, detail="decision must be keep, discard or restore")
+    if not body.confirm:
+        raise HTTPException(status_code=400, detail="Confirm the decision explicitly")
+    views = _improve_views(uid)
+    view = views.get(rid)
+    if view is None:
+        raise HTTPException(status_code=404, detail="Trainer run not found")
+    if not _improve_experiment(view):
+        raise HTTPException(status_code=400, detail="Only Improve experiments can be kept or discarded; ordinary models are unaffected")
+    if body.decision == "keep" and canonical_run_status(view.status) != "succeeded":
+        raise HTTPException(status_code=409, detail="Only a completed experiment can be kept")
+    record = improve_sessions.apply_decision(view.decision, body.decision, at=time.time(), preferred=body.preferred)
+    try:
+        improve_store.save_decision(view, record)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Trainer run not found") from exc
+    if body.preferred and body.decision == "keep":
+        anchor_id, _ = _improve_resolve(rid, views)
+        for other_id, other in views.items():
+            if other_id == rid or not (other.decision or {}).get("preferred"):
+                continue
+            if _improve_resolve(other_id, views)[0] == anchor_id:
+                improve_store.save_decision(other, {**other.decision, "preferred": False})
+    # Discarded candidates use the library's existing archive flag, so every list hides them the same way.
+    _update_library_label("model", rid, {"archived": body.decision == "discard"}, user_id=uid)
+    return {
+        "run_id": rid,
+        "decision": record,
+        "lifecycle": improve_sessions.lifecycle_of(_improve_experiment(view), record),
+    }
 
 
 def _trainer_config(request: TrainerRequest) -> Dict[str, Any]:
@@ -4030,7 +4204,8 @@ async def get_trainer_progress(run_id: str = Depends(require_owned_run)):
     has_dir = os.path.isdir(run_dir)
     model_found = has_dir and _find_trained_model_file(run_dir) is not None
     db_status = canonical_run_status((row or {}).get("status"))
-    if db_status == "succeeded" or (model_found and db_status in (None, "running")):
+    finished_on_disk = model_found and os.path.isfile(os.path.join(run_dir, "summary.json"))
+    if db_status == "succeeded" or (finished_on_disk and db_status in (None, "running")):
         status, progress = "done", {"phase": "completed", "percent": 100, "message": "Training completed"}
     elif db_status in ("failed", "interrupted"):
         message = (row or {}).get("error_summary") or (row or {}).get("message") or "Training failed"
@@ -5810,9 +5985,10 @@ def _append_models_from_catalog(models: List[Dict[str, Any]], user_id: Optional[
             item["training_run_id"] = row["id"]
             item["name"] = os.path.basename(str(row.get("storage_key") or "")) or row["id"]
             item["download_url"] = f"/trainer/runs/{row['id']}/download/model"
+            item.update({"lifecycle": "model", "improve": None})
             models.append(item)
         else:
-            models.append(_model_row_from_upload(row))
+            models.append({**_model_row_from_upload(row), "lifecycle": "model", "improve": None})
         seen.add(row["id"])
 
 
@@ -5861,6 +6037,7 @@ def _model_row_from_trainer(row: Dict[str, Any]) -> Dict[str, Any]:
         "created_at": row.get("created_at"),
         "metadata_available": bool(metrics or dataset_id),
         "download_url": f"/trainer/runs/{row['id']}/download/model",
+        **_improve_listing_fields(summary, None, extra),
     }
 
 
@@ -5961,16 +6138,69 @@ def _dataset_row_from_catalog(
     return _apply_label_overlay(item, "dataset", did, labels, user_id=user_id)
 
 
+_TRAINER_STOPPED = ("failed", "cancelled")
+
+
+def _trainer_output_complete(row_status: Optional[str], *, has_summary: bool, manifest_status: Optional[str] = None) -> bool:
+    """Whether a trainer run directory holding a model file is a finished, saved model.
+
+    The trainer saves the model file before writing summary.json and before the run is marked
+    succeeded, so a model file alone can belong to a failed, cancelled or still-running run.
+    A succeeded row is authoritative. Failed and cancelled runs are never models. Otherwise
+    (no row, or a row left running/interrupted by a restart) summary.json, the trainer's last
+    artifact, proves the training finished.
+    """
+    status = canonical_run_status(row_status) if row_status else None
+    if status == "succeeded":
+        return True
+    if status in _TRAINER_STOPPED:
+        return False
+    if status is None and str(manifest_status or "").lower() in _TRAINER_STOPPED:
+        return False
+    return has_summary
+
+
+def _improve_listing_fields(
+    summary: Optional[Dict[str, Any]],
+    meta: Optional[Dict[str, Any]],
+    row_extra: Optional[Dict[str, Any]],
+    run_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    """``lifecycle`` and ``improve`` keys of a trained-model listing item."""
+    from app.services import improve_sessions, improve_store
+
+    exp = improve_sessions.experiment_of_summary(summary, meta)
+    decision = (row_extra or {}).get(improve_sessions.DECISION_KEY)
+    if not isinstance(decision, dict) and run_dir:
+        decision = _read_json_dict(os.path.join(run_dir, improve_store.DECISION_FILE))
+    lifecycle = improve_sessions.lifecycle_of(exp, decision if isinstance(decision, dict) else None)
+    if not exp:
+        return {"lifecycle": lifecycle, "improve": None}
+    return {
+        "lifecycle": lifecycle,
+        "improve": {
+            "parent_run_id": exp.get("parent_run_id"),
+            "anchor_run_id": exp.get("anchor_run_id"),
+            "session_id": exp.get("session_id"),
+            "variant_key": exp.get("variant_key"),
+            "preferred": bool((decision or {}).get("preferred")) if isinstance(decision, dict) else False,
+        },
+    }
+
+
 def _collect_internal_models(user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """All models known to this workspace: trained (trainer run dirs) + uploaded (.keras storage).
 
     Trained models keep their full provenance (training run, dataset, generator config);
     uploaded models only carry what their sidecar recorded. Nothing is guessed.
     """
+    from app.services import improve_store
+
     models: List[Dict[str, Any]]
     models = []
     owned_runs = owned_run_ids(user_id) if AUTH_REQUIRED and user_id else None
     owned_models = owned_model_ids(user_id) if AUTH_REQUIRED and user_id else None
+    trainer_rows = improve_store.trainer_rows(user_id if AUTH_REQUIRED else None)
 
     for name, run_dir_p, owner in iter_run_dirs():
         if AUTH_REQUIRED and user_id:
@@ -5985,6 +6215,11 @@ def _collect_internal_models(user_id: Optional[str] = None) -> List[Dict[str, An
         manifest = _read_json_dict(os.path.join(run_dir, "run_manifest.json")) or {}
         if not (summary or meta or manifest.get("tool") == "trainer"):
             continue  # model-looking file in a non-trainer dir; skip
+        row = trainer_rows.get(name)
+        if not _trainer_output_complete(
+            (row or {}).get("status"), has_summary=bool(summary), manifest_status=manifest.get("status")
+        ):
+            continue
         tconf = summary.get("config") if isinstance(summary.get("config"), dict) else {}
         dataset_id = (tconf or {}).get("dataset_id") or meta.get("dataset_id")
         generator_run_id = meta.get("generator_run_id")
@@ -6033,6 +6268,7 @@ def _collect_internal_models(user_id: Optional[str] = None) -> List[Dict[str, An
                     or meta.get("generator_config")
                 ),
                 "download_url": f"/trainer/runs/{name}/download/model",
+                **_improve_listing_fields(summary, meta, (row or {}).get("extra"), run_dir),
             }
         )
 
@@ -6080,6 +6316,8 @@ def _collect_internal_models(user_id: Optional[str] = None) -> List[Dict[str, An
                         sidecar.get("training_run_id") or sidecar.get("generator_run_id")
                     ),
                     "download_url": None,
+                    "lifecycle": "model",
+                    "improve": None,
                 }
             )
     except OSError as exc:
@@ -6291,6 +6529,8 @@ def _review_model_from_internal(m: Dict[str, Any]) -> Dict[str, Any]:
         "metadata_available": bool(m.get("metadata_available")),
         "status": "succeeded" if m.get("kind") == "trained" else None,
         "catalog_only": True,
+        "lifecycle": m.get("lifecycle") or "model",
+        "improve": m.get("improve"),
     }
 
 
@@ -6358,6 +6598,9 @@ def _build_review_overview(user_id: Optional[str]) -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Review overview: could not load pipeline run states: %s", exc)
         persisted_states = {}
+    from app.services import improve_store
+
+    improve_decisions = improve_store.decisions_by_run(user_id, AUTH_REQUIRED)
 
     run_rows: List[Dict[str, Any]] = []
     models: List[Dict[str, Any]] = []
@@ -6549,12 +6792,18 @@ def _build_review_overview(user_id: Optional[str]) -> Dict[str, Any]:
                     add_edge(f"run:{origin[len('backtest:'):]}", node, "informed", "recorded", "Improve experiment origin")
                 row["experiment"] = {
                     k: experiment.get(k)
-                    for k in ("parent_run_id", "preset", "origin", "origin_kind", "changed", "selection")
+                    for k in (
+                        "parent_run_id", "anchor_run_id", "session_id", "variant_key", "replicate",
+                        "preset", "origin", "origin_kind", "changed", "selection",
+                    )
                 }
             training = review_meta.trainer_summary(summary)
             metrics = dict(training.get("metrics") or {})
             row["training"] = training
-            if model_file or summary:
+            persisted = persisted_states.get(run.id) or {}
+            if model_file and _trainer_output_complete(
+                persisted.get("status"), has_summary=bool(summary), manifest_status=run.status
+            ):
                 models.append(
                     {
                         "id": run.id,
@@ -6578,6 +6827,9 @@ def _build_review_overview(user_id: Optional[str]) -> Dict[str, Any]:
                         "download_url": f"/trainer/runs/{run.id}/download/model" if model_file else None,
                         "metadata_available": bool(meta) or gen_fields.get("symbols") is not None,
                         "status": run.status,
+                        **_improve_listing_fields(
+                            summary, meta, {"improve_decision": improve_decisions.get(run.id)}, run_dir
+                        ),
                     }
                 )
                 add_edge(node, f"model:{run.id}", "produced", "recorded", "Trainer run artifact")

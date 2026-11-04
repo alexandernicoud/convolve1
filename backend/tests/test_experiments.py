@@ -88,7 +88,8 @@ def test_server_builds_the_record_from_the_parent_metadata():
     with open(os.path.join(get_run_dir(parent), "model_metadata.json"), "w") as f:
         json.dump(_meta(), f)
     rec = _experiment_record({"parent_run_id": parent, "preset": "gap", "origin": "search-hub", "changed": ["x"]}, None)
-    assert rec["parent_run_id"] == parent and rec["selection"] == "validation_only" and rec["version"] == 1
+    assert rec["parent_run_id"] == parent and rec["selection"] == "validation_only" and rec["version"] == 2
+    assert rec["anchor_run_id"] == parent and rec["session_id"] == f"imp_{parent}"
     with pytest.raises(HTTPException) as missing:
         _experiment_record({"parent_run_id": "20991231_000000_nonexi"}, None)
     assert missing.value.status_code == 404

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { botsApi, dashboardApi, internalModelsApi, reviewApi, Bot, InternalModel, ReviewRun } from "@/lib/api";
+import { candidatesLast, lifecycleSuffix } from "@/lib/modelLifecycle";
 import { stageUpload } from "@/lib/directUpload";
 import { getPaperWalletUsd } from "@/lib/portfolioWallet";
 import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
@@ -103,7 +104,7 @@ export default function Deploy() {
     internalModelsApi.list().then(
       (res) => {
         if (cancelled) return;
-        const usable = res.models.filter((m) => !m.archived);
+        const usable = candidatesLast(res.models.filter((m) => !m.archived));
         setLibrary(usable);
         setSelectedKey((k) => k || (usable.length ? libraryKey(usable[0]) : ""));
       },
@@ -337,7 +338,7 @@ export default function Deploy() {
                   {selectedKey && !selectedModel ? <option value={selectedKey}>Requested model not found in your library</option> : null}
                   {library.map((m) => (
                     <option key={libraryKey(m)} value={libraryKey(m)}>
-                      {libraryLabel(m)} ({m.kind})
+                      {libraryLabel(m)} ({m.kind}){lifecycleSuffix(m)}
                     </option>
                   ))}
                 </select>

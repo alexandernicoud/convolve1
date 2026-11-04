@@ -10,6 +10,7 @@ import { useTrainingRun } from "./useTrainingRun";
 import { LiveComputation } from "./LiveComputation";
 import { DiagnosticsPanel, EvaluationPanel, isProtocol2, SelectionCurves, SplitPanel } from "./EvaluationPanels";
 import { ModelHealthPanel } from "./ModelHealthPanel";
+import { ImproveCallout } from "./ImproveCallout";
 import { SELECTION_NAME, selectionName } from "./evaluation";
 import { OPTIMIZER_LABEL, SCHEDULE_LABEL } from "./options";
 import {
@@ -136,7 +137,10 @@ export default function TrainingSessionPage() {
       {cancelError ? <p className="rounded-xl border border-red-400/25 bg-red-400/[0.06] px-4 py-3 text-[13.5px] text-red-200/90">{cancelError}</p> : null}
 
       {stage === "completed" && session ? (
-        <DoneBanner runId={runId} session={session} />
+        <>
+          <DoneBanner runId={runId} session={session} />
+          <ImproveCallout runId={runId} session={session} />
+        </>
       ) : (
         <StageTrack stage={stage} queued={stage === "queued" || data.progress?.phase === "queued"} epochsDone={session?.epochs_completed ?? 0} />
       )}
@@ -611,12 +615,6 @@ function CompletedPanel({ runId, session }: { runId: string; session: TrainingSe
             icon={<LineChart className="h-4 w-4" />}
             title="Backtest it"
             body="Run the model on unseen market periods."
-          />
-          <NextStep
-            to={`/tools/improve?model=${encodeURIComponent(`trained:${runId}`)}&from=trainer`}
-            icon={<FlaskConical className="h-4 w-4" />}
-            title="Improve it"
-            body="Controlled comparisons against smaller, regularized and GAP variants on the same split."
           />
           <NextStep
             to={`/tools/run-log?tab=models&inspect=${encodeURIComponent(`model:${runId}`)}`}

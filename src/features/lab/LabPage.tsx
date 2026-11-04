@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { LineChart, Wrench } from "lucide-react";
 import { cx, KV, Panel, surface } from "@/features/review/components/primitives";
 import { datasetsApi, internalModelsApi, type DatasetListItem, type InternalModel } from "@/lib/api";
+import { lifecycleSuffix } from "@/lib/modelLifecycle";
 import { fmtInt } from "@/lib/viz/format";
 import { labApi, type ExperimentKind, type LabContext, type ModelKind, type ModelRef } from "./api";
 import { inputCls, LabCtx, type LabShared } from "./components";
@@ -204,6 +205,7 @@ export default function LabPage() {
               <option key={modelKey(m)} value={modelKey(m)}>
                 {m.kind === "trained" ? "Trained" : "Uploaded"} · {m.display_name || m.name || m.model_id}
                 {m.symbols ? ` · ${m.symbols}` : ""}
+                {lifecycleSuffix(m)}
               </option>
             ))}
           </select>

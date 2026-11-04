@@ -11,11 +11,31 @@ import { LibraryToolbar, useLibraryFilter } from "../components/LibraryToolbar";
 import { FavoriteToggle } from "../components/LabelEditor";
 import { AssetTitle, backtestRouteForModel, deployRouteForModel, Symbols } from "../components/assets";
 import { btn, btnSm, Chip, EmptyState, KindTag, Missing, Tag } from "../components/primitives";
+import { analysisRouteForModel, improveRouteForModel } from "../lib/nodeActions";
+
+const isCandidate = (m: ReviewModel) => m.lifecycle === "candidate";
+
+function LifecycleLine({ m, anchorName }: { m: ReviewModel; anchorName: (id: string) => string | null }) {
+  const anchor = m.improve?.anchor_run_id;
+  if (m.lifecycle === "candidate" || m.lifecycle === "kept") {
+    return (
+      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-white/45">
+        <span className={m.lifecycle === "kept" ? "rounded-full border border-white/25 px-1.5 text-white/75" : "rounded-full border border-dashed border-white/25 px-1.5"}>
+          {m.lifecycle === "kept" ? (m.improve?.preferred ? "Kept · preferred" : "Kept") : "Improve candidate"}
+        </span>
+        {anchor ? <span className="truncate">experiment on {anchorName(anchor) ?? anchor}</span> : null}
+      </div>
+    );
+  }
+  return null;
+}
 
 export function ModelsView() {
   const { data, names, graph, inspect, inspected, compare, toggleCompare, setTab, patchLabel } = useReview();
   const [source, setSource] = useState<"all" | "trained" | "uploaded">("all");
+  const [showCandidates, setShowCandidates] = useState(false);
   const models = useMemo(() => data?.models ?? [], [data]);
+  const candidateCount = useMemo(() => models.filter(isCandidate).length, [models]);
 
   const usage = useMemo(() => {
     const out = new Map<string, { backtests: number; analyses: number; bots: number }>();
@@ -37,7 +57,10 @@ export function ModelsView() {
     (m: ReviewModel) => `${names.model.get(m.id)} ${m.id} ${m.auto_name ?? ""} ${m.symbols ?? ""} ${m.timeframe ?? ""} ${m.training_run_id ?? ""}`,
     [names],
   );
-  const extra = useCallback((m: ReviewModel) => source === "all" || m.source === source, [source]);
+  const extra = useCallback(
+    (m: ReviewModel) => (source === "all" || m.source === source) && (showCandidates || !isCandidate(m)),
+    [source, showCandidates],
+  );
   const f = useLibraryFilter(models, hay, extra);
 
   const selected = new Set(compare.filter((c) => c.kind === "model").map((c) => c.id));
@@ -60,6 +83,7 @@ export function ModelsView() {
       cell: (m) => (
         <div className="max-w-[340px]">
           <AssetTitle refv={{ kind: "model", id: m.id }} archived={m.archived} />
+          <LifecycleLine m={m} anchorName={(id) => names.model.get(id) ?? null} />
           {m.tags?.length ? (
             <div className="mt-1 flex flex-wrap gap-1">
               {m.tags.map((t) => (
@@ -147,12 +171,20 @@ export function ModelsView() {
       header: "",
       cell: (m) => (
         <div className="flex items-center justify-end gap-1.5">
+          <Link to={analysisRouteForModel(m)} className={btnSm}>
+            Analyze
+          </Link>
           <Link to={backtestRouteForModel(m)} className={btnSm}>
             Backtest
           </Link>
           <Link to={deployRouteForModel(m)} className={btnSm}>
             Deploy
           </Link>
+          {m.source === "trained" && m.training_run_id ? (
+            <Link to={improveRouteForModel(m, "search-hub")} className={btnSm} title={isCandidate(m) ? "Compare with its original and keep or archive it" : "Test controlled changes against this model"}>
+              {isCandidate(m) ? "Decide" : "Improve"}
+            </Link>
+          ) : null}
           {m.download_url ? (
             <AuthorizedDownloadLink path={m.download_url} filename={m.auto_name || `${m.id}.keras`} className={btnSm} title="Download .keras">
               <Download className="h-3.5 w-3.5" />
@@ -180,6 +212,11 @@ export function ModelsView() {
             {s === "all" ? "All sources" : s === "trained" ? "Trained" : "Uploaded"}
           </Chip>
         ))}
+        {candidateCount ? (
+          <Chip active={showCandidates} onClick={() => setShowCandidates((v) => !v)}>
+            Undecided Improve candidates ({candidateCount})
+          </Chip>
+        ) : null}
       </LibraryToolbar>
       <DataTable
         ariaLabel="Model library"
@@ -192,7 +229,7 @@ export function ModelsView() {
         onToggleSelect={(m) => toggleCompare({ kind: "model", id: m.id })}
         defaultSort={{ id: "created", dir: "desc" }}
         rowClassName={(m) => (m.archived ? "opacity-60" : undefined)}
-        minWidth={1060}
+        minWidth={1180}
       />
       <p className="mt-3 text-[13px] leading-relaxed text-white/40">
         Select rows (Space) to compare · Enter opens the inspector · ↑/↓ moves between rows. Accuracy is classification agreement, not profitability.

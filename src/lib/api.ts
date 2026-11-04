@@ -294,7 +294,16 @@ export interface TrainerRunRequest {
   augmentation?: string[];
   transfer?: { mode: TransferMode; trainable_layers?: number };
   /** Improve-model experiment; the server verifies it and stores its own record. */
-  experiment?: { parent_run_id: string; preset?: string | null; origin?: string | null; changed?: string[] };
+  experiment?: {
+    parent_run_id: string;
+    preset?: string | null;
+    origin?: string | null;
+    changed?: string[];
+    /** Original model of the improvement session; the server resolves it when omitted. */
+    anchor_run_id?: string | null;
+    variant_key?: string | null;
+    replicate?: number;
+  };
 }
 
 export type ValidationMethod = 'random' | 'chronological';
@@ -1953,6 +1962,11 @@ export interface ReviewRun extends ReviewLabelFields {
 
 export interface ExperimentSummary {
   parent_run_id: string;
+  /** Version 2 records: the session's original model. Older records only know their parent. */
+  anchor_run_id?: string | null;
+  session_id?: string | null;
+  variant_key?: string | null;
+  replicate?: number | null;
   preset?: string | null;
   origin?: string | null;
   origin_kind?: string | null;
@@ -1995,6 +2009,19 @@ export interface ReviewModel extends ReviewLabelFields {
   metadata_available: boolean;
   status?: string | null;
   catalog_only?: boolean;
+  lifecycle?: ModelLifecycle | null;
+  improve?: ModelImproveLink | null;
+}
+
+/** "model": ordinary model. Improve experiments are candidates until the user keeps or discards them. */
+export type ModelLifecycle = 'model' | 'candidate' | 'kept' | 'archived';
+
+export interface ModelImproveLink {
+  parent_run_id: string;
+  anchor_run_id?: string | null;
+  session_id?: string | null;
+  variant_key?: string | null;
+  preferred?: boolean;
 }
 
 export interface ReviewDataset extends ReviewLabelFields {
@@ -2194,6 +2221,8 @@ export interface InternalModel {
   favorite?: boolean;
   archived?: boolean;
   notes?: string | null;
+  lifecycle?: ModelLifecycle | null;
+  improve?: ModelImproveLink | null;
 }
 
 /** Partial update to an asset's user label (rename / tags / favorite / archive / notes). */
@@ -2222,6 +2251,122 @@ export const internalModelsApi = {
       `/api/models/${encodeURIComponent(modelId)}/label`,
       { method: 'PATCH', body: JSON.stringify(patch) },
     );
+  },
+};
+
+// ===== Improve: improvement sessions around one original model =====
+
+export type ImproveVerdictId =
+  | 'clearly_improved'
+  | 'no_clear_difference'
+  | 'insufficient_evidence'
+  | 'worse'
+  | 'not_comparable'
+  | 'pending'
+  | 'replicate';
+
+export interface ImproveMetrics {
+  roc_auc: number | null;
+  pr_auc: number | null;
+  balanced_accuracy: number | null;
+  log_loss: number | null;
+  val_loss: number | null;
+  val_accuracy: number | null;
+  train_val_gap: number | null;
+  parameters: number | null;
+  saved_epoch: number | null;
+  epochs_trained: number | null;
+  n_val: number | null;
+  majority_share: number | null;
+}
+
+export interface ImproveVerdict {
+  verdict: ImproveVerdictId;
+  reason: string;
+  metric?: string;
+  difference?: number;
+  variant_mean?: number;
+  baseline_mean?: number;
+  variant_runs?: number;
+  baseline_runs?: number;
+  margin?: number;
+  seed_sd?: number;
+  sampling_se?: number | null;
+  efficiency?: string;
+  replicate_ids?: string[];
+}
+
+export interface ImproveDecision {
+  decision: 'kept' | 'discarded' | null;
+  decided_at: number | null;
+  preferred: boolean;
+  history: { action: string; at: number; preferred?: boolean }[];
+}
+
+export type ImproveGroup = 'queued' | 'running' | 'awaiting_decision' | 'kept' | 'archived' | 'failed';
+
+export interface ImproveExperiment {
+  run_id: string;
+  name?: string | null;
+  display_name?: string | null;
+  status: string;
+  group: ImproveGroup;
+  lifecycle: ModelLifecycle;
+  created_at?: number | null;
+  variant_key?: string | null;
+  replicate?: number | null;
+  preset?: string | null;
+  origin?: string | null;
+  parent_run_id?: string | null;
+  /** False for older experiments launched from another variant (changes stack). */
+  direct: boolean;
+  chain: string[];
+  recorded_changes: string[];
+  changed: { setting: string; label: string; from: unknown; to: unknown }[];
+  unchanged: string[];
+  seed?: number | null;
+  metrics: ImproveMetrics | null;
+  deltas: Partial<Record<'roc_auc' | 'pr_auc' | 'balanced_accuracy' | 'log_loss' | 'val_loss' | 'train_val_gap', number | null>> | null;
+  verdict: ImproveVerdict;
+  is_replicate: boolean;
+  decision: ImproveDecision | null;
+  selection?: 'validation_only' | 'test_results' | null;
+}
+
+export interface ImproveSession {
+  session_id: string;
+  requested_run_id: string;
+  opened_from_variant: boolean;
+  chain: string[];
+  anchor: {
+    run_id: string;
+    name?: string | null;
+    display_name?: string | null;
+    status: string;
+    created_at?: number | null;
+    metrics: ImproveMetrics | null;
+    experiment?: ExperimentSummary | null;
+  };
+  noise: { baseline_run_ids: string[]; baseline_runs: number; required: number; seed_sd: number | null; sufficient: boolean };
+  experiments: ImproveExperiment[];
+  counts: Record<ImproveGroup, number>;
+  selection: { history: ExperimentRecord['selection_history']; status: 'original' | 'validation_only' | 'test_results' };
+}
+
+export const improveApi = {
+  /** ``asAnchor``: open the session in which this ordinary or kept model is the original. */
+  session(runId: string, asAnchor = false): Promise<ImproveSession> {
+    return apiRequest<ImproveSession>(`/api/improve/sessions/${encodeURIComponent(runId)}${asAnchor ? '?anchor=self' : ''}`);
+  },
+  decide(
+    runId: string,
+    decision: 'keep' | 'discard' | 'restore',
+    preferred = false,
+  ): Promise<{ run_id: string; decision: ImproveDecision; lifecycle: ModelLifecycle }> {
+    return apiRequest(`/api/improve/candidates/${encodeURIComponent(runId)}/decision`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, preferred, confirm: true }),
+    });
   },
 };
 

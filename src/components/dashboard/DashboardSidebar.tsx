@@ -13,6 +13,7 @@ import {
   HelpCircle,
   Gift,
   ShieldCheck,
+  FlaskConical,
 } from "lucide-react";
 import { useIsAdmin } from "@/features/admin/useIsAdmin";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -33,6 +34,7 @@ const nav = [
   { to: "/tools/run-log", label: "Search Hub", tag: "Search", icon: Network, tour: "nav-review" },
   { to: "/tools/generator", label: "Datasets", tag: "Generate", icon: Database, tour: "nav-generate" },
   { to: "/tools/trainer", label: "Models", tag: "Train", icon: Brain, tour: "nav-train" },
+  { to: "/tools/improve", label: "Improve", tag: "Improve", icon: FlaskConical, tour: "nav-improve" },
   { to: "/tools/analysis", label: "Analysis", tag: "Analyse", icon: Microscope, tour: "nav-analyze" },
   { to: "/tools/backtester", label: "Backtesting", tag: "Test", icon: LineChart, tour: "nav-backtest" },
   { to: "/products/labeling-optimizer/technical", label: "Labeling", tag: "Optimize", icon: Tags, tour: "nav-labeling" },

@@ -39,6 +39,7 @@ import {
   type SectionId,
 } from "@/features/trainer/options";
 import { SplitPreviewView, useSplitPreview } from "@/features/trainer/SplitPreview";
+import { YourModels } from "@/features/trainer/YourModels";
 import { fmtDateTime, fmtInt } from "@/lib/viz/format";
 
 const fieldClass =
@@ -1435,13 +1436,12 @@ export default function Trainer() {
         </ol>
       </section>
 
+      <YourModels />
+
       {recentTrainerRuns.length ? (
         <section className={cx(surface, "px-5 py-5")}>
           <div className="flex items-center justify-between">
             <PanelTitle>Recent training runs</PanelTitle>
-            <Link to="/tools/run-log?tab=models" className="text-[13px] text-white/55 transition hover:text-white">
-              All models →
-            </Link>
           </div>
           <ul className="mt-3">
             {recentTrainerRuns.map((r) => (

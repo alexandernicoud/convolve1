@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { TrainingSession } from "@/lib/api";
-import { baselineFromSession, buildVariant, experimentPayload, ORDER, selectionStatus } from "./variants";
+import { baselineFromSession, buildVariant, experimentPayload, nextReplicate, ORDER, selectionStatus } from "./variants";
 
 function session(over: Partial<TrainingSession> = {}): TrainingSession {
   return {
@@ -79,7 +79,30 @@ test("legacy and folder-trained runs are flagged, and the experiment payload car
   assert.equal(legacy.problems.length, 1);
   assert.equal(legacy.notes.length, 1);
   const v = buildVariant("seed", baselineFromSession(session()).request);
-  assert.deepEqual(experimentPayload(v, "r1", "backtest:b1"), { parent_run_id: "r1", preset: "seed", origin: "backtest:b1", changed: ["Seed: 7 → 8"] });
+  assert.deepEqual(experimentPayload(v, "r1", "backtest:b1"), {
+    parent_run_id: "r1",
+    anchor_run_id: "r1",
+    variant_key: "seed",
+    replicate: 0,
+    preset: "seed",
+    origin: "backtest:b1",
+    changed: ["Seed: 7 → 8"],
+  });
+});
+
+test("replicates repeat a variant with new seeds and never collide with the original seed", () => {
+  const base = baselineFromSession(session()).request;
+  assert.equal(buildVariant("seed", base, undefined, 0).request.random_seed, 8);
+  assert.equal(buildVariant("seed", base, undefined, 2).request.random_seed, 10);
+  const rep = buildVariant("smaller", base, undefined, 1);
+  assert.equal(rep.request.random_seed, 8);
+  assert.equal(rep.request.architecture, "convolve-cnn-compact-v1");
+  assert.match(rep.request.model_name ?? "", /-smaller-r2\.keras$/);
+  assert.equal(buildVariant("smaller", base).request.random_seed, 7);
+  // A legacy seed experiment (no variant key) counts as the first seed replicate.
+  assert.equal(nextReplicate("seed", [{ variant_key: null, replicate: null, is_replicate: true }]), 1);
+  assert.equal(nextReplicate("smaller", [{ variant_key: "smaller", replicate: 0 }, { variant_key: "smaller", replicate: 1 }]), 2);
+  assert.equal(nextReplicate("gap", []), 0);
 });
 
 test("selection status separates validation-only experiments from test-informed ones", () => {

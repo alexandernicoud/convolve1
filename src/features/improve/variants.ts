@@ -186,6 +186,7 @@ export function pricingFor(r: TrainerRunRequest, datasetImages: number | null): 
 export interface Variant {
   key: VariantKey;
   preset: string;
+  replicate: number;
   request: TrainerRunRequest;
   changed: string[];
   available: boolean;
@@ -195,12 +196,23 @@ export interface Variant {
 
 const archOf = (r: TrainerRunRequest) => r.architecture ?? V1;
 
-function withName(r: TrainerRunRequest, key: VariantKey): TrainerRunRequest {
+function withName(r: TrainerRunRequest, key: VariantKey, replicate: number): TrainerRunRequest {
   const stem = (r.model_name || "model.keras").replace(/\.keras$/i, "").slice(0, 60);
-  return { ...r, model_name: `${stem}-${key.replace("_", "-")}.keras` };
+  return { ...r, model_name: `${stem}-${key.replace("_", "-")}${replicate > 0 ? `-r${replicate + 1}` : ""}.keras` };
 }
 
-export function buildVariant(key: VariantKey, base: TrainerRunRequest, archLabel: (id: string) => string = (id) => id): Variant {
+/**
+ * ``replicate`` repeats a variant with another seed: 0 is the first run, 1 the second, and so on.
+ * For "seed" every replicate is another run of the original settings (seed + 1 + replicate); for the
+ * other variants replicate n > 0 adds n to the original seed. Repeats are what turn a single
+ * difference into evidence: a verdict needs the run-to-run spread.
+ */
+export function buildVariant(
+  key: VariantKey,
+  base: TrainerRunRequest,
+  archLabel: (id: string) => string = (id) => id,
+  replicate = 0,
+): Variant {
   const r: TrainerRunRequest = structuredClone(base);
   let available = true;
   let reason: string | undefined;
@@ -213,7 +225,7 @@ export function buildVariant(key: VariantKey, base: TrainerRunRequest, archLabel
   };
   switch (key) {
     case "seed":
-      r.random_seed = (base.random_seed ?? 7) + 1;
+      r.random_seed = (base.random_seed ?? 7) + 1 + replicate;
       break;
     case "smaller":
       if (archOf(base) === COMPACT) [available, reason] = [false, "The model already uses the Compact network."];
@@ -264,7 +276,17 @@ export function buildVariant(key: VariantKey, base: TrainerRunRequest, archLabel
       if (r.epochs === base.epochs) [available, reason] = [false, "Already at the maximum number of epochs."];
       break;
   }
-  return { key, preset: PRESET[key], request: withName(r, key), changed: available ? describeChanges(base, r, archLabel) : [], available, reason, note };
+  if (key !== "seed" && replicate > 0) r.random_seed = (base.random_seed ?? 7) + replicate;
+  return {
+    key,
+    preset: PRESET[key],
+    replicate,
+    request: withName(r, key, replicate),
+    changed: available ? describeChanges(base, r, archLabel) : [],
+    available,
+    reason,
+    note,
+  };
 }
 
 const fmt = (v: unknown) => (v == null ? "none" : String(v));
@@ -286,8 +308,25 @@ export function describeChanges(a: TrainerRunRequest, b: TrainerRunRequest, arch
   return out;
 }
 
-export function experimentPayload(v: Variant, parentRunId: string, origin: string | null): NonNullable<TrainerRunRequest["experiment"]> {
-  return { parent_run_id: parentRunId, preset: v.preset, origin, changed: v.changed };
+/** Every experiment branches from the session's original model and names it as the anchor. */
+export function experimentPayload(v: Variant, anchorRunId: string, origin: string | null): NonNullable<TrainerRunRequest["experiment"]> {
+  return {
+    parent_run_id: anchorRunId,
+    anchor_run_id: anchorRunId,
+    variant_key: v.key,
+    replicate: v.replicate,
+    preset: v.preset,
+    origin,
+    changed: v.changed,
+  };
+}
+
+/** Next unused replicate index for a variant, given the variant keys/replicates already launched. */
+export function nextReplicate(key: VariantKey, launched: { variant_key?: string | null; replicate?: number | null; is_replicate?: boolean }[]): number {
+  const used = launched
+    .filter((e) => e.variant_key === key || (key === "seed" && !e.variant_key && e.is_replicate))
+    .map((e) => e.replicate ?? 0);
+  return used.length ? Math.max(...used) + 1 : 0;
 }
 
 /** Validation numbers compared side by side. Missing values stay null. */

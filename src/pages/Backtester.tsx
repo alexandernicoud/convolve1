@@ -30,6 +30,7 @@ import {
   type GlobalRun,
   type ModelTrainingMetadata,
 } from "@/lib/api";
+import { candidatesLast, lifecycleSuffix } from "@/lib/modelLifecycle";
 import ModelUploader from "@/components/ModelUploader";
 import DatasetUploader from "@/components/DatasetUploader";
 import TestDataGeneratorModal from "@/components/TestDataGeneratorModal";
@@ -305,7 +306,7 @@ export default function Backtester() {
       try {
         const { models } = await internalModelsApi.list();
         if (cancelled) return;
-        setInternalModels(models.filter((m) => !m.archived));
+        setInternalModels(candidatesLast(models.filter((m) => !m.archived)));
         const wantedRun = searchParams.get("modelRunId");
         const wantedModel = searchParams.get("modelId");
         if (wantedRun) {
@@ -1004,6 +1005,7 @@ export default function Backtester() {
                               {m.display_name || m.name || m.model_id}
                               {m.symbols ? ` · ${m.symbols}` : ""}
                               {m.timeframe ? ` · ${m.timeframe}` : ""}
+                              {lifecycleSuffix(m)}
                             </option>
                           ))}
                         </select>
@@ -1384,6 +1386,7 @@ export default function Backtester() {
                                 {m.display_name || m.name || m.model_id}
                                 {m.symbols ? ` · ${m.symbols}` : ""}
                                 {m.timeframe ? ` · ${m.timeframe}` : ""}
+                                {lifecycleSuffix(m)}
                               </option>
                             ))}
                           </optgroup>
