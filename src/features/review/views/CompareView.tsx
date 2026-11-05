@@ -62,7 +62,7 @@ export function CompareView() {
   const groups = [...new Set(comparison!.rows.map((r) => r.def.group))];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-help="hub-compare">
       <div className={cx(surface, "overflow-x-auto")}>
         <div className="min-w-[640px]">
           <div className="grid border-b border-white/[0.1]" style={grid}>

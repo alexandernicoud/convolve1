@@ -1343,7 +1343,7 @@ export default function Generator() {
         </div>
       </details>
 
-      <section className="rounded-2xl border border-white/[0.1] bg-white/[0.02] p-5 md:p-6" aria-labelledby="gen-health-title" data-testid="dataset-health">
+      <section className="rounded-2xl border border-white/[0.1] bg-white/[0.02] p-5 md:p-6" aria-labelledby="gen-health-title" data-testid="dataset-health" data-help="dataset-health">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h3 id="gen-health-title" className="text-base font-semibold text-white">
             Dataset health

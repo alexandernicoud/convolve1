@@ -60,7 +60,7 @@ export default function BaselinesTab() {
   const domain = span(paired);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-help="bt-baselines">
       <section className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5" style={{ borderLeft: `2px solid ${tone}` }}>
         <p className="text-[11.5px] uppercase tracking-wide" style={{ color: tone }}>Incremental value of the CNN</p>
         <h3 className="mt-1 text-[17px] font-medium text-white">{inc.verdict.label}</h3>

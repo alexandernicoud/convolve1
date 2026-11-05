@@ -205,7 +205,7 @@ export default function ImprovePage() {
         </div>
       ) : null}
 
-      <section className={cx(surface, "p-5")}>
+      <section className={cx(surface, "p-5")} data-help="improve-anchor">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-[12px] uppercase tracking-wide text-white/40">Original model · fixed baseline</p>
@@ -268,6 +268,7 @@ export default function ImprovePage() {
 
       {groups.awaiting_decision.length ? (
         <Panel
+          help="improve-decision"
           title="Awaiting your decision"
           description="Each completed experiment is compared with the original model. Nothing is kept or archived until you confirm; archived experiments can be restored."
         >
@@ -310,6 +311,7 @@ export default function ImprovePage() {
       <ResultsTable ws={ws} />
 
       <Panel
+        help="improve-variants"
         title="Available experiments"
         description="Each experiment keeps the original's dataset, chronological split, validation share, epochs, seed and every other setting, and changes only what is listed. Nothing starts until you press Train; each run asks you to confirm its credits first."
       >

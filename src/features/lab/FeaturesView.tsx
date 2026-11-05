@@ -45,6 +45,7 @@ export default function FeaturesView() {
     <div className="space-y-5">
       <JobPanel
         kind="features"
+        help="lab-features"
         title="Feature laboratory"
         description="Channel activity in one convolutional layer across a sample: which channels are active, which differ between labels, and which images drive them."
         params={params}

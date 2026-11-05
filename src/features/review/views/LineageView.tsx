@@ -383,7 +383,7 @@ function GraphCanvas({
   const orderedEdges = useMemo(() => (highlight ? [...sub.edges].sort((a, b) => Number(litEdge(a)) - Number(litEdge(b))) : sub.edges), [sub.edges, highlight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={cx(surface, "relative overflow-hidden")} style={{ height: "min(76vh, 860px)" }}>
+    <div className={cx(surface, "relative overflow-hidden")} style={{ height: "min(76vh, 860px)" }} data-help="hub-lineage">
       <div
         ref={wrap}
         className="h-full w-full cursor-grab touch-none select-none active:cursor-grabbing"

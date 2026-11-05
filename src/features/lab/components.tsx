@@ -221,7 +221,9 @@ export function JobPanel({
   params,
   runLabel = "Run",
   estimate,
+  help,
 }: {
+  help?: string;
   kind: ExperimentKind;
   title: string;
   description: ReactNode;
@@ -249,7 +251,7 @@ export function JobPanel({
   };
 
   return (
-    <Panel title={title} description={description}>
+    <Panel title={title} description={description} help={help}>
       <div className="space-y-4">
         {children}
         <div className="flex flex-wrap items-center gap-3">

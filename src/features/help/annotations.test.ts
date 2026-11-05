@@ -55,6 +55,20 @@ test("entries are short and link to the help center when they link at all", () =
   }
 });
 
+test("research features say what to do with the result and what is commonly misread", () => {
+  const ids = [
+    "dataset-health", "model-health", "improve-callout", "improve-anchor", "improve-noise", "improve-variants", "improve-results",
+    "improve-decision", "hub-models", "bt-baselines", "bt-integrity", "bt-robustness", "lab-diagnostics", "lab-faithfulness",
+  ] as const;
+  for (const id of ids) {
+    const a = ANNOTATIONS[id];
+    assert.ok(a.use || a.misconception, `${id} needs a next step or a misconception`);
+  }
+  for (const id of ["model-health", "improve-results", "bt-baselines", "lab-atlas"] as const) assert.ok(ANNOTATIONS[id].misconception, id);
+  assert.equal(pageHelpFor("/tools/improve")?.title, "Improve");
+  assert.equal(pageHelpFor("/tools/run-log")?.title, "Search Hub");
+});
+
 test("dashboard panels resolve through data-panel", () => {
   const el = (attrs: Record<string, string>) => ({ getAttribute: (n: string) => attrs[n] ?? null });
   assert.equal(annotationIdOf(el({ "data-help": "take-profit" })), "take-profit");

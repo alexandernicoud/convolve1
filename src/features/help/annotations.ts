@@ -13,6 +13,10 @@ export type Annotation = {
   title: string;
   body: string;
   more?: string;
+  /** What to do with the result. Shown with ``more`` behind "More detail". */
+  use?: string;
+  /** The most common wrong reading. Shown with ``more`` behind "More detail". */
+  misconception?: string;
   visual?: AnnotationVisual;
   /** Help center anchor or page with more detail. */
   href?: string;
@@ -431,6 +435,169 @@ const entries = [
   { id: "panel-health", title: "Health and events", body: "Errors, skipped evaluations and other events that need attention." },
   { id: "panel-daily", title: "Daily P&L", body: "Simulated net profit or loss per UTC day." },
 
+  // ---------------------------------------------------------------- research features
+  {
+    id: "dataset-health",
+    title: "Dataset health",
+    body: "Checks your settings before you spend credits: whether the requested size is reachable, missing prices, overlapping charts and overlap with your test sets.",
+    more: "It runs on the market data for your stocks and window. Problems are things that make the dataset unusable or misleading; warnings are worth reading but do not block generation.",
+    use: "Fix every problem before generating. For warnings, read the suggested change; if you accept the risk, you can continue.",
+    misconception: "A clean report does not mean the labels are predictable. It only means the data is technically sound.",
+    href: "/help#generate",
+  },
+  {
+    id: "model-health",
+    title: "Model health",
+    body: "Reads a finished training run and flags overfitting, underfitting, training that stopped too early and validation results no better than chance.",
+    more: "Each finding is computed from the recorded learning curves and validation metrics (ROC-AUC, balanced accuracy, train/validation gap). Where a fix exists, the finding links to a matching Improve experiment.",
+    use: "Start with the most severe finding. Its button opens Improve with the suggested experiment preselected; nothing runs until you confirm.",
+    misconception: "\"No problems\" is not proof of a trading edge. Health describes the training run, not future profitability.",
+    href: "/help#results",
+  },
+  {
+    id: "improve-callout",
+    title: "Improve this model",
+    body: "Tests controlled changes against this model as a fixed reference: one setting changed at a time, on the same data split, so differences can be attributed.",
+    more: "Each experiment is a new, separate training run that costs credits. Your original model is never modified.",
+    use: "Open Improve, run the recommended experiment, and add seed replicates so Convolve can tell a real improvement from luck.",
+    misconception: "A new model with a higher number is not automatically better. Small differences are often just the random seed.",
+  },
+  {
+    id: "improve-anchor",
+    title: "Original model",
+    body: "Every experiment in this session is compared with this model. It stays fixed, even when you open the session from one of its variants.",
+    more: "Starting a new session from a kept experiment is a deliberate choice; Convolve never silently swaps the reference.",
+    use: "Check that this is the model you meant to improve before running experiments.",
+    misconception: "Experiments are not compared with each other or with the latest one, only with this original.",
+  },
+  {
+    id: "improve-noise",
+    title: "Run-to-run noise",
+    body: "Training the same settings with a different random seed gives slightly different results. Convolve needs at least three runs of the original settings to measure that spread.",
+    more: "The spread (standard deviation across seeds) and the sampling error of ROC-AUC on your validation charts together set the margin a variant must beat.",
+    use: "Add seed replicates before deciding. Each replicate is a paid training run and only starts after you confirm.",
+    misconception: "One extra seed is not enough. With fewer than three runs, every verdict stays \"insufficient evidence\".",
+  },
+  {
+    id: "improve-variants",
+    title: "Available experiments",
+    body: "Controlled variants of the original: each changes one thing (for example size, regularization or learning rate) and keeps the data split identical.",
+    more: "Recommended experiments come from Model Health findings. The cost is shown before you start, and nothing starts automatically.",
+    use: "Run the recommended one first. Repeat it with another seed if the result is close.",
+    misconception: "Running many variants and picking the best number overfits to the validation data. Prefer few, motivated experiments.",
+  },
+  {
+    id: "improve-results",
+    title: "Comparison with the original",
+    body: "Validation metrics of each experiment next to the original: ROC-AUC, PR-AUC, balanced accuracy, log loss, validation loss, train/validation gap and size.",
+    more: "The verdict uses validation ROC-AUC. \"Clearly improved\" or \"worse\" requires the difference to exceed the 95% margin from seed noise and validation sampling.",
+    use: "Read the verdict first, then the metric that drove it. Treat \"no clear difference\" as \"not better\".",
+    misconception: "These are validation results, not trading results. Confirm a kept model with a backtest on later, unseen data.",
+  },
+  {
+    id: "improve-decision",
+    title: "Keep or archive",
+    body: "Undecided experiments wait here. Keep adds the model to your library as a confirmed model; Archive hides it but never deletes it.",
+    more: "Every decision asks for confirmation and is recorded. Archived experiments can be restored. You may mark one kept model per session as preferred.",
+    use: "Keep only clear improvements. Archive the rest so your library stays readable.",
+    misconception: "Keeping a model does not replace the original; both stay in your library.",
+  },
+  {
+    id: "hub-lineage",
+    title: "Lineage graph",
+    body: "How your research connects: which stocks made which dataset, which model was trained on it, and every analysis, backtest and bot built from that model.",
+    more: "Only recorded links are drawn; nothing is inferred. Click a node to highlight its upstream and downstream path and open its actions.",
+    use: "Use it to find what a result was built from, and to continue from any step without remembering run IDs.",
+  },
+  {
+    id: "hub-models",
+    title: "Model library",
+    body: "Every completed model you trained or uploaded, with its market, labels, validation accuracy and where it was used.",
+    more: "Failed or unfinished training runs are not listed. Undecided Improve experiments are hidden behind their own filter; archived models behind the archive filter.",
+    use: "Use the row actions to analyze, backtest, deploy or improve a model directly.",
+    misconception: "Validation accuracy here is classification agreement on held-out charts, not profitability.",
+  },
+  {
+    id: "hub-compare",
+    title: "Compare",
+    body: "Side-by-side view of the models or runs you selected, with their settings and results aligned.",
+    misconception: "Comparisons across different datasets or splits are not controlled. Use Improve for like-for-like model comparisons.",
+  },
+  {
+    id: "bt-baselines",
+    title: "Baselines",
+    body: "Does the CNN add value? The same trades are compared with taking every eligible chart, random entries of the same size, and an exposure-matched passive position.",
+    more: "The paired rows show the CNN's difference from each baseline with an uncertainty interval. Random entry shows the 5th–95th percentile of seeded draws.",
+    use: "Only a CNN that beats every baseline on an independent test suggests an edge. Otherwise, analyze or improve the model.",
+    misconception: "A positive return is not an edge if simply taking every setup or holding the stock did as well.",
+  },
+  {
+    id: "bt-integrity",
+    title: "Leakage and evaluation checks",
+    body: "Whether this backtest is an independent test: the test period must not overlap training data, and the threshold must not be tuned on the test itself.",
+    more: "If any check fails or cannot be verified, the run is classified as exploratory and verdicts are capped at inconclusive.",
+    use: "For a real confirmation, test on a later period the model and its selection history have never seen.",
+    misconception: "An exploratory result can look great and still be meaningless; it cannot confirm an edge.",
+  },
+  {
+    id: "bt-findings",
+    title: "Findings",
+    body: "Plain-language conclusions produced by fixed rules from this backtest's numbers, sorted by severity, each with a suggested next step.",
+    more: "Findings are deterministic: the same results always give the same findings. They are not written by a language model.",
+  },
+  {
+    id: "bt-robustness",
+    title: "Robustness",
+    body: "Whether the result holds up: by quarter, year and symbol, under higher costs, by model confidence, and with bootstrap uncertainty ranges.",
+    use: "Look for results that depend on one period, one stock or near-zero costs; those are fragile.",
+    misconception: "A single total return hides how uncertain it is. Check the bootstrap range before trusting it.",
+  },
+  {
+    id: "lab-diagnostics",
+    title: "Guided diagnostics",
+    body: "Suggests which Lab experiments to run for this model and summarises each result as no concern, worth a look or inconclusive.",
+    use: "Run the suggested experiments in order; follow the link on any \"worth a look\" result.",
+    misconception: "Diagnostics explain what the model attends to. They do not measure whether it predicts well.",
+  },
+  {
+    id: "lab-atlas",
+    title: "Attention atlas",
+    body: "Grad-CAM heat maps of many charts averaged: which part of a chart the model tends to look at, for up and down predictions.",
+    more: "An all-zero map is a measurement (no positive evidence at that layer) and is counted and excluded from averages.",
+    misconception: "A heat map is an explanation method, not proof that the model has skill or that it is right.",
+  },
+  {
+    id: "lab-sensitivity",
+    title: "Region masking",
+    body: "Hides parts of the chart (oldest, middle, most recent; top, bottom) and measures how much the prediction changes.",
+    use: "If masking the most recent candles changes nothing, the model may be using something other than the price action you expect.",
+    misconception: "A large change shows the region matters to the model, not that the region is truly predictive.",
+  },
+  {
+    id: "lab-faithfulness",
+    title: "Faithfulness test",
+    body: "Checks whether Grad-CAM is trustworthy for this model: masking the highlighted cells should hurt the prediction more than masking random cells.",
+    use: "If highlighted cells do no better than random ones, do not rely on the heat maps for this model.",
+    misconception: "A faithful heat map still says nothing about profitability.",
+  },
+  {
+    id: "lab-features",
+    title: "Feature laboratory",
+    body: "Shows what individual channels in the network respond to, with the charts that activate them most. Inactive channels are measured too.",
+    misconception: "Many inactive channels usually mean the network is larger than the data supports, not that it is broken.",
+  },
+  {
+    id: "lab-embedding",
+    title: "Representation explorer",
+    body: "Places charts on a map by how similar the network finds them. Well-separated labels suggest the model distinguishes them.",
+    misconception: "Separation on training charts can be memorisation; check validation or test charts.",
+  },
+  {
+    id: "lab-findings",
+    title: "Research findings",
+    body: "Conclusions generated by fixed rules from the latest result of each experiment in this session.",
+  },
+
   // ---------------------------------------------------------------- account
   { id: "account-plan", title: "Plan", body: "Your plan, its monthly credits and quotas, and, where paid plans are offered, upgrades, credit packs and cancellation." },
   {
@@ -475,6 +642,8 @@ export const PAGE_HELP: PageHelp[] = [
   { path: "/tools/backtester", title: "Backtester", summary: "Simulate trades from a model's predictions on test data, with costs and risk limits." },
   { path: "/products/labeling-optimizer", title: "Labeling optimizer", summary: "Rank take-profit, stop-loss and horizon rules on a stock's history before generating data." },
   { path: "/tools/deploy", title: "Deploy", summary: "Run a trained model as a scheduled paper-trading bot. No real orders are placed." },
+  { path: "/tools/improve", title: "Improve", summary: "Test controlled changes against one fixed original model, then keep or archive each experiment." },
+  { path: "/tools/run-log", title: "Search Hub", summary: "All your datasets, models and runs, and how they connect. Continue from any step." },
   { path: "/dashboard", title: "Dashboard", summary: "Monitor your paper bots: activity, simulated equity, exposure and health." },
   { path: "/account", title: "Account", summary: "Profile, plan, usage and credits, data export and account deletion." },
 ];

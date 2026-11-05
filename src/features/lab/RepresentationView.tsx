@@ -31,6 +31,7 @@ export default function RepresentationView() {
     <div className="space-y-5">
       <JobPanel
         kind="embedding"
+        help="lab-embedding"
         title="Representation explorer"
         description={`The ${context.model.penultimate_dim}-dimensional vector the classifier reads (penultimate layer), projected to two principal components.`}
         params={params}

@@ -151,7 +151,7 @@ export default function OverviewTab() {
             </details>
           </div>
         </Panel>
-        <Panel title="Leakage and evaluation checks" description="An independent test needs every check to pass.">
+        <Panel help="bt-integrity" title="Leakage and evaluation checks" description="An independent test needs every check to pass.">
           <div className="pl-4">
             <AuditList checks={summary.leakage_audit.checks} />
             {summary.leakage_audit.missing_information.length ? (

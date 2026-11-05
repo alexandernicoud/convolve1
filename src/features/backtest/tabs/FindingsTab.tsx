@@ -26,7 +26,7 @@ export default function FindingsTab() {
   const findings = [...summary.findings].sort((a, b) => ORDER.indexOf(a.severity) - ORDER.indexOf(b.severity));
   if (!findings.length) return <EmptyState title="No findings" body="No rule produced a finding for this run." />;
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-help="bt-findings">
       <p className="text-[13px] text-white/50">
         Each finding is produced by a fixed rule from the stored results. Measurements are quoted exactly; nothing here is generated free text.
       </p>

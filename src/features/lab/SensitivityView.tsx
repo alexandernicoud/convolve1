@@ -70,6 +70,7 @@ function RegionMasking() {
     <>
       <JobPanel
         kind="sensitivity"
+        help="lab-sensitivity"
         title="Region masking"
         description="Replace each third of the chart (by time and by price level) and measure how the predicted class's probability changes, under several replacement baselines."
         params={params}
@@ -240,6 +241,7 @@ function Faithfulness() {
     <>
       <JobPanel
         kind="faithfulness"
+        help="lab-faithfulness"
         title="Grad-CAM faithfulness test"
         description="Does masking the cells Grad-CAM highlights hurt the prediction more than masking random cells with similar candle coverage?"
         params={params}

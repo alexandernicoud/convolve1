@@ -46,7 +46,7 @@ export default function RobustnessTab() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-help="bt-robustness">
       <div className="grid gap-5 xl:grid-cols-2">
         <Panel>
           <ChartFrame

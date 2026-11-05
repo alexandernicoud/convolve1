@@ -29,6 +29,7 @@ export function ModelHealthPanel({ session, runId, compact, hideImprove }: { ses
   if (compact) return body;
   return (
     <Panel
+      help="model-health"
       title="Model health"
       description={`${problems} problem${problems === 1 ? "" : "s"} · ${warnings} warning${warnings === 1 ? "" : "s"}`}
     >

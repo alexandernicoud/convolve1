@@ -66,6 +66,7 @@ export default function AtlasView() {
     <div className="space-y-5">
       <JobPanel
         kind="atlas"
+        help="lab-atlas"
         title="Attention atlas"
         description="The Grad-CAM heat maps of many charts averaged into one picture. It answers: on average, which part of the chart does the model look at (for example the most recent candles on the right), and is that the same for up and down predictions? Bright = looked at often."
         params={params}

@@ -131,9 +131,23 @@ function ExplainPopover({ selected }: { selected: Selected }) {
         {a ? a.body : "This element has no explanation yet. Outlined controls do; the help center covers the rest."}
       </p>
       {a?.visual ? <Visual kind={a.visual} /> : null}
-      {a?.more ? (
+      {a?.more || a?.use || a?.misconception ? (
         showMore ? (
-          <p className="mt-2 text-[12px] leading-relaxed text-white/55">{a.more}</p>
+          <div className="mt-2 space-y-2 text-[12px] leading-relaxed text-white/55">
+            {a.more ? <p>{a.more}</p> : null}
+            {a.use ? (
+              <p>
+                <span className="font-medium text-white/75">What to do with it: </span>
+                {a.use}
+              </p>
+            ) : null}
+            {a.misconception ? (
+              <p>
+                <span className="font-medium text-white/75">Common misreading: </span>
+                {a.misconception}
+              </p>
+            ) : null}
+          </div>
         ) : (
           <button type="button" onClick={() => setShowMore(true)} className="mt-2 text-[11.5px] font-medium text-white/60 underline-offset-2 hover:text-white hover:underline">
             More detail

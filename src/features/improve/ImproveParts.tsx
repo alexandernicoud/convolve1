@@ -105,7 +105,7 @@ export function NoisePanel({
 }) {
   const n = ws.noise;
   return (
-    <section className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
+    <section className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4" data-help="improve-noise">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 max-w-3xl">
           <p className="text-[14px] font-medium text-white">
@@ -311,6 +311,7 @@ export function ResultsTable({ ws }: { ws: ImproveSession }) {
   const a = ws.anchor.metrics;
   return (
     <Panel
+      help="improve-results"
       title="All results against the original (validation)"
       description="Same validation charts for every controlled row. Differences are always relative to the original model, never to another experiment."
     >

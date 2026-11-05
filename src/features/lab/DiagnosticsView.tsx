@@ -61,6 +61,7 @@ export default function DiagnosticsView() {
   return (
     <div className="space-y-5">
       <Panel
+        help="lab-diagnostics"
         title={
           <span className="flex items-center gap-2">
             Guided diagnostics <Chip>Experimental</Chip>

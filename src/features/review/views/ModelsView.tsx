@@ -218,6 +218,7 @@ export function ModelsView() {
           </Chip>
         ) : null}
       </LibraryToolbar>
+      <div data-help="hub-models">
       <DataTable
         ariaLabel="Model library"
         rows={f.filtered}
@@ -231,6 +232,7 @@ export function ModelsView() {
         rowClassName={(m) => (m.archived ? "opacity-60" : undefined)}
         minWidth={1180}
       />
+      </div>
       <p className="mt-3 text-[13px] leading-relaxed text-white/40">
         Select rows (Space) to compare · Enter opens the inspector · ↑/↓ moves between rows. Accuracy is classification agreement, not profitability.
       </p>

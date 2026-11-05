@@ -14,7 +14,7 @@ export function ImproveCallout({ runId, session }: { runId: string; session: Tra
   const isExperiment = !!session.experiment;
 
   return (
-    <section className={cx(surface, "overflow-hidden border-white/15")} aria-label="Improve this model">
+    <section className={cx(surface, "overflow-hidden border-white/15")} aria-label="Improve this model" data-help="improve-callout">
       <div className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-start gap-4">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/[0.06] text-white">
