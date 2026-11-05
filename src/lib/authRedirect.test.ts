@@ -46,6 +46,16 @@ test("safeAppPath rejects open redirects", () => {
   assert.equal(safeAppPath("dashboard"), "/dashboard");
 });
 
+test("the installed app's start URL and deep links survive sign-in; auth pages never become the target", () => {
+  assert.equal(safeAppPath("/dashboard?source=pwa"), "/dashboard?source=pwa");
+  assert.equal(safeAppPath("/tools/backtester?modelRunId=abc"), "/tools/backtester?modelRunId=abc");
+  assert.equal(oauthCallbackPath("/dashboard?source=pwa"), "/auth/callback?next=%2Fdashboard%3Fsource%3Dpwa");
+  assert.equal(safeAppPath("/login?next=%2Fdashboard"), "/dashboard");
+  assert.equal(safeAppPath("/auth/callback?next=%2Flogin"), "/dashboard");
+  assert.equal(safeAppPath("/signup"), "/dashboard");
+  assert.equal(safeAppPath("/loginhelp"), "/loginhelp");
+});
+
 test("parseOAuthCallbackError reads query and hash errors", () => {
   assert.equal(parseOAuthCallbackError("?error=access_denied&error_description=User+denied"), "access_denied: User denied");
   assert.equal(parseOAuthCallbackError("", "#error=server_error"), "server_error");

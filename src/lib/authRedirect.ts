@@ -20,6 +20,7 @@ export function canonicalDevOrigin(origin: string): string {
 export function safeAppPath(raw: string | null | undefined, fallback = "/dashboard"): string {
   const path = (raw || "").trim();
   if (!path.startsWith("/") || path.startsWith("//") || path.includes("://")) return fallback;
+  if (/^\/(login|signup|auth)(\/|\?|#|$)/.test(path)) return fallback;
   return path;
 }
 

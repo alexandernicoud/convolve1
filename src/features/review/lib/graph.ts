@@ -32,6 +32,8 @@ export interface GraphNode {
   status?: string | null;
   ts?: number | null;
   unresolved?: boolean;
+  /** Set on a collapsed stand-in for several sibling leaves; expanding it restores them. */
+  group?: { source: string; members: string[] };
 }
 
 export interface Graph {
@@ -299,6 +301,66 @@ export function components(g: Graph, keys: Set<string>): string[][] {
   }
   const recency = (c: string[]) => Math.max(0, ...c.map((k) => g.nodes.get(k)?.ts ?? 0));
   return comps.sort((a, b) => (b.length > 1 ? 1 : 0) - (a.length > 1 ? 1 : 0) || recency(b) - recency(a));
+}
+
+export const GROUP_MIN = 4;
+
+/**
+ * Progressive disclosure: sibling leaves (one parent, no other links) of the same kind and
+ * relation are replaced by one group node when there are at least GROUP_MIN of them. Pinned
+ * keys (selection, focus) and expanded groups are never collapsed. Links are not altered,
+ * only folded: the group carries every member.
+ */
+export function collapseLeafGroups(
+  nodes: Map<string, GraphNode>,
+  keys: Set<string>,
+  edges: ReviewEdge[],
+  expanded: Set<string>,
+  pinned: Set<string>,
+): { nodes: Map<string, GraphNode>; keys: Set<string>; edges: ReviewEdge[] } {
+  const inDeg = new Map<string, number>();
+  const outDeg = new Map<string, number>();
+  for (const e of edges) {
+    inDeg.set(e.target, (inDeg.get(e.target) ?? 0) + 1);
+    outDeg.set(e.source, (outDeg.get(e.source) ?? 0) + 1);
+  }
+  const buckets = new Map<string, { source: string; relation: string; edge: ReviewEdge; members: string[] }>();
+  for (const e of edges) {
+    const t = e.target;
+    if ((inDeg.get(t) ?? 0) !== 1 || (outDeg.get(t) ?? 0) !== 0 || pinned.has(t)) continue;
+    const n = nodes.get(t);
+    if (!n) continue;
+    const gk = `group:${e.source}|${n.kind}|${e.relation}`;
+    const b = buckets.get(gk) ?? buckets.set(gk, { source: e.source, relation: e.relation, edge: e, members: [] }).get(gk)!;
+    b.members.push(t);
+  }
+  const folded = new Map<string, string>();
+  const outNodes = new Map(nodes);
+  const outKeys = new Set(keys);
+  const groupEdges: ReviewEdge[] = [];
+  for (const [gk, b] of buckets) {
+    if (b.members.length < GROUP_MIN || expanded.has(gk)) continue;
+    const first = nodes.get(b.members[0])!;
+    const captions = new Set(b.members.map((m) => nodes.get(m)?.label.replace(/ · [0-9a-f]{4}$/i, "") ?? ""));
+    const shared = captions.size === 1 ? [...captions][0] : null;
+    outNodes.set(gk, {
+      key: gk,
+      kind: first.kind,
+      ref: { kind: first.ref.kind, id: gk },
+      label: shared ? `${b.members.length} × ${shared}` : `${b.members.length} ${NODE_KIND_LABEL[first.kind].toLowerCase()} items`,
+      sublabel: "Click to expand",
+      ts: Math.max(0, ...b.members.map((m) => nodes.get(m)?.ts ?? 0)),
+      group: { source: b.source, members: b.members },
+    });
+    for (const m of b.members) {
+      folded.set(m, gk);
+      outKeys.delete(m);
+    }
+    outKeys.add(gk);
+    groupEdges.push({ ...b.edge, target: gk });
+  }
+  if (!folded.size) return { nodes, keys, edges };
+  return { nodes: outNodes, keys: outKeys, edges: [...edges.filter((e) => !folded.has(e.target)), ...groupEdges] };
 }
 
 export { LAYOUT, layoutGraph, type Layout } from "./graphLayout";

@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { useHeaderReveal } from "@/context/HeaderRevealContext";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
 import { DashboardTopBar } from "@/components/dashboard/DashboardTopBar";
+import { MobileNav } from "@/components/dashboard/MobileNav";
 import { getPipelineTitle } from "@/components/layout/pipelineTitle";
 import { BetaLimitsNote } from "@/features/beta/BetaUI";
 
@@ -40,8 +41,11 @@ export function TechnicalLayout({ children, variant = "scroll" }: Props) {
         height: `calc(100dvh - ${compactShellTopPx}px)`,
       }}
     >
-      <div className="flex min-h-0 flex-1 items-stretch gap-2.5 overflow-hidden px-2.5 pb-2.5 pt-0">
-        <DashboardSidebar />
+      <div className="flex min-h-0 flex-1 items-stretch gap-2.5 overflow-hidden px-2.5 pb-[calc(64px+env(safe-area-inset-bottom))] pt-0 md:pb-2.5">
+        <div className="hidden md:flex">
+          <DashboardSidebar />
+        </div>
+        <MobileNav />
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {variant !== "dashboard" ? (
             <div className="shrink-0 pb-2 pt-0">
@@ -59,8 +63,8 @@ export function TechnicalLayout({ children, variant = "scroll" }: Props) {
             ) : (
               <div className="mx-auto w-full min-h-full max-w-[100rem] px-5 pb-6 pt-0 md:px-8 lg:px-10 lg:pb-8">
                 <p className="mb-3 max-w-3xl text-[10px] leading-relaxed text-white/32">
-                  Free trial compute is shared and substantially slower than a dedicated machine. Generator,
-                  training, analysis, and backtests can take much longer here than on localhost.
+                  Beta compute is shared, so generating, training, analysis and backtests can take longer than on
+                  a dedicated machine.
                 </p>
                 <BetaLimitsNote />
                 {/* Content grows; this column scrolls. Do not use h-full/overflow-hidden traps here. */}

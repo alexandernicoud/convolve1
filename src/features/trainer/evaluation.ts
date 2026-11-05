@@ -3,6 +3,7 @@
  * Only states comparisons that follow from the recorded numbers; never infers trading skill.
  */
 import type { PartitionMetrics, TrainingSession } from "@/lib/api";
+import { aucStdError } from "./health";
 
 export type MetricRow = {
   key: string;
@@ -57,6 +58,41 @@ export function versusBaseline(r: MetricRow): "better" | "worse" | "equal" | nul
   const d = r.model - r.baseline;
   if (Math.abs(d) < 1e-9) return "equal";
   return (r.lowerIsBetter ? d < 0 : d > 0) ? "better" : "worse";
+}
+
+export type BaselineTag = { text: string; tone: "positive" | "negative" | "neutral"; title: string };
+
+/**
+ * Display tag for a metric against its baseline. Accuracy-type shares and ROC-AUC are only called
+ * better or worse when the difference exceeds a 95% sampling interval; otherwise "within noise".
+ * Losses have no interval here, so they read "lower"/"higher" without a skill judgement.
+ */
+export function baselineTag(r: MetricRow, m: Pick<PartitionMetrics, "n" | "label_counts">): BaselineTag | null {
+  const vs = versusBaseline(r);
+  if (vs == null || r.model == null || r.baseline == null) return null;
+  if (vs === "equal") return { text: "same", tone: "neutral", title: "Equal to the baseline." };
+  let halfWidth: number | null = null;
+  if (r.key === "roc_auc") {
+    const n1 = m.label_counts?.["1"] ?? 0;
+    const n0 = m.label_counts?.["0"] ?? 0;
+    const se = aucStdError(r.model, n1, n0);
+    halfWidth = se != null ? 1.96 * se : null;
+  } else if (r.key === "accuracy" || r.key === "balanced_accuracy") {
+    const n = m.n ?? 0;
+    halfWidth = n > 0 ? 1.96 * Math.sqrt((r.model * (1 - r.model)) / n) : null;
+  }
+  if (r.lowerIsBetter) {
+    return { text: r.model < r.baseline ? "lower" : "higher", tone: "neutral", title: "Point comparison; no sampling interval is computed for this metric." };
+  }
+  if (halfWidth == null) {
+    return { text: vs === "better" ? "above" : "below", tone: "neutral", title: "Point comparison; no sampling interval is available for this metric." };
+  }
+  if (Math.abs(r.model - r.baseline) <= halfWidth) {
+    return { text: "within noise", tone: "neutral", title: `The difference is inside the 95% sampling interval (±${(halfWidth * (r.pct ? 100 : 1)).toFixed(r.pct ? 1 : 3)}${r.pct ? " points" : ""}); it is not evidence of skill.` };
+  }
+  return vs === "better"
+    ? { text: "above baseline", tone: "positive", title: "Larger than the 95% sampling interval on this validation set." }
+    : { text: "below baseline", tone: "negative", title: "Below the baseline by more than the 95% sampling interval." };
 }
 
 const pct1 = (x: number) => `${(x * 100).toFixed(1)}%`;

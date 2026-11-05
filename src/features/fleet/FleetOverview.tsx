@@ -3,7 +3,8 @@ import { cn } from "@/lib/utils";
 import { dashboardCard } from "@/components/dashboard/dashboardCard";
 import { Bone, LoadingRegion, SkeletonRows, SkeletonStatGrid } from "@/components/skeleton/Skeleton";
 import type { FleetRange } from "./api";
-import { fmtAge, pickLayout, type ChartMode, type SecondaryPanel } from "./lib";
+import { fmtAge, isInactive, pickLayout, type ChartMode, type SecondaryPanel } from "./lib";
+import { ResearchStart } from "@/features/onboarding/ResearchStart";
 import { useFleet } from "./useFleet";
 import { useElementSize } from "./ui";
 import { auditOverview } from "./viewportAudit";
@@ -54,6 +55,7 @@ export function FleetOverview() {
   const [mode, setMode] = useState<ChartMode>("pnl");
   const [breakdown, setBreakdown] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [showFleet, setShowFleet] = useState(false);
   const fleet = useFleet(range);
   const now = useNow(5000);
   const [rootRef, size] = useElementSize<HTMLDivElement>();
@@ -66,9 +68,12 @@ export function FleetOverview() {
   const pad = size.width >= 768 ? 16 : 12;
   const layout = pickLayout(size.width - pad, Math.max(0, size.height - bannerH - pad));
   const stacked = layout.tier === "stacked";
+  const researchFirst = !!p && isInactive(p) && !showFleet && !fixture;
 
   let body: ReactNode;
-  if (!p) {
+  if (researchFirst) {
+    body = <ResearchStart onShowFleet={() => setShowFleet(true)} />;
+  } else if (!p) {
     body = fleet.loading ? (
       <LoadingRegion label="Loading fleet overview" className="flex flex-col gap-3">
         <SkeletonStatGrid count={4} />
@@ -98,7 +103,7 @@ export function FleetOverview() {
         className="grid h-full min-h-0"
         style={
           stacked
-            ? { gridTemplateRows: `auto 420px 320px repeat(${sec.length}, 220px)`, gap: layout.gap }
+            ? { gridTemplateRows: `auto 420px 320px repeat(${sec.length}, ${layout.secondaryHeight}px)`, gap: layout.gap }
             : { gridTemplateRows: layout.rows, gap: layout.gap }
         }
       >

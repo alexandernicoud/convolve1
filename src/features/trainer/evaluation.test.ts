@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PartitionMetrics, TrainingSession } from "@/lib/api";
-import { findings, histogramShares, metricRows, selectionName, stoppingText, versusBaseline } from "./evaluation";
+import { baselineTag, findings, histogramShares, metricRows, selectionName, stoppingText, versusBaseline } from "./evaluation";
 import { architecturePreview } from "./architecture";
 
 // Shape of eval_metrics.binary_metrics(): the GAP run of the benchmark, which predicted label 1 everywhere.
@@ -135,4 +135,22 @@ test("builder architectures preview their stages and size-independent parameter 
   assert.equal(p.totalParams, 11186625);
   assert.equal(architecturePreview("convolve-resnet18-v1", 48, 48, entry).totalParams, null);
   assert.equal(architecturePreview("convolve-cnn-compact-v1", 224, 224).family, "Compact");
+});
+
+test("baseline tags only say above/below when the gap exceeds the sampling interval", () => {
+  const m: PartitionMetrics = {
+    n: 400,
+    accuracy: 0.53,
+    roc_auc: 0.54,
+    log_loss: 0.68,
+    label_counts: { "0": 200, "1": 200 },
+    baseline: { accuracy: 0.5, log_loss: 0.693 },
+  };
+  const rows = Object.fromEntries(metricRows(m).map((r) => [r.key, r]));
+  assert.equal(baselineTag(rows.accuracy, m)?.text, "within noise");
+  assert.equal(baselineTag(rows.roc_auc, m)?.text, "within noise");
+  assert.equal(baselineTag(rows.log_loss, m)?.tone, "neutral");
+  const strong: PartitionMetrics = { ...m, accuracy: 0.66, roc_auc: 0.72 };
+  const s = Object.fromEntries(metricRows(strong).map((r) => [r.key, r]));
+  assert.deepEqual([baselineTag(s.accuracy, strong)?.text, baselineTag(s.roc_auc, strong)?.tone], ["above baseline", "positive"]);
 });

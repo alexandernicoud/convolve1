@@ -41,6 +41,7 @@ import {
 import { SplitPreviewView, useSplitPreview } from "@/features/trainer/SplitPreview";
 import { YourModels } from "@/features/trainer/YourModels";
 import { fmtDateTime, fmtInt } from "@/lib/viz/format";
+import { datasetListLabel } from "@/features/review/lib/naming";
 
 const fieldClass =
   "w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] placeholder-[#F5F5F5]/40 focus:border-white/30 focus:ring-1 focus:ring-white/50";
@@ -289,7 +290,7 @@ export default function Trainer() {
         (r.updated_at ?? 0) > 1e12 ? (r.updated_at as number) : (r.updated_at ?? 0) * 1000,
       ).toLocaleDateString();
       const ds = datasetsByGenRun[r.id];
-      return ds ? `${ds.name} · ${dateStr}` : `${r.id} · ${dateStr}`;
+      return ds ? `${datasetListLabel(ds)} · ${dateStr}` : `Generator run ${r.id.slice(-6)} · ${dateStr}`;
     },
     [datasetsByGenRun],
   );

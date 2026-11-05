@@ -13,6 +13,7 @@ import {
   inviteMessage,
   isHttpUrl,
   maxFriendCredits,
+  pendingInviteText,
   type RewardsStatus,
 } from "./model";
 
@@ -34,9 +35,19 @@ function Done({ children }: { children: ReactNode }) {
 }
 
 /** Account → Earn credits: questionnaire, citation bonus and the ambassador programme. */
+function SectionHead({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="pt-2">
+      <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-white/55">{title}</h2>
+      <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-white/50">{text}</p>
+    </div>
+  );
+}
+
 export function EarnTab() {
   const rewards = useRewards();
   const refreshCredits = useCreditsStore((s) => s.refresh);
+  const freeBeta = !!useCreditsStore((s) => s.beta)?.free_beta;
   const reload = () => {
     rewards.reload();
     void refreshCredits();
@@ -51,12 +62,24 @@ export function EarnTab() {
                 ? `You joined through an ambassador's invite and received ${r.referred.credits} bonus credits.`
                 : r.referred.status === "reversed"
                   ? "You joined through an ambassador's invite. The bonus was withdrawn because the qualifying payment was refunded or disputed."
-                  : `You joined through an ambassador's invite: start a plan to get your bonus credits (${friendRewardText(r.referred.rewards)}).`}
+                  : pendingInviteText(friendRewardText(r.referred.rewards), freeBeta)}
             </Notice>
           )}
-          <Ambassador r={r} onChanged={reload} />
-          <Citation r={r} onChanged={reload} />
+          <SectionHead
+            title={freeBeta ? "Earn now, during the beta" : "Earn credits"}
+            text="These bonuses are added to your balance as soon as they are completed or approved."
+          />
           <Questionnaire r={r} />
+          <Citation r={r} onChanged={reload} />
+          <SectionHead
+            title={freeBeta ? "After the beta: paid-plan rewards" : "Invite people"}
+            text={
+              freeBeta
+                ? "Ambassador rewards are paid when an invited friend's first paid plan payment goes through. Paid plans are not available during the public beta, so these rewards cannot be earned yet. Friends who sign up with your code stay linked to your invite."
+                : "Rewards are paid when an invited friend's first paid plan payment goes through."
+            }
+          />
+          <Ambassador r={r} onChanged={reload} freeBeta={freeBeta} />
           <p className="text-xs leading-relaxed text-white/40">
             Bonus credits are promotional: they have no cash value, cannot be transferred and are never refunded. See the{" "}
             <Link to="/terms" className="underline underline-offset-2 hover:text-white">
@@ -180,7 +203,7 @@ function Citation({ r, onChanged }: { r: RewardsStatus; onChanged: () => void })
   );
 }
 
-function Ambassador({ r, onChanged }: { r: RewardsStatus; onChanged: () => void }) {
+function Ambassador({ r, onChanged, freeBeta }: { r: RewardsStatus; onChanged: () => void; freeBeta: boolean }) {
   const a = r.ambassador;
   const tier = a.reward_tier ?? "Research";
   const [code, setCode] = useState<string | null>(a.code);
@@ -212,7 +235,7 @@ function Ambassador({ r, onChanged }: { r: RewardsStatus; onChanged: () => void 
 
   const send = async () => {
     if (!code) return;
-    const text = inviteMessage(code, link, maxFriendCredits(a.rewards, a.referee_credits));
+    const text = inviteMessage(code, link, maxFriendCredits(a.rewards, a.referee_credits), freeBeta);
     if (typeof navigator.share === "function") {
       try {
         await navigator.share({ title: "Join me on Convolve", text, url: link });
@@ -228,7 +251,7 @@ function Ambassador({ r, onChanged }: { r: RewardsStatus; onChanged: () => void 
     <Card
       title="Become an ambassador"
       description={`Invite people to Convolve. You get ${ambassadorRewardText(a.rewards)}. Your friend gets ${friendRewardText(a.rewards)}.`}
-      action={<Bonus>Up to {a.max_rewards_per_year} free months of {tier} a year</Bonus>}
+      action={<Bonus>{freeBeta ? "After the beta · " : ""}Up to {a.max_rewards_per_year} free months of {tier} a year</Bonus>}
     >
       <ol className="grid gap-3 text-sm text-white/65 sm:grid-cols-3">
         {[

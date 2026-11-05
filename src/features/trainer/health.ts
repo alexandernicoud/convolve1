@@ -352,3 +352,46 @@ export function modelHealth(session: TrainingSession, runId: string): Finding[] 
 
   return sortFindings(out);
 }
+
+export type SkillVerdict = {
+  kind: "skill" | "none" | "worse" | "unmeasured";
+  headline: string;
+  detail: string;
+};
+
+/**
+ * The one-line predictive-skill verdict shown with a finished run, taken from the same Model Health
+ * findings so the banner and the panel never disagree. Skill means ranking above chance on
+ * validation; it says nothing about trading profit.
+ */
+export function skillVerdict(fs: Finding[]): SkillVerdict {
+  const auc = fs.find((f) => f.id === "auc");
+  const constant = fs.some((f) => f.id === "constant" && f.severity === "problem");
+  const constantNote = constant ? " It also predicts a single label at the 0.5 threshold." : "";
+  if (!auc) {
+    return {
+      kind: "unmeasured",
+      headline: "Predictive skill not measured",
+      detail: `This run has no validation evaluation, so accuracy alone cannot show skill.${constantNote}`,
+    };
+  }
+  if (auc.severity === "ok") {
+    return {
+      kind: "skill",
+      headline: "Ranks validation charts better than chance",
+      detail: `${auc.title.replace(/^Ranking skill above chance: /, "")}, interval excludes 0.5.${constantNote} That is classification skill, not proof of profit: backtest it on a later period.`,
+    };
+  }
+  if (auc.severity === "problem") {
+    return {
+      kind: "worse",
+      headline: "Ranks worse than chance on validation",
+      detail: `${auc.detail} What it learned does not carry over to the later period.${constantNote}`,
+    };
+  }
+  return {
+    kind: "none",
+    headline: "No demonstrated predictive skill yet",
+    detail: `${auc.detail} Its validation accuracy is not evidence of skill.${constantNote}`,
+  };
+}

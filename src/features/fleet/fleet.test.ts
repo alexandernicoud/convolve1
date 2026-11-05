@@ -237,3 +237,13 @@ test("deep links point at existing routes", () => {
   assert.equal(botHref("a b/c"), "/dashboard/bots/a%20b%2Fc");
   assert.equal(PORTFOLIO_HREF, "/dashboard/portfolio");
 });
+
+test("secondary charts get a real share of tall screens instead of a fixed strip", () => {
+  for (const [vw, vh] of [[1440, 900], [1920, 1080], [2560, 1440]] as [number, number][]) {
+    const { width, height } = area(vw, vh);
+    const l = pickLayout(width, height);
+    assert.ok(l.secondaryHeight >= 240, `${vw}x${vh}: secondary ${l.secondaryHeight}px`);
+  }
+  const m = pickLayout(area(1366, 768).width, area(1366, 768).height);
+  assert.ok(m.secondaryHeight >= 190, `1366x768: secondary ${m.secondaryHeight}px`);
+});

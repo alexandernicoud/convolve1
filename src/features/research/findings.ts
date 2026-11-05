@@ -13,11 +13,20 @@ export type Severity = "problem" | "warning" | "info" | "ok";
 export type Evidence = "confirmed" | "strong" | "plausible" | "inconclusive";
 
 export const EVIDENCE_LABEL: Record<Evidence, string> = {
-  confirmed: "Confirmed problem",
+  confirmed: "Confirmed",
   strong: "Strong evidence",
   plausible: "Plausible hypothesis",
   inconclusive: "Inconclusive",
 };
+
+const SEVERITY_WORD: Record<Severity, string> = { problem: "Problem", warning: "Warning", info: "Note", ok: "OK" };
+
+/** Badge text naming severity and evidence separately, so it always agrees with problem/warning counts. */
+export function findingBadge(f: Pick<Finding, "severity" | "evidence">): string | null {
+  if (!f.evidence) return null;
+  if (f.severity === "ok") return EVIDENCE_LABEL[f.evidence];
+  return `${SEVERITY_WORD[f.severity]} · ${EVIDENCE_LABEL[f.evidence].toLowerCase()}`;
+}
 
 export interface FindingAction {
   label: string;

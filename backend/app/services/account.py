@@ -143,7 +143,7 @@ def accept_terms(user_id: str, terms_version: str, privacy_version: str) -> Dict
 # --------------------------------------------------------------------------- onboarding
 
 # Must match TOUR_STEPS in src/features/onboarding/steps.ts.
-ONBOARDING_STEPS = ("generate", "train", "analyze", "backtest", "deploy", "monitor")
+ONBOARDING_STEPS = ("generate", "train", "analyze", "backtest", "improve", "deploy", "monitor")
 ONBOARDING_STATUSES = ("new", "active", "dismissed", "completed")
 
 

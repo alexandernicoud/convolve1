@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ReviewDataset, ReviewModel, ReviewOverviewResponse, ReviewRun } from "@/lib/api";
 import { classBalance, formatDuration, num, pctFrac, pctUnits } from "./format";
-import { datasetName, disambiguate, isOpaqueName, modelName, runName } from "./naming";
-import { buildGraph, COLUMNS, layoutGraph, lineageOf, stockEdges } from "./graph";
+import { datasetListLabel, datasetName, disambiguate, isOpaqueName, modelName, runName } from "./naming";
+import { buildGraph, collapseLeafGroups, COLUMNS, layoutGraph, lineageOf, stockEdges, type GraphNode as GraphNodeT } from "./graph";
 import { edgePath } from "./graphLayout";
 import { modelActions, nodeActions } from "./nodeActions";
 import { producedListedAsset } from "./runs";
@@ -254,4 +254,34 @@ test("model comparison separates train and validation metrics", () => {
   assert.deepEqual(acc.map((r) => r.def.group), ["Validation set", "Training set (in-sample)"]);
   assert.ok(c.warnings.some((w) => w.field === "Training dataset"));
   assert.equal(c.comparable, false);
+});
+
+test("dataset picker labels drop hashes and image-count names", () => {
+  const label = datasetListLabel({ name: "2904 imgs", symbols: "MSFT", timeframe: "1d", period_start: "2019-01-02", period_end: "2023-12-29", total_images: 2904, kind: "training" });
+  assert.equal(label, "MSFT 1d · 2019-01-02 → 2023-12-29 · 2,904 charts · training set");
+  assert.equal(datasetListLabel({ name: "a1b2c3d4e5f6", kind: "test" }), "Chart dataset · test set");
+  assert.equal(datasetListLabel({ name: "x", display_name: "Tech momentum", symbols: "AAPL", kind: "unknown" }), "Tech momentum · AAPL");
+});
+
+test("sibling leaves fold into one expandable group; pinned and linked nodes stay", () => {
+  const node = (key: string, kind: "generator" | "dataset" | "trainer"): [string, GraphNodeT] => [key, { key, kind, ref: { kind: kind === "dataset" ? "dataset" : "run", id: key }, label: kind === "dataset" ? `MSFT 1d · ${key.slice(-4)}` : key }];
+  const ds = ["dataset:aaaa", "dataset:bbbb", "dataset:cccc", "dataset:dddd", "dataset:eeee"];
+  const nodes = new Map([node("run:gen1", "generator"), ...ds.map((d) => node(d, "dataset")), node("run:tr1", "trainer")]);
+  const edges = [
+    ...ds.map((d) => ({ source: "run:gen1", target: d, relation: "produced", provenance: "recorded" as const, basis: "" })),
+    { source: "dataset:eeee", target: "run:tr1", relation: "trained_on", provenance: "recorded" as const, basis: "" },
+  ];
+  const keys = new Set(nodes.keys());
+  const c = collapseLeafGroups(nodes, keys, edges, new Set(), new Set());
+  const group = [...c.keys].find((k) => k.startsWith("group:"))!;
+  assert.ok(group, "four unlinked siblings fold");
+  assert.deepEqual(c.nodes.get(group)!.group!.members.sort(), ds.slice(0, 4));
+  assert.equal(c.nodes.get(group)!.label, "4 × MSFT 1d");
+  assert.ok(c.keys.has("dataset:eeee"), "a dataset with a downstream link is never folded");
+  assert.ok(c.edges.some((e) => e.target === group) && !c.edges.some((e) => e.target === "dataset:aaaa"));
+
+  const pinned = collapseLeafGroups(nodes, keys, edges, new Set(), new Set(["dataset:aaaa"]));
+  assert.ok(![...pinned.keys].some((k) => k.startsWith("group:")), "pinning one leaves three, below the group minimum");
+  const open = collapseLeafGroups(nodes, keys, edges, new Set([group]), new Set());
+  assert.equal(open.keys.size, keys.size, "an expanded group shows every member");
 });

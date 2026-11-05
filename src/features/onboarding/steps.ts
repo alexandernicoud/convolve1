@@ -16,7 +16,7 @@ export type TourSpot = {
 };
 
 export type TourStep = {
-  id: "generate" | "train" | "analyze" | "backtest" | "deploy" | "monitor";
+  id: "generate" | "train" | "analyze" | "backtest" | "improve" | "deploy" | "monitor";
   label: string;
   /** Page name for the "Open …" button. */
   page: string;
@@ -93,6 +93,12 @@ export const TOUR_STEPS: TourStep[] = [
         title: "Review and start",
         body: "The review shows how many images go to training and validation and the estimated cost. Training starts only when you press Start; it continues if you leave.",
       },
+      {
+        target: '[data-help="model-health"]',
+        title: "Model Health",
+        body: "After training, Model Health says whether the model ranks charts better than chance. A finished run with high accuracy can still show no skill.",
+        fallback: "After training, the results page shows Model Health: whether the model ranks charts better than chance. Finishing training is not the same as having skill.",
+      },
     ],
   },
   {
@@ -145,7 +151,32 @@ export const TOUR_STEPS: TourStep[] = [
       {
         target: '[data-tour="bt-run"]',
         title: "Run backtest",
-        body: "Results include costs and a benchmark. Past performance does not predict future returns.",
+        body: "Results include costs, buy-and-hold, random-entry and passive baselines, and leakage checks. Past performance does not predict future returns.",
+      },
+    ],
+  },
+  {
+    id: "improve",
+    label: "Improve",
+    page: "Improve",
+    route: "/tools/improve",
+    nav: {
+      target: '[data-tour="nav-improve"]',
+      title: "5 · Improve with controlled experiments",
+      body: "Change one thing at a time against the original model, with seed replicates to separate real gains from run-to-run noise. Open Improve.",
+    },
+    spots: [
+      {
+        target: '[data-help="improve-anchor"]',
+        title: "The original stays fixed",
+        body: "Every experiment uses the same data and split as the original and is judged against it, never against another experiment.",
+        fallback: "Pick a trained model to open its Improve workspace. The original stays fixed and every experiment is judged against it.",
+      },
+      {
+        target: '[data-help="improve-noise"]',
+        title: "Run-to-run noise",
+        body: "Until the original settings have run with at least three seeds, every verdict stays “insufficient evidence”.",
+        fallback: "Seed replicates of the original measure run-to-run noise; without them no experiment can be called better.",
       },
     ],
   },
@@ -156,7 +187,7 @@ export const TOUR_STEPS: TourStep[] = [
     route: "/tools/deploy",
     nav: {
       target: '[data-tour="nav-deploy"]',
-      title: "5 · Deploy a paper bot",
+      title: "6 · Deploy a paper bot",
       body: "Run a trained model on a schedule against new market data. Paper trading only: no brokerage account, no real orders.",
     },
     spots: [
@@ -184,8 +215,8 @@ export const TOUR_STEPS: TourStep[] = [
     route: "/dashboard",
     nav: {
       target: '[data-tour="nav-monitor"]',
-      title: "6 · Monitor",
-      body: "The dashboard shows every paper bot: evaluations, simulated trades, equity and health.",
+      title: "7 · Monitor",
+      body: "Until you run paper bots, the Overview shows your research path. With bots it shows every one: evaluations, simulated trades, equity and health.",
     },
     spots: [
       {

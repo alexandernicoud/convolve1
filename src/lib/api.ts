@@ -33,6 +33,7 @@ export function apiUrl(path: string): string {
 }
 
 function networkErrorMessage(cause: unknown, url: string): Error {
+  if (!import.meta.env?.DEV) return new Error("Cannot reach the Convolve server. Check your connection and try again.");
   const base = `Cannot reach API (${url}).`;
   const hint =
     API_BASE === ''

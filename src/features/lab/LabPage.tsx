@@ -5,6 +5,7 @@ import { cx, KV, Panel, surface } from "@/features/review/components/primitives"
 import { datasetsApi, internalModelsApi, type DatasetListItem, type InternalModel } from "@/lib/api";
 import { lifecycleSuffix } from "@/lib/modelLifecycle";
 import { fmtInt } from "@/lib/viz/format";
+import { datasetListLabel } from "@/features/review/lib/naming";
 import { labApi, type ExperimentKind, type LabContext, type ModelKind, type ModelRef } from "./api";
 import { inputCls, LabCtx, type LabShared } from "./components";
 import { useLabSession } from "./useLabSession";
@@ -32,12 +33,7 @@ const TABS = [
 
 const modelKey = (m: InternalModel) => `${m.kind}:${m.kind === "trained" ? m.training_run_id ?? m.model_id : m.model_id}`;
 
-function datasetLabel(d: DatasetListItem): string {
-  const market = [d.symbols, d.timeframe].filter(Boolean).join(" ");
-  const period = d.period_start && d.period_end ? `${String(d.period_start).slice(0, 10)} → ${String(d.period_end).slice(0, 10)}` : null;
-  const head = d.display_name || market || d.name;
-  return [head, period, d.total_images ? `${fmtInt(d.total_images)} images` : null, d.dataset_id].filter(Boolean).join(" · ");
-}
+const datasetLabel = (d: DatasetListItem): string => datasetListLabel(d);
 
 function parseModel(v: string | null): { kind: ModelKind; id: string } | null {
   if (!v) return null;
@@ -216,7 +212,7 @@ export default function LabPage() {
             <option value="">{model ? "Select a dataset…" : "Select a model first"}</option>
             {datasetId && !datasets.some((d) => d.dataset_id === datasetId) ? <option value={datasetId}>{datasetId}</option> : null}
             {datasets.map((d) => (
-              <option key={d.dataset_id} value={d.dataset_id}>
+              <option key={d.dataset_id} value={d.dataset_id} title={`Dataset id ${d.dataset_id}`}>
                 {datasetLabel(d)}
                 {d.dataset_id === trainingDataset ? " · trained on this" : ""}
               </option>
@@ -340,7 +336,11 @@ function ContextStrip({ context, sessionId }: { context: LabContext; sessionId: 
           ["Output", m.head === "sigmoid" ? "Sigmoid (2 classes)" : `Softmax (${m.n_classes} classes)`],
           ["Conv layers", m.conv_layers.map((c) => c.name).join(" · ")],
           ["Images", d ? `${fmtInt(d.n_images)}${d.truncated ? " (first 20,000 indexed)" : ""}` : null],
-          ["Labels", d ? Object.entries(d.labels).map(([k, v]) => `${k}: ${fmtInt(v)}`).join(" · ") : null],
+          [
+            "Labels",
+            d ? Object.entries(d.labels).map(([k, v]) => `${k}: ${fmtInt(v)}`).join(" · ") : null,
+            "Label 1: after entry at the next open, the take-profit level was reached before the stop-loss within the horizon. Label 0: the stop came first or the horizon ran out.",
+          ],
           ["Window ends", d?.date_range ? `${d.date_range[0]} → ${d.date_range[1]}` : null],
           ["Validation membership", d ? `${splitLabel[d.split.status]}${d.split.n_validation != null ? ` · ${fmtInt(d.split.n_validation)} images` : ""}` : null, d?.split.note],
           [

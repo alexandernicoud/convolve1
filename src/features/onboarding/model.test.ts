@@ -56,7 +56,8 @@ test("tour steps match the server's step ids and cover the research pipeline in 
   const ids = /ONBOARDING_STEPS = \(([^)]*)\)/.exec(src)![1].match(/"([a-z]+)"/g)!.map((s) => s.slice(1, -1));
   assert.deepEqual(TOUR_STEPS.map((s) => s.id), ids);
   assert.equal(stepIndexForPath("/tools/trainer"), 1);
-  assert.equal(stepIndexForPath("/dashboard"), 5);
+  assert.equal(stepIndexForPath("/tools/improve"), 4);
+  assert.equal(stepIndexForPath("/dashboard"), 6);
   assert.equal(stepIndexForPath("/account"), -1);
 });
 
@@ -76,10 +77,15 @@ test("every tour target is rendered somewhere in the app", () => {
     .join("\n");
   for (const step of TOUR_STEPS) {
     for (const spot of [step.nav, ...step.spots]) {
-      const m = /\[data-(tour|panel)="([^"]+)"\]/.exec(spot.target);
+      const m = /\[data-(tour|panel|help)="([^"]+)"\]/.exec(spot.target);
       assert.ok(m, `unsupported selector ${spot.target}`);
       const id = m[2];
-      const attr = m[1] === "tour" ? new RegExp(`(data-tour="${id}"|tour: "${id}")`) : new RegExp(`id="${id}"|data-panel="${id}"`);
+      const attr =
+        m[1] === "tour"
+          ? new RegExp(`(data-tour="${id}"|tour: "${id}")`)
+          : m[1] === "help"
+            ? new RegExp(`(data-help|help)="${id}"`)
+            : new RegExp(`id="${id}"|data-panel="${id}"`);
       assert.match(code, attr, `${spot.target} is not rendered`);
     }
   }

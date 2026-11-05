@@ -113,7 +113,7 @@ export default function DatasetUploader({
     try {
       await fetchApi('/datasets/test', { method: 'HEAD' });
     } catch {
-      setError("Backend not running. Start the dev server with 'npm run dev'.");
+      setError(import.meta.env.DEV ? "Backend not running. Start the dev server with 'npm run dev'." : "Cannot reach the Convolve server. Check your connection and try again.");
       setIsUploading(false);
       return;
     }

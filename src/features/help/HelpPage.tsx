@@ -10,10 +10,12 @@ import { PipelineVisual } from "@/features/onboarding/OnboardingHost";
 import { TOUR_STEPS } from "@/features/onboarding/steps";
 import { useOnboardingStore } from "@/features/onboarding/store";
 import { ANNOTATIONS } from "./annotations";
+import { InstallCard } from "@/features/pwa/InstallUI";
 
 const SECTIONS = [
   { id: "how-it-works", title: "How Convolve works" },
   { id: "tour", title: "Guided tour" },
+  { id: "install", title: "Install the app" },
   { id: "generate", title: "Build a dataset" },
   { id: "labeling", title: "Labeling rules" },
   { id: "train", title: "Train a model" },
@@ -231,14 +233,19 @@ export default function HelpPage() {
               <PipelineVisual />
               <p>
                 The workflow: <strong>generate</strong> a labelled dataset, <strong>train</strong> a CNN, <strong>analyze</strong> what it
-                looks at, <strong>backtest</strong> its signals on a later period, then <strong>deploy</strong> it as a paper-trading bot
-                and <strong>monitor</strong> it. Training, evaluating, backtesting and paper bots are separate stages; Convolve does not
+                looks at, <strong>backtest</strong> its signals on a later period and <strong>improve</strong> it with controlled
+                experiments against the original. Only a model that holds up on an independent backtest is worth{" "}
+                <strong>deploying</strong> as a paper-trading bot and <strong>monitoring</strong>. Training, evaluating, backtesting and paper bots are separate stages; Convolve does not
                 place real orders at any stage.
               </p>
             </Section>
 
             <Section id="tour" title="Guided tour">
               <TourControls />
+            </Section>
+
+            <Section id="install" title="Install the app">
+              <InstallCard />
             </Section>
 
             <Section id="generate" title="Build a dataset">
@@ -256,8 +263,8 @@ export default function HelpPage() {
             <Section id="labeling" title="Labeling rules">
               <p>
                 A rule has three parts: <strong>take profit</strong> (a rise in percent), <strong>stop loss</strong> (a fall in percent) and{" "}
-                <strong>horizon</strong> (how many bars to wait). The label answers one question: from the chart's last close, was the
-                take-profit reached before the stop-loss within the horizon?
+                <strong>horizon</strong> (how many bars to wait). The label answers one question: entering at the open of the bar after the
+                chart, was the take-profit reached before the stop-loss within the horizon?
               </p>
               <p>
                 The <strong>Labeling optimizer</strong> ranks rules on a stock's daily history before you generate data. {ANNOTATIONS["opt-grid"].body}

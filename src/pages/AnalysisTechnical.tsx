@@ -16,6 +16,7 @@ import {
 import { confirmRun, chargeRunCredits } from "@/state/creditsStore";
 import { RunCost, RunCostHint } from "@/components/RunCostHint";
 import { cn } from "@/lib/utils";
+import { datasetListLabel } from "@/features/review/lib/naming";
 
 type UploadedModel = {
   model_id: string;
@@ -326,9 +327,8 @@ export default function AnalysisTechnical() {
                     {testFolders.length > 0 && (
                       <optgroup label="Test folders">
                         {testFolders.map((d) => (
-                          <option key={d.dataset_id} value={d.dataset_id}>
-                            {d.name}
-                            {d.total_images ? ` · ${d.total_images} imgs` : ""}
+                          <option key={d.dataset_id} value={d.dataset_id} title={`Dataset id ${d.dataset_id}`}>
+                            {datasetListLabel(d)}
                           </option>
                         ))}
                       </optgroup>
@@ -336,9 +336,8 @@ export default function AnalysisTechnical() {
                     {otherFolders.length > 0 && (
                       <optgroup label="Other datasets">
                         {otherFolders.map((d) => (
-                          <option key={d.dataset_id} value={d.dataset_id}>
-                            {d.name}
-                            {d.total_images ? ` · ${d.total_images} imgs` : ""}
+                          <option key={d.dataset_id} value={d.dataset_id} title={`Dataset id ${d.dataset_id}`}>
+                            {datasetListLabel(d)}
                           </option>
                         ))}
                       </optgroup>

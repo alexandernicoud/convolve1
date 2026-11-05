@@ -206,6 +206,11 @@ def _sqlite_migrate(engine: Engine) -> None:
         ("user_plans", "ended_at", "TIMESTAMP"),
         ("user_plans", "billing_country", "TEXT"),
         ("user_plans", "pending_plan_id", "TEXT"),
+        ("profiles", "onboarding_json", "TEXT"),
+        ("referrals", "referrer_credits", "INTEGER NOT NULL DEFAULT 0"),
+        ("referrals", "referee_tier", "TEXT"),
+        ("referrals", "payment_id", "CHAR(32)"),
+        ("referrals", "reversed_at", "TIMESTAMP"),
     ]
 
     with engine.begin() as conn:

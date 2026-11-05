@@ -32,25 +32,40 @@ export interface FleetLayout {
 
 export const MIN_MAIN = 300;
 const GAP = 6;
+/** The equity chart and the fleet table never get less than this in a single-screen tier. */
+const MIN_MAIN_ROW = 260;
+export const STACKED_SECONDARY = 260;
 
-/** Pick the layout from the measured overview area (below the top bar, beside the sidebar). */
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * Pick the layout from the measured overview area (below the top bar, beside the sidebar).
+ * The secondary row (daily P&L, breakdown, exposure, health) gets a share of the height rather than
+ * a fixed strip, so its plots stay readable while the equity chart no longer absorbs all spare space.
+ */
 export function pickLayout(width: number, height: number): FleetLayout {
   const compact = width < 1200;
   const base = { gap: GAP, compact };
   if (width < 960 || height < 500) {
-    return { ...base, tier: "stacked", rows: "auto", kpiHeight: 0, secondaryHeight: 220, swimlaneHeight: 0, secondary: ["daily", "contribution", "exposure", "health"], showSwimlane: false, showUnderwater: true, tableActivity: false, mainHeight: 420 };
+    return { ...base, tier: "stacked", rows: "auto", kpiHeight: 0, secondaryHeight: STACKED_SECONDARY, swimlaneHeight: 0, secondary: ["daily", "contribution", "exposure", "health"], showSwimlane: false, showUnderwater: true, tableActivity: false, mainHeight: 420 };
   }
   if (height >= 740) {
-    const kpi = 60, sec = height >= 900 ? 228 : 200, lane = height >= 900 ? 108 : 96;
-    const main = height - kpi - sec - lane - 3 * GAP;
+    const kpi = 60;
+    const avail = height - kpi - 3 * GAP;
+    const lane = clamp(Math.round(avail * 0.11), 88, 112);
+    const sec = Math.min(clamp(Math.round((avail - lane) * 0.44), 240, 460), avail - lane - MIN_MAIN_ROW);
+    const main = avail - lane - sec;
     return { ...base, tier: "L", rows: `${kpi}px minmax(0,1fr) ${sec}px ${lane}px`, kpiHeight: kpi, secondaryHeight: sec, swimlaneHeight: lane, secondary: ["daily", "contribution", "exposure", "health"], showSwimlane: true, showUnderwater: main >= MIN_MAIN, tableActivity: false, mainHeight: main };
   }
   if (height >= 600) {
-    const kpi = 58, sec = 184;
-    const main = height - kpi - sec - 2 * GAP;
+    const kpi = 58;
+    const avail = height - kpi - 2 * GAP;
+    const sec = Math.min(clamp(Math.round(avail * 0.42), 190, 300), avail - MIN_MAIN_ROW);
+    const main = avail - sec;
     return { ...base, tier: "M", rows: `${kpi}px minmax(0,1fr) ${sec}px`, kpiHeight: kpi, secondaryHeight: sec, swimlaneHeight: 0, secondary: ["daily", "contribution", "exposure", "health"], showSwimlane: false, showUnderwater: main >= MIN_MAIN, tableActivity: true, mainHeight: main };
   }
-  const kpi = 56, sec = 156;
+  const kpi = 56;
+  const sec = clamp(Math.round((height - kpi - 2 * GAP) * 0.36), 156, 220);
   const main = height - kpi - sec - 2 * GAP;
   return { ...base, tier: "S", rows: `${kpi}px minmax(0,1fr) ${sec}px`, kpiHeight: kpi, secondaryHeight: sec, swimlaneHeight: 0, secondary: ["daily", "health"], showSwimlane: false, showUnderwater: main >= MIN_MAIN, tableActivity: true, mainHeight: main };
 }

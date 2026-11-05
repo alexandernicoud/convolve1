@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TrainingSession } from "@/lib/api";
-import { aucStdError, classRecalls, modelHealth } from "./health";
+import { findingBadge } from "@/features/research/findings";
+import { aucStdError, classRecalls, modelHealth, skillVerdict } from "./health";
 
 const epochs = (rows: [number, number, number, number][]) =>
   rows.map(([loss, accuracy, val_loss, val_accuracy], i) => ({ epoch: i + 1, loss, accuracy, val_loss, val_accuracy }));
@@ -132,4 +133,39 @@ test("AUC standard error and class recalls", () => {
   const r = classRecalls({ n: 10, confusion_matrix: { labels: [0, 1], rows_true_cols_pred: [[8, 2], [5, 5]] } });
   assert.equal(r.r0, 0.8);
   assert.equal(r.r1, 0.5);
+});
+
+test("the skill verdict follows the Model Health AUC finding", () => {
+  assert.equal(skillVerdict(modelHealth(session(), "r1")).kind, "skill");
+  assert.match(skillVerdict(modelHealth(session(), "r1")).detail, /not proof of profit/);
+
+  const weak = session({
+    evaluation: {
+      validation: {
+        n: 400,
+        accuracy: 0.58,
+        roc_auc: 0.53,
+        label_counts: { "0": 200, "1": 200 },
+        predicted_counts: { "0": 300, "1": 100 },
+        baseline: { accuracy: 0.5 },
+      },
+    },
+  });
+  const v = skillVerdict(modelHealth(weak, "r1"));
+  assert.equal(v.kind, "none", "accuracy above the majority baseline is not skill when the AUC interval includes 0.5");
+  assert.match(v.detail, /not evidence of skill/);
+
+  const worse = session({
+    evaluation: { validation: { n: 2000, accuracy: 0.42, roc_auc: 0.4, label_counts: { "0": 1000, "1": 1000 }, predicted_counts: { "0": 1000, "1": 1000 } } },
+  });
+  assert.equal(skillVerdict(modelHealth(worse, "r1")).kind, "worse");
+
+  assert.equal(skillVerdict(modelHealth(session({ evaluation: undefined }), "r1")).kind, "unmeasured");
+});
+
+test("finding badges name severity and evidence separately", () => {
+  assert.equal(findingBadge({ severity: "warning", evidence: "confirmed" }), "Warning · confirmed");
+  assert.equal(findingBadge({ severity: "problem", evidence: "strong" }), "Problem · strong evidence");
+  assert.equal(findingBadge({ severity: "ok", evidence: "confirmed" }), "Confirmed");
+  assert.equal(findingBadge({ severity: "warning" }), null);
 });

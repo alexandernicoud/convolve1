@@ -10,6 +10,7 @@ import { useTrainingRun } from "./useTrainingRun";
 import { LiveComputation } from "./LiveComputation";
 import { DiagnosticsPanel, EvaluationPanel, isProtocol2, SelectionCurves, SplitPanel } from "./EvaluationPanels";
 import { ModelHealthPanel } from "./ModelHealthPanel";
+import { modelHealth, skillVerdict } from "./health";
 import { ImproveCallout } from "./ImproveCallout";
 import { SELECTION_NAME, selectionName } from "./evaluation";
 import { OPTIMIZER_LABEL, SCHEDULE_LABEL } from "./options";
@@ -416,18 +417,18 @@ function ProgressPanel({
             }
           />
           <Figure
-            label="Validation loss"
+            label="Validation loss · latest epoch"
             value={fmtNum(latest?.val_loss, 4)}
             sub={<Delta now={latest?.val_loss} prev={prev?.val_loss} lowerIsBetter digits={4} />}
           />
           <Figure
             help="validation-accuracy"
-            label="Validation accuracy"
+            label="Validation accuracy · latest epoch"
             value={fmtPct(latest?.val_accuracy, 1)}
             sub={<Delta now={latest?.val_accuracy} prev={prev?.val_accuracy} pct />}
           />
           <Figure
-            label={`Best ${selectionName(session)}`}
+            label={`Best ${selectionName(session)} · saved epoch`}
             value={fmtSelection(session)}
             sub={
               session?.best_epoch
@@ -573,7 +574,7 @@ function CompletedPanel({ runId, session }: { runId: string; session: TrainingSe
     <section className={cx(surface, "overflow-hidden")}>
       <div className="grid lg:grid-cols-12">
         <div className="px-6 py-6 lg:col-span-7 lg:border-r lg:border-white/[0.07]">
-          <PanelTitle>Saved model</PanelTitle>
+          <PanelTitle>Saved model{savedEpoch ? ` · epoch ${savedEpoch}` : ""}</PanelTitle>
           <p className="mt-2 pl-4 text-[14px] leading-relaxed text-white/60">
             {savedEpoch
               ? `The saved weights are from epoch ${savedEpoch}${
@@ -641,35 +642,49 @@ function DoneBanner({ runId, session }: { runId: string; session: TrainingSessio
   const s = session.summary ?? {};
   const savedEpoch = s.saved_weights_epoch ?? session.best_epoch ?? null;
   const saved = savedEpoch ? session.history.find((h) => h.epoch === savedEpoch) ?? s.saved_weights_metrics : undefined;
+  const verdict = useMemo(() => skillVerdict(modelHealth(session, runId)), [session, runId]);
+  const hasSkill = verdict.kind === "skill";
+  const backtestFirst = hasSkill || verdict.kind === "unmeasured";
+  const primary = "inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90";
+  const secondary = "inline-flex items-center justify-center gap-2 rounded-xl border border-white/25 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10";
+  const tone = hasSkill ? SEMANTIC.positive : verdict.kind === "worse" ? SEMANTIC.negative : "#f5c46b";
   return (
-    <section
-      role="status"
-      className="overflow-hidden rounded-2xl border border-[#a6ecc8]/30 bg-gradient-to-br from-[#a6ecc8]/[0.09] to-transparent px-6 py-5"
-    >
+    <section role="status" className="overflow-hidden rounded-2xl border border-white/[0.12] bg-white/[0.025] px-6 py-5">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-start gap-4">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#a6ecc8] text-[#04140b]">
             <Check className="h-6 w-6" strokeWidth={2.5} aria-hidden />
           </span>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-[19px] font-semibold text-white">Training complete. Your model is saved.</h2>
-            <p className="mt-1 text-[13.5px] text-white/65">
-              {isFiniteNum(saved?.val_accuracy) ? `Validation accuracy ${fmtPct(saved?.val_accuracy, 1)}. ` : ""}
-              Next, see what it learned or test it on market data it has never seen.
+            <p className="mt-0.5 text-[13px] text-white/50">
+              That means the run finished; it does not say whether the model predicts anything.
+              {isFiniteNum(saved?.val_accuracy) ? ` Validation accuracy at the saved epoch${savedEpoch ? ` (${savedEpoch})` : ""}: ${fmtPct(saved?.val_accuracy, 1)}.` : ""}
             </p>
+            <p className="mt-2.5 flex flex-wrap items-baseline gap-x-2 text-[14px]">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-white/40">Predictive skill</span>
+              <span className="font-semibold" style={{ color: tone }}>{verdict.headline}</span>
+            </p>
+            <p className="mt-0.5 text-[13px] leading-relaxed text-white/60">{verdict.detail}</p>
+            <p className="mt-1 text-[12.5px] text-white/40">Trading profitability is only measured by an independent backtest.</p>
           </div>
         </div>
-        <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-          <Link
-            to={`/tools/backtester?modelRunId=${encodeURIComponent(runId)}`}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
-          >
-            <LineChart className="h-4 w-4" /> Backtest this model
-          </Link>
-          <Link
-            to={`/tools/analysis?trainer_run=${encodeURIComponent(runId)}`}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/25 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
-          >
+        <div className="flex shrink-0 flex-col gap-2 sm:flex-row lg:flex-col xl:flex-row">
+          {backtestFirst ? (
+            <Link to={`/tools/backtester?modelRunId=${encodeURIComponent(runId)}`} className={primary}>
+              <LineChart className="h-4 w-4" /> Backtest this model
+            </Link>
+          ) : (
+            <>
+              <Link to={`/tools/improve?model=${encodeURIComponent(`trained:${runId}`)}&from=training`} className={primary}>
+                <RefreshCw className="h-4 w-4" /> Improve this model
+              </Link>
+              <Link to={`/tools/backtester?modelRunId=${encodeURIComponent(runId)}`} className={secondary}>
+                <LineChart className="h-4 w-4" /> Backtest this model
+              </Link>
+            </>
+          )}
+          <Link to={`/tools/analysis?trainer_run=${encodeURIComponent(runId)}`} className={secondary}>
             <FlaskConical className="h-4 w-4" /> See what it learned
           </Link>
         </div>

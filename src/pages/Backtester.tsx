@@ -37,6 +37,7 @@ import TestDataGeneratorModal from "@/components/TestDataGeneratorModal";
 import RecentRunsBlock from "@/components/RecentRunsBlock";
 import FieldTip from "@/components/generator/FieldTip";
 import StepSection from "@/components/generator/StepSection";
+import { datasetListLabel } from "@/features/review/lib/naming";
 
 type SourceMode = "library" | "upload";
 
@@ -146,10 +147,11 @@ function formatRunStamp(ts: number): string {
   return new Date(ms).toLocaleString();
 }
 
-function runLabel(run: GlobalRun): string {
-  const short = run.id.slice(-8);
+function runLabel(run: GlobalRun, names?: Map<string, string>): string {
+  const short = run.id.slice(-6);
+  const named = names?.get(run.id) ?? (run.trainer_run_id ? names?.get(run.trainer_run_id) : undefined);
   const msg = run.message?.slice(0, 48);
-  return msg ? `${short} · ${msg}` : short;
+  return `${named ?? msg ?? "Untitled run"} · id ${short}`;
 }
 
 export default function Backtester() {
@@ -236,6 +238,15 @@ export default function Backtester() {
         .slice(0, 40),
     [runsById],
   );
+
+  const modelNamesByRun = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const m of internalModels) {
+      const title = m.display_name || m.name;
+      if (m.training_run_id && title) out.set(m.training_run_id, title);
+    }
+    return out;
+  }, [internalModels]);
 
   const testdataRunsFromActivity = useMemo(
     () =>
@@ -1027,7 +1038,7 @@ export default function Backtester() {
                             <option value="">Select a completed trainer run…</option>
                             {trainerRunsFromActivity.map((r) => (
                               <option key={r.id} value={r.id}>
-                                {runLabel(r)} · {formatRunStamp(r.updated_at)}
+                                {runLabel(r, modelNamesByRun)} · {formatRunStamp(r.updated_at)}
                               </option>
                             ))}
                           </select>
@@ -1137,7 +1148,7 @@ export default function Backtester() {
                       <div>
                         <label className={labelClass}>
                           Or pick an existing folder
-                          <FieldTip text="Saved test / dataset folders already in this workspace." />
+                          <FieldTip text="Test sets are generated for backtesting. Training datasets are listed separately: a model scored on data it was trained on is not an independent test." />
                         </label>
                         <div className="flex items-center gap-2">
                           <select
@@ -1147,21 +1158,19 @@ export default function Backtester() {
                           >
                             <option value="">Select an existing folder…</option>
                             {testFolders.length > 0 && (
-                              <optgroup label="Test folders">
+                              <optgroup label="Test sets (for backtesting)">
                                 {testFolders.map((d) => (
-                                  <option key={d.dataset_id} value={d.dataset_id}>
-                                    {d.display_name || d.name}
-                                    {d.total_images ? ` · ${d.total_images} imgs` : ""}
+                                  <option key={d.dataset_id} value={d.dataset_id} title={`Dataset id ${d.dataset_id}`}>
+                                    {datasetListLabel(d)}
                                   </option>
                                 ))}
                               </optgroup>
                             )}
                             {otherFolders.length > 0 && (
-                              <optgroup label="Other datasets">
+                              <optgroup label={otherFolders.some((d) => d.kind === "training") ? "Training datasets (not an independent test)" : "Other datasets"}>
                                 {otherFolders.map((d) => (
-                                  <option key={d.dataset_id} value={d.dataset_id}>
-                                    {d.display_name || d.name}
-                                    {d.total_images ? ` · ${d.total_images} imgs` : ""}
+                                  <option key={d.dataset_id} value={d.dataset_id} title={`Dataset id ${d.dataset_id}`}>
+                                    {datasetListLabel(d)}
                                   </option>
                                 ))}
                               </optgroup>
@@ -1176,6 +1185,12 @@ export default function Backtester() {
                             <RefreshCw className="h-4 w-4" aria-hidden />
                           </button>
                         </div>
+                        {datasets.find((d) => d.dataset_id === pickedDatasetId)?.kind === "training" ? (
+                          <p className="mt-2 text-xs leading-relaxed text-amber-200/80">
+                            This is a training dataset. If the model was trained on it, results will look better than on new data and the backtest will not
+                            count as an independent test. Prefer a generated test set from a later period.
+                          </p>
+                        ) : null}
                       </div>
                     ) : null}
 
@@ -1395,7 +1410,7 @@ export default function Backtester() {
                           <optgroup label="Trainer runs (activity)">
                             {trainerRunsFromActivity.map((r) => (
                               <option key={`params-trainer-${r.id}`} value={`trainer:${r.id}`}>
-                                {runLabel(r)} · {formatRunStamp(r.updated_at)}
+                                {runLabel(r, modelNamesByRun)} · {formatRunStamp(r.updated_at)}
                               </option>
                             ))}
                           </optgroup>

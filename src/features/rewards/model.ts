@@ -93,11 +93,24 @@ export function inviteLink(origin: string, code: string): string {
   return `${origin.replace(/\/+$/, "")}/signup?${REFERRAL_PARAM}=${encodeURIComponent(code)}`;
 }
 
-export function inviteMessage(code: string, link: string, credits: number): string {
+export function inviteMessage(code: string, link: string, credits: number, freeBeta = false): string {
+  if (freeBeta) {
+    return (
+      `I use Convolve to test whether chart patterns actually predict anything. It is free during the public beta: ${link} ` +
+      `(invite code ${code}). Once paid plans launch, starting your first plan with my code adds up to ${credits} bonus credits.`
+    );
+  }
   return (
     `I use Convolve to test whether chart patterns actually predict anything. ` +
     `Sign up with my link and you get up to ${credits} bonus credits when you start a plan: ${link} (invite code ${code})`
   );
+}
+
+/** Copy for an invited account whose bonus is still pending. */
+export function pendingInviteText(rewardText: string, freeBeta: boolean): string {
+  return freeBeta
+    ? `You joined through an ambassador's invite. Your bonus credits (${rewardText}) are added when you start your first paid plan; paid plans open after the public beta.`
+    : `You joined through an ambassador's invite: start a plan to get your bonus credits (${rewardText}).`;
 }
 
 type KV = Pick<Storage, "getItem" | "setItem" | "removeItem">;

@@ -4,6 +4,7 @@ import { KV, Panel, cx, surface } from "@/features/review/components/primitives"
 import { axisProps, ChartFrame, ChartLoading, ChartPlaceholder, ChartTooltip, gridProps, type LegendItem } from "@/components/viz/chartKit";
 import { fmtInt, fmtPct, isFiniteNum, niceScale, paddedDomain } from "@/lib/viz/format";
 import { SERIES, VIZ } from "@/lib/viz/tokens";
+import { labelMethodName, outcomeConventionName } from "@/features/research/conventions";
 import { useWorkspace } from "../BacktestWorkspace";
 import { AuditList, Banner, fmtDay, fmtMoney, fmtSignedPct, metricValue, MetricStat, monthTick } from "../ui";
 
@@ -134,7 +135,8 @@ export default function OverviewTab() {
                 ["Threshold", `${summary.threshold.value.toFixed(2)} · ${summary.threshold.source === "validation_locked" ? "selected on validation data, then locked" : "fixed by the user"}`, summary.threshold.note],
                 ["Sizing", `${fmtPct(Number(summary.config.position_size_pct) / 100, 1)} of equity per trade · max ${summary.config.max_concurrent_positions} open · exposure cap ${fmtPct(Number(summary.config.max_exposure_pct) / 100, 0)}`],
                 ["Costs", `Commission ${summary.config.commission_pct}% and slippage ${summary.config.slippage_pct}% per side`, String(summary.config.cost_convention ?? "")],
-                ["Outcome", `${summary.dataset.label_method} · ${summary.methodology.outcome_convention}`],
+                ["Labels", labelMethodName(summary.dataset.label_method), `Method id: ${summary.dataset.label_method ?? "—"}`],
+                ["Trade outcome", outcomeConventionName(summary.methodology.outcome_convention), `Convention id: ${summary.methodology.outcome_convention ?? "—"}`],
                 ["Data", `${summary.dataset.symbols.join(", ")} · ${summary.dataset.timeframe} · ${summary.dataset.price_adjustment}`],
                 ["Period", `${fmtDay(summary.dataset.first_decision)} → ${fmtDay(summary.dataset.last_decision)} · ${fmtInt(summary.dataset.n_samples_used)} samples`],
                 ["Model", summary.model.model_id ?? summary.model.trainer_run_id ?? "—"],

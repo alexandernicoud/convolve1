@@ -8,6 +8,7 @@ import type { IncrementalStrategy, IncrementalValue, PairedComparison } from "..
 import { useWorkspace } from "../BacktestWorkspace";
 import { findingActionLink } from "../findingActions";
 import { fmtSignedPct } from "../ui";
+import { pairedHeadline } from "../verdict";
 
 const VERDICT_TONE: Record<IncrementalValue["verdict"]["id"], string> = {
   edge: SEMANTIC.positive,
@@ -30,6 +31,7 @@ export default function BaselinesTab() {
     );
   }
   const tone = VERDICT_TONE[inc.verdict.id] ?? VERDICT_TONE.invalid;
+  const headline = inc.verdict.id === "invalid" ? null : pairedHeadline(inc, summary.evaluation_class === "independent_test");
   const trainerRunId = summary.model.trainer_run_id ?? summary.model.training_run_id ?? null;
   const ctx = { runId, trainerRunId, modelId: summary.model.model_id ?? null, datasetId: summary.dataset.dataset_id ?? null };
   const next =
@@ -64,11 +66,22 @@ export default function BaselinesTab() {
       <section className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5" style={{ borderLeft: `2px solid ${tone}` }}>
         <p className="text-[11.5px] uppercase tracking-wide" style={{ color: tone }}>Incremental value of the CNN</p>
         <h3 className="mt-1 text-[17px] font-medium text-white">{inc.verdict.label}</h3>
+        {headline ? (
+          <p
+            className="mt-2 text-[14px] font-medium leading-relaxed"
+            style={{ color: headline.tone === "negative" ? SEMANTIC.negative : headline.tone === "positive" ? SEMANTIC.positive : "rgba(255,255,255,0.8)" }}
+          >
+            {headline.text}
+          </p>
+        ) : null}
         <ul className="mt-2 space-y-1 text-[13.5px] leading-relaxed text-white/70">
           {inc.verdict.reasons.map((r) => <li key={r}>{r}</li>)}
         </ul>
         {summary.evaluation_class !== "independent_test" ? (
-          <p className="mt-2 text-[12.5px] text-white/45">This run is not an independent test, so the verdict is capped at inconclusive.</p>
+          <p className="mt-2 text-[12.5px] text-white/45">
+            This run is not an independent test, so the verdict on an edge is capped at inconclusive. Underperformance is still reported: a model that loses on
+            data it may have seen will not do better on new data.
+          </p>
         ) : null}
         {next ? (
           <Link to={next.to} className={cx(btnSm, "mt-3 inline-flex items-center gap-1.5")}>

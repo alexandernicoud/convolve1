@@ -85,8 +85,8 @@ function WelcomeOverlay() {
           Your research starts here.
         </h2>
         <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-white/65">
-          Generate datasets, train neural networks, analyze predictions, backtest strategies and deploy paper-trading bots — all without
-          writing code.
+          Generate a labelled chart dataset, train a neural network, see what it looks at, backtest it against honest baselines and improve
+          it with controlled experiments — all without writing code. Paper-trading bots come last, once a model holds up.
         </p>
         <div className="mt-6">
           <PipelineVisual />

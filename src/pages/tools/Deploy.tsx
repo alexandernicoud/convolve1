@@ -5,6 +5,7 @@ import { candidatesLast, lifecycleSuffix } from "@/lib/modelLifecycle";
 import { stageUpload } from "@/lib/directUpload";
 import { getPaperWalletUsd } from "@/lib/portfolioWallet";
 import { requestRunCredits, chargeRunCredits } from "@/state/creditsStore";
+import { backtestAdvice, backtestTitle, thresholdChangeNote } from "@/features/deploy/backtestAdvice";
 /** IANA zones for daily run scheduling (same as backend zoneinfo). */
 const IANA_TIMEZONES = [
   "America/New_York",
@@ -275,10 +276,25 @@ export default function Deploy() {
     if (reviewing) reviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [reviewing]);
 
+  const advice = modelSource === "library" && selectedModel && backtests ? backtestAdvice(modelBacktests, backtestId) : null;
+  const appliedSource = backtestId ? modelBacktests.find((r) => r.id === backtestId) ?? null : null;
+  const appliedThreshold = appliedSource?.backtest?.assumptions?.confidence_threshold ?? null;
+  const changeNote = appliedSource ? thresholdChangeNote(confidenceThreshold, appliedThreshold) : null;
+
   const summary: [string, string][] = [
     ["Model", modelName ?? "—"],
+    ["Evidence", !advice ? "—" : advice.status === "none" ? "No backtest of this model" : advice.status === "exploratory" ? "Exploratory backtests only, no independent test" : "Independent backtest on record"],
     ["Asset", `${symbol} · ${bar.label} bars · chart window ${spanText} · ${imgSize}px`],
-    ["Signal", `BUY when P(up) ≥ ${confidenceThreshold.toFixed(2)}`],
+    [
+      "Signal",
+      `BUY when P(up) ≥ ${confidenceThreshold.toFixed(2)}${
+        appliedSource && appliedThreshold != null
+          ? changeNote
+            ? ` · changed from ${appliedThreshold.toFixed(2)} in backtest ${appliedSource.id.slice(-6)}`
+            : ` · from backtest ${appliedSource.id.slice(-6)}`
+          : " · not taken from a backtest"
+      }`,
+    ],
     ["Schedule", `Every day at ${runTime} ${timezone.replace(/_/g, " ")}, on the latest completed ${bar.bar}`],
     ["Entry", `Next bar's open + ${slippagePct || 0}% slippage`],
     ["Exits", `TP +${tpPct}% · SL −${slPct}% (stop checked first) · or close of bar ${horizonDays}`],
@@ -355,10 +371,12 @@ export default function Deploy() {
                   <option value="">{backtests == null ? "Loading…" : modelBacktests.length ? "None" : "No completed backtests"}</option>
                   {modelBacktests.map((r) => {
                     const ret = r.backtest?.performance?.return_pct;
+                    const cls = r.backtest?.methodology?.evaluation_class;
                     return (
                       <option key={r.id} value={r.id}>
-                        {r.backtest?.symbol ?? "Backtest"} · {new Date(r.created_at * 1000).toLocaleDateString()}
-                        {ret != null ? ` · net ${ret > 0 ? "+" : ""}${ret.toFixed(2)}%` : ""} · {r.id.slice(-6)}
+                        {backtestTitle(r)}
+                        {ret != null ? ` · net ${ret > 0 ? "+" : ""}${ret.toFixed(2)}%` : ""}
+                        {cls === "independent_test" ? " · independent" : cls === "exploratory" ? " · exploratory" : ""}
                       </option>
                     );
                   })}
@@ -366,6 +384,30 @@ export default function Deploy() {
               </div>
             </div>
           )}
+
+          {advice && advice.status !== "independent" ? (
+            <div className="max-w-2xl rounded-lg border border-amber-300/25 bg-amber-300/[0.06] px-4 py-3 text-[13px] leading-relaxed text-amber-100/85">
+              <p className="font-medium text-amber-100">
+                {advice.status === "none" ? "This model has no backtest yet." : "This model has no independent backtest."}
+              </p>
+              <p className="mt-1 text-amber-100/70">
+                {advice.status === "none"
+                  ? "Nothing has tested it on market data it has not seen, so the paper bot would be its first test. "
+                  : "Its backtests ran on data that was not independent of training, so they cannot show an edge. "}
+                You can still deploy a paper bot; it trades simulated money only.
+              </p>
+              <Link
+                to={
+                  selectedModel?.kind === "trained" && selectedModel.training_run_id
+                    ? `/tools/backtester?modelRunId=${encodeURIComponent(selectedModel.training_run_id)}`
+                    : `/tools/backtester?modelId=${encodeURIComponent(selectedModel?.model_id ?? "")}`
+                }
+                className="mt-2 inline-block text-[12.5px] font-medium text-amber-100 underline underline-offset-2"
+              >
+                Backtest this model first
+              </Link>
+            </div>
+          ) : null}
 
           {modelSource === "library" && selectedModel ? (
             <dl className="grid max-w-2xl grid-cols-2 gap-x-6 gap-y-3 border-l border-white/10 pl-4 text-[12.5px] sm:grid-cols-4">
@@ -440,8 +482,8 @@ export default function Deploy() {
             </div>
             <input
               type="range"
-              min={0.4}
-              max={0.9}
+              min={Math.min(0.4, advice?.threshold ?? 0.4)}
+              max={Math.max(0.9, advice?.threshold ?? 0.9)}
               step={0.01}
               value={confidenceThreshold}
               onChange={(e) => setConfidenceThreshold(Number(e.target.value))}
@@ -452,6 +494,29 @@ export default function Deploy() {
               BUY when P(up) ≥ {confidenceThreshold.toFixed(2)}; otherwise no new position.
             </p>
           </div>
+          {advice?.source && advice.threshold != null && !(appliedSource?.id === advice.source.id && !changeNote) ? (
+            <div className="max-w-2xl rounded-lg border border-white/12 bg-white/[0.03] px-4 py-3 text-[13px] leading-relaxed text-white/70">
+              <p>
+                Backtest <span className="text-white">{backtestTitle(advice.source)}</span> used a threshold of{" "}
+                <span className="font-mono text-white">{advice.threshold.toFixed(2)}</span>
+                {advice.thresholdLocked ? ", chosen on validation data and then locked before the test period." : ", fixed by hand for that run."}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfidenceThreshold(advice.threshold!);
+                  setBacktestId(advice.source!.id);
+                }}
+                className="mt-2 rounded-md border border-white/20 px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-white/10"
+              >
+                Use {advice.threshold.toFixed(2)} from this backtest
+              </button>
+            </div>
+          ) : null}
+          {changeNote ? <p className="max-w-2xl text-[12.5px] leading-relaxed text-amber-200/80">{changeNote}</p> : null}
+          {appliedSource && !changeNote ? (
+            <p className="max-w-2xl text-[12.5px] text-white/45">Matches the threshold of backtest {backtestTitle(appliedSource)}. You can still change it.</p>
+          ) : null}
         </Section>
 
         <Section n="04" title="Schedule" note="Runs on the server, independent of this browser.">

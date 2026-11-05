@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { TrainingSession } from "@/lib/api";
 import { Panel } from "@/features/review/components/primitives";
 import { FindingsList } from "@/features/research/FindingsList";
-import { modelHealth } from "./health";
+import { modelHealth, skillVerdict } from "./health";
 
 export function ModelHealthPanel({ session, runId, compact, hideImprove }: { session: TrainingSession; runId: string; compact?: boolean; hideImprove?: boolean }) {
   const findings = useMemo(() => modelHealth(session, runId), [session, runId]);
@@ -31,7 +31,7 @@ export function ModelHealthPanel({ session, runId, compact, hideImprove }: { ses
     <Panel
       help="model-health"
       title="Model health"
-      description={`${problems} problem${problems === 1 ? "" : "s"} · ${warnings} warning${warnings === 1 ? "" : "s"}`}
+      description={`${skillVerdict(findings).headline} · ${problems} problem${problems === 1 ? "" : "s"} · ${warnings} warning${warnings === 1 ? "" : "s"}`}
     >
       {body}
     </Panel>

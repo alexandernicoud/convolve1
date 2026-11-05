@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, ChevronRight, Info, XCircle } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { EVIDENCE_LABEL, type Finding, type Severity } from "./findings";
+import { findingBadge, type Finding, type Severity } from "./findings";
 
 const ICON: Record<Severity, ReactNode> = {
   problem: <XCircle className="h-4 w-4 text-red-300/90" aria-hidden />,
@@ -64,7 +64,7 @@ function FindingRow({ f, onTarget }: { f: Finding; onTarget?: (target: string) =
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             <span className="font-medium text-white/90">{f.title}</span>
             {f.evidence ? (
-              <span className="rounded border border-white/15 px-1.5 py-px text-[11px] uppercase tracking-wide text-white/55">{f.evidence === "confirmed" && (f.severity === "info" || f.severity === "ok") ? "Confirmed" : EVIDENCE_LABEL[f.evidence]}</span>
+              <span className="rounded border border-white/15 px-1.5 py-px text-[11px] uppercase tracking-wide text-white/55">{findingBadge(f)}</span>
             ) : null}
           </div>
           <p className="mt-0.5 leading-relaxed text-white/60">{f.detail}</p>

@@ -11,6 +11,7 @@ import {
   maxFriendCredits,
   isHttpUrl,
   normaliseCode,
+  pendingInviteText,
   pendingReferral,
   rememberReferral,
   shouldForgetAfter,
@@ -80,4 +81,14 @@ test("invite rewards are described per plan, grouping plans with the same reward
   );
   assert.equal(maxFriendCredits(rewards), 20);
   assert.equal(maxFriendCredits([]), 20);
+});
+
+test("during the free beta, invite copy defers the bonus to the first paid plan", () => {
+  const link = inviteLink("https://convolve.app/", "ABCD2345");
+  const beta = inviteMessage("ABCD2345", link, 20, true);
+  assert.match(beta, /free during the public beta/);
+  assert.match(beta, /Once paid plans launch/);
+  assert.ok(beta.includes(link));
+  assert.doesNotMatch(inviteMessage("ABCD2345", link, 20, false), /public beta/);
+  assert.match(pendingInviteText("20 bonus credits", true), /paid plan/);
 });

@@ -6,6 +6,7 @@ import { SEMANTIC } from "@/lib/viz/tokens";
 import type { Finding } from "../api";
 import { useWorkspace } from "../BacktestWorkspace";
 import { findingActionLink } from "../findingActions";
+import { pairedHeadline } from "../verdict";
 
 const SEVERITY: Record<Finding["severity"], { label: string; color: string }> = {
   negative: { label: "Against the strategy", color: SEMANTIC.negative },
@@ -24,9 +25,15 @@ export default function FindingsTab() {
     datasetId: summary.dataset.dataset_id ?? null,
   };
   const findings = [...summary.findings].sort((a, b) => ORDER.indexOf(a.severity) - ORDER.indexOf(b.severity));
+  const headline = summary.incremental && summary.incremental.verdict.id !== "invalid" ? pairedHeadline(summary.incremental, summary.evaluation_class === "independent_test") : null;
   if (!findings.length) return <EmptyState title="No findings" body="No rule produced a finding for this run." />;
   return (
     <div className="space-y-3" data-help="bt-findings">
+      {headline?.tone === "negative" ? (
+        <p className={cx(surface, "p-4 text-[14px] font-medium")} style={{ borderLeft: `2px solid ${SEMANTIC.negative}`, color: SEMANTIC.negative }}>
+          {headline.text} <span className="font-normal text-white/55">See Baselines for the intervals.</span>
+        </p>
+      ) : null}
       <p className="text-[13px] text-white/50">
         Each finding is produced by a fixed rule from the stored results. Measurements are quoted exactly; nothing here is generated free text.
       </p>

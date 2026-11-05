@@ -20,6 +20,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import { useCreditsStore } from "@/state/creditsStore";
+import { InstallSideLink } from "@/features/pwa/InstallUI";
 
 const formatCreditsCompact = (n: number): string => {
   if (n >= 1000) {
@@ -29,7 +30,7 @@ const formatCreditsCompact = (n: number): string => {
   return n.toLocaleString();
 };
 
-const nav = [
+export const nav = [
   { to: "/dashboard", label: "Overview", tag: "Manage", icon: LayoutDashboard, tour: "nav-monitor" },
   { to: "/tools/run-log", label: "Search Hub", tag: "Search", icon: Network, tour: "nav-review" },
   { to: "/tools/generator", label: "Datasets", tag: "Generate", icon: Database, tour: "nav-generate" },
@@ -77,6 +78,17 @@ function SideLink({
   );
 }
 
+export function sidebarLinkActive(pathname: string, to: string): boolean {
+  if (to === "/dashboard") return pathname === "/dashboard";
+  if (to === "/products/labeling-optimizer/technical") return pathname.startsWith("/products/labeling-optimizer/");
+  if (to === "/tools/trainer") {
+    if (pathname.startsWith("/products/trainer/analysis/")) return false;
+    return pathname === "/tools/trainer" || pathname.startsWith("/products/trainer/");
+  }
+  if (to === "/tools/analysis") return pathname.startsWith("/tools/analysis") || pathname.startsWith("/products/trainer/analysis/");
+  return pathname === to || pathname.startsWith(`${to}/`);
+}
+
 export function DashboardSidebar() {
   const { pathname, search } = useLocation();
   const balance = useCreditsStore((s) => s.balance);
@@ -93,20 +105,7 @@ export function DashboardSidebar() {
   const creditsLabel = !loaded ? "…" : enforced && balance != null ? formatCreditsCompact(balance) : "Beta";
   const usageActive = pathname === "/account" && /tab=usage/.test(search);
 
-  const linkActive = (to: string) => {
-    if (to === "/dashboard") return pathname === "/dashboard";
-    if (to === "/products/labeling-optimizer/technical") {
-      return pathname.startsWith("/products/labeling-optimizer/");
-    }
-    if (to === "/tools/trainer") {
-      if (pathname.startsWith("/products/trainer/analysis/")) return false;
-      return pathname === "/tools/trainer" || pathname.startsWith("/products/trainer/");
-    }
-    if (to === "/tools/analysis") {
-      return pathname.startsWith("/tools/analysis") || pathname.startsWith("/products/trainer/analysis/");
-    }
-    return pathname === to || pathname.startsWith(`${to}/`);
-  };
+  const linkActive = (to: string) => sidebarLinkActive(pathname, to);
 
   const earnActive = pathname === "/account" && /tab=earn/.test(search);
   const accountActive = pathname === "/account" && !usageActive && !earnActive;
@@ -159,7 +158,8 @@ export function DashboardSidebar() {
         {admin && (
           <SideLink to="/dashboard/admin" active={pathname.startsWith("/dashboard/admin")} icon={ShieldCheck} label="Admin" tip="Admin console" />
         )}
-        <SideLink to="/account?tab=earn" active={earnActive} icon={Gift} label="Earn" tip="Earn bonus credits: invite friends, cite Convolve, give feedback" accent />
+        <InstallSideLink />
+        <SideLink to="/account?tab=earn" active={earnActive} icon={Gift} label="Earn" tip="Earn bonus credits: answer the feedback questionnaire or cite Convolve" accent />
         <Tooltip delayDuration={200}>
           <TooltipTrigger asChild>
             <Link

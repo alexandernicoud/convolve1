@@ -7,7 +7,7 @@ import { acceptanceRecord } from "@/features/legal/meta";
 import { safeAppPath } from "@/lib/authRedirect";
 import { checkReferralCode } from "@/features/rewards/api";
 import { REFERRAL_PARAM, friendRewardText, normaliseCode, rememberReferral } from "@/features/rewards/model";
-import { BetaOfferNote } from "@/features/beta/BetaUI";
+import { BetaOfferNote, useBetaInfo } from "@/features/beta/BetaUI";
 
 export default function Signup() {
   const { signUp, signInWithGoogle, resendConfirmation, configured } = useAuth();
@@ -23,6 +23,7 @@ export default function Signup() {
   const [accepted, setAccepted] = useState(false);
   const refCode = useMemo(() => normaliseCode(params.get(REFERRAL_PARAM)), [params]);
   const [invite, setInvite] = useState<{ bonus: string } | null>(null);
+  const { beta } = useBetaInfo();
 
   useEffect(() => {
     if (!refCode) return;
@@ -111,7 +112,9 @@ export default function Signup() {
       title={invite ? "Welcome to Convolve" : "Create account"}
       subtitle={
         invite
-          ? `You were invited by a Convolve ambassador. Create your account and start a plan to get bonus credits: ${invite.bonus}.`
+          ? beta
+            ? `You were invited by a Convolve ambassador. Convolve is free during the public beta; your invite bonus (${invite.bonus}) applies when you start your first paid plan after the beta.`
+            : `You were invited by a Convolve ambassador. Create your account and start a plan to get bonus credits: ${invite.bonus}.`
           : "You’ll use this identity across every tool."
       }
     >

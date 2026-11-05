@@ -2,7 +2,7 @@
  * Human-readable, metadata-derived names. Internal ids are never replaced, only
  * shown as secondary identifiers. User-defined display names always win.
  */
-import type { ReviewDataset, ReviewModel, ReviewRun } from "@/lib/api";
+import type { DatasetListItem, ReviewDataset, ReviewModel, ReviewRun } from "@/lib/api";
 import { fracLabel, shortId } from "./format";
 
 export const TOOL_LABELS: Record<string, string> = {
@@ -23,6 +23,7 @@ const OPAQUE_PATTERNS = [
   /^training-dataset-.+\.zip$/i,
   /^generator run /i,
   /^generated:/i,
+  /^\d+\s*imgs?$/i,
 ];
 
 export function isOpaqueName(name?: string | null): boolean {
@@ -135,6 +136,20 @@ export function runName(r: ReviewRun, modelTitles?: Map<string, string>): AssetN
   }
   const derived = ctx ? `${tool} · ${ctx}` : `${tool} ${shortId(r.id)}`;
   return { title: r.display_name || derived, derived, opaque: !ctx };
+}
+
+/**
+ * Picker label for a dataset folder: name or market, period, size and kind. The id is left out;
+ * callers put it in the option's title or a details view.
+ */
+export function datasetListLabel(d: Pick<DatasetListItem, "name" | "display_name" | "auto_name" | "symbols" | "timeframe" | "period_start" | "period_end" | "total_images" | "kind">): string {
+  const market = [formatSymbols(d.symbols), d.timeframe].filter(Boolean).join(" ");
+  const named = [d.display_name, d.auto_name, d.name].find((n) => n && !isOpaqueName(n));
+  const head = d.display_name || named || market || "Chart dataset";
+  const period = d.period_start && d.period_end ? `${String(d.period_start).slice(0, 10)} → ${String(d.period_end).slice(0, 10)}` : null;
+  const size = d.total_images ? `${d.total_images.toLocaleString("en-US")} charts` : null;
+  const kind = d.kind === "test" ? "test set" : d.kind === "training" ? "training set" : null;
+  return [head, head === market ? null : market || null, period, size, kind].filter(Boolean).join(" · ");
 }
 
 /**

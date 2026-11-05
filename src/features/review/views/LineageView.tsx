@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ReviewEdge } from "@/lib/api";
 import { useReview } from "../ReviewContext";
-import { lineageOf, NODE_KIND_LABEL, RELATION_LABEL, type GraphNode, type NodeKind } from "../lib/graph";
+import { collapseLeafGroups, lineageOf, NODE_KIND_LABEL, RELATION_LABEL, type GraphNode, type NodeKind } from "../lib/graph";
 import { edgePath, LAYOUT, layoutGraph } from "../lib/graphLayout";
 import { nodeActions } from "../lib/nodeActions";
 import { useRunRoute } from "../components/assets";
@@ -65,16 +65,20 @@ export function LineageView() {
     return new Set(keys.filter((k) => !hiddenKinds.has(graph.nodes.get(k)!.kind) || k === focus));
   }, [graph, edges, focus, hidden, showIsolated]);
 
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const sub = useMemo(() => {
     const vEdges = edges.filter((e) => visible.has(e.source) && visible.has(e.target));
+    const pinned = new Set([selected, focus].filter((k): k is string => !!k));
+    const c = collapseLeafGroups(graph.nodes, visible, vEdges, expanded, pinned);
     const out = new Map<string, ReviewEdge[]>();
     const inc = new Map<string, ReviewEdge[]>();
-    for (const e of vEdges) {
+    for (const e of c.edges) {
       (out.get(e.source) ?? out.set(e.source, []).get(e.source)!).push(e);
       (inc.get(e.target) ?? inc.set(e.target, []).get(e.target)!).push(e);
     }
-    return { nodes: graph.nodes, edges: vEdges, out, in: inc };
-  }, [graph.nodes, edges, visible]);
+    return { nodes: c.nodes, keys: c.keys, edges: c.edges, out, in: inc };
+  }, [graph.nodes, edges, visible, expanded, selected, focus]);
+  const groupCount = useMemo(() => [...sub.keys].filter((k) => sub.nodes.get(k)?.group).length, [sub]);
 
   useEffect(() => {
     if (selected && !visible.has(selected)) setSelected(null);
@@ -166,6 +170,13 @@ export function LineageView() {
         <Chip active={showIsolated} onClick={() => setShowIsolated((v) => !v)} title="Assets with no recorded links">
           Unlinked assets
         </Chip>
+        {expanded.size ? (
+          <Chip active={false} onClick={() => setExpanded(new Set())} title="Fold repeated sibling assets back into groups">
+            Collapse groups
+          </Chip>
+        ) : groupCount ? (
+          <span className="text-[12.5px] text-white/40">{groupCount} group{groupCount > 1 ? "s" : ""} folded · click one to expand</span>
+        ) : null}
         <span className="ml-auto flex flex-wrap items-center gap-4 text-[13px] text-white/50">
           <span className="inline-flex items-center gap-1.5"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="rgba(255,255,255,0.6)" strokeWidth="1.2" /></svg>Recorded · {recordedCount}</span>
           <span className="inline-flex items-center gap-1.5"><svg width="22" height="6"><line x1="0" y1="3" x2="22" y2="3" stroke="rgba(255,255,255,0.6)" strokeWidth="1.2" strokeDasharray="3 3" /></svg>Recovered · {recoveredCount}</span>
@@ -183,10 +194,11 @@ export function LineageView() {
         ) : (
           <GraphCanvas
             sub={sub}
-            keys={visible}
+            keys={sub.keys}
             selected={selected}
             focus={focus}
             onSelect={setSelected}
+            onExpand={(k) => setExpanded((s) => new Set(s).add(k))}
             onFocus={(k) => setFocus(k)}
             onDetails={(n) => inspect(n.ref.kind === "stock" ? null : (n.ref as { kind: "model" | "dataset" | "run" | "bot"; id: string }))}
           />
@@ -265,6 +277,7 @@ function GraphCanvas({
   selected,
   focus,
   onSelect,
+  onExpand,
   onFocus,
   onDetails,
 }: {
@@ -273,6 +286,7 @@ function GraphCanvas({
   selected: string | null;
   focus: string | null;
   onSelect: (key: string | null) => void;
+  onExpand: (groupKey: string) => void;
   onFocus: (key: string) => void;
   onDetails: (n: GraphNode) => void;
 }) {
@@ -379,6 +393,25 @@ function GraphCanvas({
     [selNode, sub, modelFor, find, runRoute],
   );
 
+  // Relation names on the highlighted lineage only, placed at each target's input, stacked per target.
+  const edgeLabels = useMemo(() => {
+    if (!highlight) return [];
+    const perTarget = new Map<string, Set<string>>();
+    const out: { key: string; x: number; y: number; text: string }[] = [];
+    for (const e of sub.edges) {
+      if (!litEdge(e) || e.relation === "price_data") continue;
+      const a = layout.pos.get(e.source);
+      const b = layout.pos.get(e.target);
+      if (!a || !b || b.x <= a.x) continue;
+      const text = RELATION_LABEL[e.relation] ?? e.relation;
+      const seen = perTarget.get(e.target) ?? perTarget.set(e.target, new Set()).get(e.target)!;
+      if (seen.has(text)) continue;
+      out.push({ key: `${e.target}>${text}`, x: b.x - 8, y: b.y + nodeH / 2 - 6 - seen.size * 13, text });
+      seen.add(text);
+    }
+    return out;
+  }, [highlight, sub.edges, layout]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Sorted so lit edges are drawn last (on top).
   const orderedEdges = useMemo(() => (highlight ? [...sub.edges].sort((a, b) => Number(litEdge(a)) - Number(litEdge(b))) : sub.edges), [sub.edges, highlight]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -477,14 +510,20 @@ function GraphCanvas({
                   className="cursor-pointer outline-none [&:focus-visible>rect]:stroke-white"
                   onMouseEnter={() => !large && setHover(k)}
                   onMouseLeave={() => setHover(null)}
-                  onClick={() => onSelect(isSel ? null : k)}
-                  onDoubleClick={() => onFocus(k)}
+                  onClick={() => (n.group ? onExpand(k) : onSelect(isSel ? null : k))}
+                  onDoubleClick={() => !n.group && onFocus(k)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") onSelect(isSel ? null : k);
-                    if (e.key === "f" || e.key === "F") onFocus(k);
+                    if (e.key === "Enter" || e.key === " ") n.group ? onExpand(k) : onSelect(isSel ? null : k);
+                    if ((e.key === "f" || e.key === "F") && !n.group) onFocus(k);
                   }}
                 >
                   <title>{`${NODE_KIND_LABEL[n.kind]} · ${n.label}${n.sublabel ? `\n${n.sublabel}` : ""}`}</title>
+                  {n.group ? (
+                    <>
+                      <rect x={8} y={-8} width={nodeW - 16} height={nodeH} rx={10} fill="#050505" stroke="rgba(255,255,255,0.12)" />
+                      <rect x={4} y={-4} width={nodeW - 8} height={nodeH} rx={10} fill="#050505" stroke="rgba(255,255,255,0.15)" />
+                    </>
+                  ) : null}
                   <rect
                     width={nodeW}
                     height={nodeH}
@@ -498,20 +537,40 @@ function GraphCanvas({
                   <text x={stock ? 22 : 14} y={21} fill="rgba(255,255,255,0.45)" fontSize={11.5}>
                     {NODE_KIND_LABEL[n.kind]}
                   </text>
-                  {!stock ? (
+                  {n.group ? (
+                    <text x={nodeW - 14} y={21} fill="rgba(255,255,255,0.6)" fontSize={11} textAnchor="end">
+                      expand +{n.group.members.length}
+                    </text>
+                  ) : !stock ? (
                     <text x={nodeW - 24} y={21} fill="rgba(255,255,255,0.3)" fontSize={10.5} textAnchor="end" fontFamily="ui-monospace, monospace">
                       {n.ref.id.length > 8 ? n.ref.id.slice(-6) : n.ref.id}
                     </text>
                   ) : null}
-                  {n.status ? (
+                  {n.status && !n.group ? (
                     <circle cx={nodeW - 14} cy={17} r={3} fill={failed ? "rgba(248,113,113,0.85)" : n.status === "running" || n.status === "queued" ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.75)"} />
                   ) : null}
                   <text x={stock ? 22 : 14} y={42} fill={n.unresolved ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.92)"} fontSize={13} fontWeight={500}>
-                    {truncate(nodeCaption(n), 28)}
+                    {truncate(n.group ? n.label.replace(/ · (Training|Test) set( archive)?$/, "") : nodeCaption(n), 30)}
                   </text>
                 </g>
               );
             })}
+            {edgeLabels.map((l) => (
+              <text
+                key={l.key}
+                x={l.x}
+                y={l.y}
+                textAnchor="end"
+                fontSize={11}
+                fill="rgba(255,255,255,0.85)"
+                stroke="#000"
+                strokeWidth={3}
+                paintOrder="stroke"
+                pointerEvents="none"
+              >
+                {l.text}
+              </text>
+            ))}
           </g>
         </svg>
       </div>
@@ -523,8 +582,13 @@ function GraphCanvas({
           style={{ left: Math.max(8, view.x + selPos.x * view.k), top: view.y + (selPos.y + nodeH) * view.k + 8 }}
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <p className="truncate px-2 pb-1.5 pt-0.5 text-[12px] text-white/45">
+          <p className="truncate px-2 pt-0.5 text-[12px] text-white/45">
             {NODE_KIND_LABEL[selNode.kind]} · {truncate(selNode.label, 34)}
+          </p>
+          <p className="px-2 pb-1.5 text-[11.5px] text-white/35">
+            {(sub.in.get(selNode.key) ?? []).length} input{(sub.in.get(selNode.key) ?? []).length === 1 ? "" : "s"} ·{" "}
+            {(sub.out.get(selNode.key) ?? []).length} output{(sub.out.get(selNode.key) ?? []).length === 1 ? "" : "s"}
+            {highlight ? ` · ${highlight.size - 1} in its lineage` : ""}
           </p>
           <div className="flex flex-col">
             {actions.map((a) =>

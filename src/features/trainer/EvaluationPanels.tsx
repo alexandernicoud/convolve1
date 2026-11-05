@@ -6,7 +6,7 @@ import { CLASS_COLORS, SEMANTIC, SERIES, VIZ } from "@/lib/viz/tokens";
 import { axisLabel, axisProps, ChartFrame, ChartTooltip, gridProps } from "@/components/viz/chartKit";
 import { Caveat, Chip, KV, Panel } from "@/features/review/components/primitives";
 import { SplitPreviewView } from "./SplitPreview";
-import { findings, histogramShares, metricRows, selectionName, stoppingText, versusBaseline, type MetricRow } from "./evaluation";
+import { baselineTag, findings, histogramShares, metricRows, selectionName, stoppingText, type MetricRow } from "./evaluation";
 
 const PART_TITLE: Record<string, string> = { validation: "Validation", test: "Test period" };
 
@@ -28,18 +28,19 @@ function MetricTable({ m }: { m: PartitionMetrics }) {
       </thead>
       <tbody>
         {metricRows(m).map((r) => {
-          const vs = versusBaseline(r);
+          const tag = baselineTag(r, m);
           return (
             <tr key={r.key} className="border-t border-white/[0.06]">
               <td className="py-1.5 text-white/75">{r.label}</td>
               <td className="py-1.5 text-right font-digits tabular-nums text-white/90" title={r.undefinedReason}>
                 {r.model == null && r.undefinedReason ? <span className="text-white/40">undefined</span> : fmtMetric(r, r.model)}
-                {vs ? (
+                {tag ? (
                   <span
                     className="ml-2 text-[11px]"
-                    style={{ color: vs === "better" ? SEMANTIC.positive : vs === "worse" ? SEMANTIC.negative : undefined }}
+                    title={tag.title}
+                    style={{ color: tag.tone === "positive" ? SEMANTIC.positive : tag.tone === "negative" ? SEMANTIC.negative : "rgba(255,255,255,0.45)" }}
                   >
-                    {vs === "better" ? "better" : vs === "worse" ? "worse" : "same"}
+                    {tag.text}
                   </span>
                 ) : null}
               </td>
