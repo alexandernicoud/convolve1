@@ -52,18 +52,36 @@ export function pickLayout(width: number, height: number): FleetLayout {
   if (height >= 740) {
     const kpi = 60;
     const avail = height - kpi - 3 * GAP;
-    const lane = clamp(Math.round(avail * 0.1), 84, 104);
-    // Secondary plots (daily / breakdown / exposure / health) need real height to be readable.
-    const sec = Math.min(clamp(Math.round((avail - lane) * 0.52), 280, 520), avail - lane - MIN_MAIN_ROW);
+    // Activity swimlane must be tall enough for readable per-bot lanes (not a thin strip).
+    const lane = clamp(Math.round(avail * 0.2), 168, 240);
+    const sec = Math.min(clamp(Math.round((avail - lane) * 0.54), 260, 500), avail - lane - MIN_MAIN_ROW);
     const main = avail - lane - sec;
     return { ...base, tier: "L", rows: `${kpi}px minmax(0,1fr) ${sec}px ${lane}px`, kpiHeight: kpi, secondaryHeight: sec, swimlaneHeight: lane, secondary: ["daily", "contribution", "exposure", "health"], showSwimlane: true, showUnderwater: main >= MIN_MAIN, tableActivity: false, mainHeight: main };
   }
   if (height >= 600) {
     const kpi = 58;
-    const avail = height - kpi - 2 * GAP;
-    const sec = Math.min(clamp(Math.round(avail * 0.48), 220, 360), avail - MIN_MAIN_ROW);
-    const main = avail - sec;
-    return { ...base, tier: "M", rows: `${kpi}px minmax(0,1fr) ${sec}px`, kpiHeight: kpi, secondaryHeight: sec, swimlaneHeight: 0, secondary: ["daily", "contribution", "exposure", "health"], showSwimlane: false, showUnderwater: main >= MIN_MAIN, tableActivity: true, mainHeight: main };
+    // Mid heights: show the activity swimlane when there is room; otherwise keep it in the table.
+    const withLane = height >= 660;
+    const avail = height - kpi - (withLane ? 3 : 2) * GAP;
+    const lane = withLane ? clamp(Math.round(avail * 0.18), 140, 190) : 0;
+    const sec = Math.min(
+      clamp(Math.round((avail - lane) * (withLane ? 0.46 : 0.48)), withLane ? 200 : 220, 360),
+      avail - lane - MIN_MAIN_ROW,
+    );
+    const main = avail - lane - sec;
+    return {
+      ...base,
+      tier: "M",
+      rows: withLane ? `${kpi}px minmax(0,1fr) ${sec}px ${lane}px` : `${kpi}px minmax(0,1fr) ${sec}px`,
+      kpiHeight: kpi,
+      secondaryHeight: sec,
+      swimlaneHeight: lane,
+      secondary: ["daily", "contribution", "exposure", "health"],
+      showSwimlane: withLane,
+      showUnderwater: main >= MIN_MAIN,
+      tableActivity: !withLane,
+      mainHeight: main,
+    };
   }
   const kpi = 56;
   const sec = clamp(Math.round((height - kpi - 2 * GAP) * 0.42), 180, 260);

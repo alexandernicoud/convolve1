@@ -1,17 +1,17 @@
-/** Persist whether the workspace toolbar (left rail) is collapsed. */
-export const SIDEBAR_COLLAPSED_KEY = "convolve:sidebar-collapsed";
+/** When true, the workspace toolbar is unpinned (hidden until edge hover). Default: pinned open. */
+export const SIDEBAR_UNPINNED_KEY = "convolve:sidebar-unpinned";
 
-export function readSidebarCollapsed(): boolean {
+export function readSidebarUnpinned(): boolean {
   try {
-    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+    return localStorage.getItem(SIDEBAR_UNPINNED_KEY) === "1";
   } catch {
     return false;
   }
 }
 
-export function writeSidebarCollapsed(v: boolean): void {
+export function writeSidebarUnpinned(v: boolean): void {
   try {
-    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, v ? "1" : "0");
+    localStorage.setItem(SIDEBAR_UNPINNED_KEY, v ? "1" : "0");
   } catch {
     /* ignore */
   }

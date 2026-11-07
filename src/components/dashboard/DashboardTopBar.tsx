@@ -46,7 +46,7 @@ export function DashboardTopBar({ title = "Overview", className }: Props) {
         <Link
           to={EARN_HREF}
           title="Earn bonus credits: answer the feedback questionnaire or cite Convolve"
-          className="convolve-btn-glow hidden h-10 lg:inline-flex items-center gap-2 rounded-lg border border-white/25 bg-white/[0.04] px-3 font-sans text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.08] sm:px-4"
+          className="convolve-btn-glow hidden h-10 lg:inline-flex items-center gap-2 rounded-2xl border border-white/25 bg-white/[0.04] px-3 font-sans text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.08] sm:px-4"
         >
           <Gift className="h-4 w-4" aria-hidden />
           Earn
@@ -54,7 +54,7 @@ export function DashboardTopBar({ title = "Overview", className }: Props) {
         <Link
           to="/tools/deploy"
           title="Create a paper-trading bot from one of your models (simulated trades, no real orders)"
-          className="convolve-btn-glow hidden h-10 items-center gap-2 rounded-lg bg-white px-4 md:inline-flex font-sans text-sm font-semibold text-[#0a0a0a] shadow-[0_0_24px_rgba(255,255,255,0.12)] transition hover:bg-white/90 sm:px-5"
+          className="convolve-btn-glow hidden h-10 items-center gap-2 rounded-2xl bg-white px-4 md:inline-flex font-sans text-sm font-semibold text-[#0a0a0a] shadow-[0_0_24px_rgba(255,255,255,0.12)] transition hover:bg-white/90 sm:px-5"
         >
           <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden />
           Launch Bot
@@ -63,7 +63,7 @@ export function DashboardTopBar({ title = "Overview", className }: Props) {
           to="/tools/generator"
           title="Start a research workflow: generate labelled training charts"
           aria-label="Start Research"
-          className="convolve-btn-glow inline-flex h-10 items-center gap-2 rounded-lg border border-white/25 bg-white/[0.04] px-3 font-sans text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.08] sm:px-4"
+          className="convolve-btn-glow inline-flex h-10 items-center gap-2 rounded-2xl border border-white/25 bg-white/[0.04] px-3 font-sans text-sm font-semibold text-white transition hover:border-white/40 hover:bg-white/[0.08] sm:px-4"
         >
           <FlaskConical className="h-4 w-4" aria-hidden />
           <span className="hidden sm:inline">Start Research</span>

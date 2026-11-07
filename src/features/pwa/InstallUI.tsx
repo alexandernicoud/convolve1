@@ -95,8 +95,8 @@ export function InstallSideLink({ className, variant = "rail" }: { className?: s
         title="Install Convolve as an app"
         className={cn(
           variant === "rail"
-            ? "flex w-full flex-col items-center gap-0.5 rounded-xl py-1 text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
-            : "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] text-white/80 hover:bg-white/[0.06]",
+            ? "convolve-btn-glow flex w-full flex-col items-center gap-0.5 rounded-2xl py-1 text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
+            : "convolve-btn-glow flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-[14px] text-white/80 hover:bg-white/[0.06]",
           className,
         )}
       >

@@ -14,8 +14,6 @@ import {
   Gift,
   ShieldCheck,
   FlaskConical,
-  PanelLeftClose,
-  PanelLeftOpen,
 } from "lucide-react";
 import { useIsAdmin } from "@/features/admin/useIsAdmin";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -23,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import { useCreditsStore } from "@/state/creditsStore";
 import { InstallSideLink } from "@/features/pwa/InstallUI";
-import { readSidebarCollapsed, writeSidebarCollapsed } from "./sidebarCollapse";
+import { readSidebarUnpinned, writeSidebarUnpinned } from "./sidebarCollapse";
 
 const formatCreditsCompact = (n: number): string => {
   if (n >= 1000) {
@@ -45,6 +43,9 @@ export const nav = [
   { to: "/tools/deploy", label: "Deploy (paper)", tag: "Deploy", icon: Rocket, tour: "nav-deploy" },
 ] as const;
 
+const navBtn =
+  "convolve-btn-glow flex w-full flex-col items-center gap-0.5 rounded-2xl px-0.5 py-1.5 transition-all duration-200";
+
 function SideLink({
   to,
   active,
@@ -65,9 +66,10 @@ function SideLink({
       <TooltipTrigger asChild>
         <Link
           to={to}
-          className={`convolve-btn-glow flex w-full flex-col items-center gap-0.5 rounded-xl py-1 transition-colors ${
-            active ? "bg-white/12 text-white ring-1 ring-white/30" : accent ? "text-[#a6ecc8] hover:bg-white/[0.06]" : "text-white/70 hover:bg-white/[0.06] hover:text-white"
-          }`}
+          className={cn(
+            navBtn,
+            active ? "bg-white/12 text-white ring-1 ring-white/30" : accent ? "text-[#a6ecc8] hover:bg-white/[0.06]" : "text-white/70 hover:bg-white/[0.06] hover:text-white",
+          )}
         >
           <Icon className="h-[20px] w-[20px] shrink-0" aria-hidden />
           <span className="text-center text-[7px] font-semibold uppercase leading-tight tracking-wide text-white/55">{label}</span>
@@ -99,7 +101,8 @@ export function DashboardSidebar() {
   const loaded = useCreditsStore((s) => s.loaded);
   const costs = useCreditsStore((s) => s.costs);
   const refresh = useCreditsStore((s) => s.refresh);
-  const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
+  /** Unpinned = hidden until edge hover. Default pinned (visible on load). */
+  const [unpinned, setUnpinned] = useState(readSidebarUnpinned);
   const [edgeHover, setEdgeHover] = useState(false);
 
   useEffect(() => {
@@ -107,8 +110,8 @@ export function DashboardSidebar() {
   }, [refresh, pathname]);
 
   useEffect(() => {
-    writeSidebarCollapsed(collapsed);
-  }, [collapsed]);
+    writeSidebarUnpinned(unpinned);
+  }, [unpinned]);
 
   const enforced = mode === "enforce";
   const cheapest = Math.min(...Object.values(costs).filter((c) => c > 0), Infinity);
@@ -122,12 +125,16 @@ export function DashboardSidebar() {
   const accountActive = pathname === "/account" && !usageActive && !earnActive;
   const admin = useIsAdmin();
 
-  const revealed = !collapsed || edgeHover;
+  const revealed = !unpinned || edgeHover;
+
+  const togglePin = () => {
+    setUnpinned((u) => !u);
+    setEdgeHover(false);
+  };
 
   return (
     <>
-      {/* Hot zones: left edge (toolbar side) and right edge of the viewport when collapsed. */}
-      {collapsed ? (
+      {unpinned ? (
         <>
           <div
             className="pointer-events-auto fixed bottom-0 left-0 top-0 z-[45] w-3 md:w-4"
@@ -148,38 +155,23 @@ export function DashboardSidebar() {
           revealed ? "w-[92px] opacity-100" : "pointer-events-none w-0 overflow-hidden opacity-0",
         )}
         onMouseLeave={() => {
-          if (collapsed) setEdgeHover(false);
+          if (unpinned) setEdgeHover(false);
         }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          togglePin();
+        }}
+        title={unpinned ? "Right-click to pin the toolbar open" : "Right-click to unpin the toolbar"}
       >
         <aside
           className={cn(
-            "flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.08]",
-            "bg-black/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl",
+            "flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl",
+            "border border-white/22 bg-black/95 shadow-[0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl",
             "w-[92px]",
           )}
+          aria-label="Workspace toolbar. Right-click to pin or unpin."
         >
-          <div className="flex justify-center border-b border-white/[0.07] px-1 py-1.5">
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="convolve-btn-glow rounded-lg p-1.5 text-white/55 transition hover:bg-white/[0.08] hover:text-white"
-                  aria-label={collapsed ? "Keep toolbar open" : "Collapse toolbar"}
-                  aria-pressed={collapsed}
-                  onClick={() => {
-                    setCollapsed((c) => !c);
-                    setEdgeHover(false);
-                  }}
-                >
-                  {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="border-white/10 bg-[#0a0a0a] text-neutral-200">
-                {collapsed ? "Pin toolbar open" : "Collapse toolbar (hover left or right screen edge to peek)"}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          <nav className="flex flex-1 flex-col items-center gap-0.5 px-1.5 py-2">
+          <nav className="flex flex-1 flex-col items-center gap-0.5 px-1.5 py-3">
             {nav.map(({ to, label, tag, icon: Icon, tour }) => {
               const active = linkActive(to);
               return (
@@ -188,11 +180,12 @@ export function DashboardSidebar() {
                     <Link
                       to={to}
                       data-tour={tour}
-                      className={`convolve-btn-glow flex w-full flex-col items-center gap-0.5 rounded-xl px-0.5 py-1.5 transition-all duration-200 ${
+                      className={cn(
+                        navBtn,
                         active
                           ? "bg-white/15 text-white shadow-[0_0_24px_rgba(255,255,255,0.12)] ring-2 ring-white/35 ring-offset-2 ring-offset-black"
-                          : "text-white/70 hover:bg-white/[0.06] hover:text-white"
-                      }`}
+                          : "text-white/70 hover:bg-white/[0.06] hover:text-white",
+                      )}
                     >
                       <Icon
                         className={`h-[20px] w-[20px] shrink-0 stroke-[1.75] ${active ? "drop-shadow-[0_0_8px_rgba(255,255,255,0.45)]" : ""}`}
@@ -213,7 +206,7 @@ export function DashboardSidebar() {
               );
             })}
           </nav>
-          <div className="flex flex-col items-center gap-1 border-t border-white/[0.07] px-1.5 py-3">
+          <div className="flex flex-col items-center gap-1 border-t border-white/15 px-1.5 py-3">
             {admin && (
               <SideLink to="/dashboard/admin" active={pathname.startsWith("/dashboard/admin")} icon={ShieldCheck} label="Admin" tip="Admin console" />
             )}
@@ -223,9 +216,7 @@ export function DashboardSidebar() {
               <TooltipTrigger asChild>
                 <Link
                   to="/account?tab=usage"
-                  className={`convolve-btn-glow w-full rounded-xl px-1 py-1.5 transition-colors hover:bg-white/[0.06] ${
-                    usageActive ? "bg-white/[0.08] ring-1 ring-white/20" : ""
-                  }`}
+                  className={cn(navBtn, usageActive ? "bg-white/[0.08] ring-1 ring-white/20" : "hover:bg-white/[0.06]")}
                 >
                   <p className={`text-center font-digits text-[11px] font-bold tabular-nums ${low ? "text-red-300" : "text-white"}`}>
                     {creditsLabel}
@@ -241,11 +232,12 @@ export function DashboardSidebar() {
               <TooltipTrigger asChild>
                 <Link
                   to="/account"
-                  className={`convolve-btn-glow flex w-full flex-col items-center gap-0.5 rounded-xl py-1 transition-colors ${
+                  className={cn(
+                    navBtn,
                     accountActive
                       ? "bg-white/12 text-white shadow-[0_0_16px_rgba(255,255,255,0.1)] ring-1 ring-white/30"
-                      : "text-white/70 hover:bg-white/[0.06] hover:text-white"
-                  }`}
+                      : "text-white/70 hover:bg-white/[0.06] hover:text-white",
+                  )}
                 >
                   <Settings className="h-[20px] w-[20px] shrink-0" aria-hidden />
                   <span className="text-center text-[7px] font-semibold uppercase leading-tight tracking-wide text-white/55">Settings</span>
@@ -261,9 +253,10 @@ export function DashboardSidebar() {
                 <Link
                   to="/help"
                   data-tour="nav-help"
-                  className={`convolve-btn-glow flex w-full flex-col items-center gap-0.5 rounded-xl py-1 transition-colors ${
-                    pathname === "/help" ? "bg-white/12 text-white ring-1 ring-white/30" : "text-white/70 hover:bg-white/[0.06] hover:text-white"
-                  }`}
+                  className={cn(
+                    navBtn,
+                    pathname === "/help" ? "bg-white/12 text-white ring-1 ring-white/30" : "text-white/70 hover:bg-white/[0.06] hover:text-white",
+                  )}
                 >
                   <HelpCircle className="h-[20px] w-[20px] shrink-0" aria-hidden />
                   <span className="text-center text-[7px] font-semibold uppercase leading-tight tracking-wide text-white/55">Help</span>
@@ -278,11 +271,12 @@ export function DashboardSidebar() {
               <TooltipTrigger asChild>
                 <Link
                   to="/account"
-                  className={`convolve-btn-glow flex w-full flex-col items-center gap-0.5 rounded-xl py-1 transition-colors ${
+                  className={cn(
+                    navBtn,
                     accountActive
                       ? "bg-white/12 text-white shadow-[0_0_16px_rgba(255,255,255,0.1)] ring-1 ring-white/30"
-                      : "text-white/70 hover:bg-white/[0.06] hover:text-white"
-                  }`}
+                      : "text-white/70 hover:bg-white/[0.06] hover:text-white",
+                  )}
                 >
                   <User className="h-[20px] w-[20px] shrink-0" aria-hidden />
                   <span className="text-center text-[7px] font-semibold uppercase leading-tight tracking-wide text-white/55">Account</span>

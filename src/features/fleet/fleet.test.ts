@@ -242,8 +242,9 @@ test("secondary charts get a real share of tall screens instead of a fixed strip
   for (const [vw, vh] of [[1440, 900], [1920, 1080], [2560, 1440]] as [number, number][]) {
     const { width, height } = area(vw, vh);
     const l = pickLayout(width, height);
-    assert.ok(l.secondaryHeight >= 280, `${vw}x${vh}: secondary ${l.secondaryHeight}px`);
+    assert.ok(l.secondaryHeight >= 260, `${vw}x${vh}: secondary ${l.secondaryHeight}px`);
+    assert.ok(l.showSwimlane && l.swimlaneHeight >= 160, `${vw}x${vh}: activity lane ${l.swimlaneHeight}px`);
   }
   const m = pickLayout(area(1366, 768).width, area(1366, 768).height);
-  assert.ok(m.secondaryHeight >= 220, `1366x768: secondary ${m.secondaryHeight}px`);
+  assert.ok(m.secondaryHeight >= 200, `1366x768: secondary ${m.secondaryHeight}px`);
 });

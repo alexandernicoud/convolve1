@@ -4,9 +4,9 @@ import type { FleetPayload } from "../api";
 import { ACCENT, fleetLane, fmtClock, fmtMoney, laneOrder, ms, tickLabel, timeTicks } from "../lib";
 import { FrameNote, Panel, TipRow, TooltipBox, useElementSize } from "../ui";
 
-const LABEL_W = 64;
-const LANE_H = 10;
-const AXIS_H = 13;
+const LABEL_W = 72;
+const LANE_H = 18;
+const AXIS_H = 18;
 
 export function ActivitySwimlane({ p, hovered, onHover }: { p: FleetPayload; hovered: string | null; onHover: (id: string | null) => void }) {
   const [ref, size] = useElementSize<HTMLDivElement>();
@@ -60,29 +60,29 @@ export function ActivitySwimlane({ p, hovered, onHover }: { p: FleetPayload; hov
               const dim = hovered && !isFleet && hovered !== lane.id;
               return (
                 <g key={lane.id} opacity={dim ? 0.35 : 1} onMouseEnter={() => !isFleet && onHover(lane.id)}>
-                  <text x={0} y={y + LANE_H - 1.5} fontSize={10} fill={isFleet ? "rgba(255,255,255,0.75)" : hovered === lane.id ? "#FFFFFF" : "rgba(255,255,255,0.5)"}>
+                  <text x={0} y={y + LANE_H - 4} fontSize={11} fill={isFleet ? "rgba(255,255,255,0.8)" : hovered === lane.id ? "#FFFFFF" : "rgba(255,255,255,0.55)"}>
                     {lane.label}
                   </text>
-                  <rect x={LABEL_W} y={y + 1} width={plotW} height={LANE_H - 2} fill="rgba(255,255,255,0.02)" />
+                  <rect x={LABEL_W} y={y + 2} width={plotW} height={LANE_H - 4} fill="rgba(255,255,255,0.03)" rx={2} />
                   {(l?.gaps ?? []).map(([g0, g1]) => {
                     const a0 = ms(g0) ?? start, a1 = ms(g1) ?? end;
-                    return <rect key={g0} x={x(a0)} y={y + 1} width={Math.max(1, x(a1) - x(a0))} height={LANE_H - 2} fill="rgba(255,255,255,0.06)" />;
+                    return <rect key={g0} x={x(a0)} y={y + 2} width={Math.max(1, x(a1) - x(a0))} height={LANE_H - 4} fill="rgba(255,255,255,0.07)" rx={1} />;
                   })}
                   {ok.map((o, i) => {
                     const e = err[i] ?? 0;
                     if (!o && !e) return null;
-                    return <rect key={i} x={LABEL_W + i * bw} y={e ? y + 1 : y + 3} width={Math.max(1, bw - 0.6)} height={e ? LANE_H - 2 : LANE_H - 6} fill={e ? "#F87171" : ACCENT} fillOpacity={e ? 0.9 : isFleet ? 0.6 : 0.45} />;
+                    return <rect key={i} x={LABEL_W + i * bw} y={e ? y + 2 : y + 4} width={Math.max(1.5, bw - 0.5)} height={e ? LANE_H - 4 : LANE_H - 8} fill={e ? "#F87171" : ACCENT} fillOpacity={e ? 0.92 : isFleet ? 0.65 : 0.5} rx={1} />;
                   })}
                   {(l?.opens ?? []).map((o) => {
                     const t = ms(o.t);
                     if (t == null || t < start) return null;
                     const cx = x(t);
-                    return <path key={`o${o.t}`} d={`M${cx} ${y + 2} L${cx + 4} ${y + LANE_H - 2} L${cx - 4} ${y + LANE_H - 2} Z`} fill="#FFFFFF" fillOpacity={o.precise ? 0.85 : 0.4} />;
+                    return <path key={`o${o.t}`} d={`M${cx} ${y + 3} L${cx + 5} ${y + LANE_H - 3} L${cx - 5} ${y + LANE_H - 3} Z`} fill="#FFFFFF" fillOpacity={o.precise ? 0.9 : 0.45} />;
                   })}
                   {(l?.closes ?? []).map((c) => {
                     const t = ms(c.t);
                     if (t == null || t < start) return null;
-                    return <circle key={`c${c.t}`} cx={x(t)} cy={y + LANE_H / 2} r={2.8} fill={(c.pnl ?? 0) >= 0 ? SEMANTIC.positive : SEMANTIC.negative} fillOpacity={c.precise ? 1 : 0.5} />;
+                    return <circle key={`c${c.t}`} cx={x(t)} cy={y + LANE_H / 2} r={3.2} fill={(c.pnl ?? 0) >= 0 ? SEMANTIC.positive : SEMANTIC.negative} fillOpacity={c.precise ? 1 : 0.5} />;
                   })}
                   <rect
                     x={LABEL_W}
