@@ -1,4 +1,7 @@
 {
+  "redirects": [
+    { "source": "/index.html", "destination": "/", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/products", "destination": "/seo/products.html" },
     { "source": "/about", "destination": "/seo/about.html" },

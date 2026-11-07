@@ -717,15 +717,17 @@ export function SectionNewsletterSocial({
             <h2 className="text-2xl font-bold tracking-tight text-white md:text-3xl">Follow us</h2>
             <p className="mt-3 text-base text-white/60 md:text-lg">LinkedIn and Instagram.</p>
             <div className="mt-8 flex items-center gap-5">
-            <a
-              href={FOUNDER_INSTAGRAM_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.16] bg-black/50 text-white/90 transition hover:border-white/28 hover:bg-white/[0.08]"
-              aria-label="Instagram"
-            >
-              <Instagram className="h-6 w-6" strokeWidth={1.75} />
-            </a>
+            {FOUNDER_INSTAGRAM_URL ? (
+              <a
+                href={FOUNDER_INSTAGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.16] bg-black/50 text-white/90 transition hover:border-white/28 hover:bg-white/[0.08]"
+                aria-label="Instagram"
+              >
+                <Instagram className="h-6 w-6" strokeWidth={1.75} />
+              </a>
+            ) : null}
             <a
               href={FOUNDER_LINKEDIN_URL}
               target="_blank"

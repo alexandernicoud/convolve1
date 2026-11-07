@@ -1,4 +1,11 @@
 User-agent: *
 Allow: /
+Disallow: /seo/
+Disallow: /dashboard
+Disallow: /account
+Disallow: /tools/
+Disallow: /auth/
+Disallow: /login
+Disallow: /credits
 
 Sitemap: https://www.we-convolve.com/sitemap.xml

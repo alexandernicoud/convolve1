@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { OG_IMAGE, PUBLIC_ROUTES, SITE_NAME, SITE_URL, routeMeta } from "@/lib/seoRoutes";
+import { OG_IMAGE, OG_IMAGE_ALT, PUBLIC_ROUTES, SITE_NAME, SITE_URL, routeMeta } from "@/lib/seoRoutes";
 
 function upsert(selector: string, create: () => HTMLElement, attr: string, value: string) {
   let el = document.head.querySelector<HTMLElement>(selector);
@@ -44,8 +44,11 @@ export function RouteSeo() {
     meta("property", "og:description", route.description);
     meta("property", "og:url", url);
     meta("property", "og:image", OG_IMAGE);
+    meta("property", "og:image:alt", OG_IMAGE_ALT);
     meta("name", "twitter:title", route.title);
     meta("name", "twitter:description", route.description);
+    meta("name", "twitter:image", OG_IMAGE);
+    meta("name", "twitter:image:alt", OG_IMAGE_ALT);
   }, [pathname]);
   return null;
 }

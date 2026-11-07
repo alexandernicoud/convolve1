@@ -3,31 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Convolve — Build & Backtest AI Trading Models</title>
-    <meta name="description" content="Train neural networks on candlestick charts, visualize what AI learns, and backtest trading strategies. Explore visual quantitative research with Convolve." />
+    <title>Convolve — Build &amp; Backtest AI Trading Models</title>
+    <meta name="description" content="Convolve is a research workspace for training neural networks on candlestick charts, inspecting what they learn, and backtesting trading strategies on unseen data." />
     <meta name="robots" content="index, follow" />
     <link rel="canonical" href="https://www.we-convolve.com/" />
     <meta name="theme-color" content="#050506" />
+    <meta name="application-name" content="Convolve" />
 
-    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <!-- Prefer PNG/SVG Convolve marks; .ico kept last for legacy agents. Google uses ~48px. -->
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48x48.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Convolve" />
-    <meta property="og:title" content="Convolve — Build & Backtest AI Trading Models" />
-    <meta property="og:description" content="Train neural networks on candlestick charts, visualize what AI learns, and backtest trading strategies. Explore visual quantitative research with Convolve." />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="Convolve — Build &amp; Backtest AI Trading Models" />
+    <meta property="og:description" content="Convolve is a research workspace for training neural networks on candlestick charts, inspecting what they learn, and backtesting trading strategies on unseen data." />
     <meta property="og:url" content="https://www.we-convolve.com/" />
     <meta property="og:image" content="https://www.we-convolve.com/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Convolve" />
+    <meta property="og:image:alt" content="Convolve — chart-based neural nets for markets" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Convolve — Build & Backtest AI Trading Models" />
-    <meta name="twitter:description" content="Train neural networks on candlestick charts, visualize what AI learns, and backtest trading strategies. Explore visual quantitative research with Convolve." />
+    <meta name="twitter:title" content="Convolve — Build &amp; Backtest AI Trading Models" />
+    <meta name="twitter:description" content="Convolve is a research workspace for training neural networks on candlestick charts, inspecting what they learn, and backtesting trading strategies on unseen data." />
     <meta name="twitter:image" content="https://www.we-convolve.com/og-image.png" />
+    <meta name="twitter:image:alt" content="Convolve — chart-based neural nets for markets" />
 
     <script type="application/ld+json">
       {
@@ -38,16 +45,37 @@
             "@id": "https://www.we-convolve.com/#website",
             "url": "https://www.we-convolve.com/",
             "name": "Convolve",
+            "alternateName": ["we-convolve", "We Convolve"],
+            "description": "Research workspace for training neural networks on candlestick charts and backtesting them on unseen data.",
+            "inLanguage": "en",
             "publisher": { "@id": "https://www.we-convolve.com/#organization" }
           },
           {
             "@type": "Organization",
             "@id": "https://www.we-convolve.com/#organization",
             "name": "Convolve",
+            "legalName": "Alexander Nicoud",
             "url": "https://www.we-convolve.com/",
-            "logo": "https://www.we-convolve.com/icon-512.png",
             "email": "info.convolve@gmail.com",
-            "founder": { "@type": "Person", "name": "Alexander Nicoud" }
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://www.we-convolve.com/icon-512.png",
+              "width": 512,
+              "height": 512
+            },
+            "image": "https://www.we-convolve.com/og-image.png",
+            "sameAs": [
+              "https://www.linkedin.com/in/alexander-nicoud-11a707398/"
+            ],
+            "founder": {
+              "@type": "Person",
+              "@id": "https://www.we-convolve.com/#founder",
+              "name": "Alexander Nicoud",
+              "url": "https://www.we-convolve.com/about",
+              "sameAs": [
+                "https://www.linkedin.com/in/alexander-nicoud-11a707398/"
+              ]
+            }
           },
           {
             "@type": "SoftwareApplication",
@@ -55,7 +83,13 @@
             "url": "https://www.we-convolve.com/",
             "applicationCategory": "FinanceApplication",
             "operatingSystem": "Web browser",
-            "description": "Train neural networks on candlestick charts, visualize what AI learns, and backtest trading strategies.",
+            "description": "Train neural networks on candlestick charts, inspect what they learn, and backtest trading strategies on unseen data.",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "description": "Free public beta"
+            },
             "publisher": { "@id": "https://www.we-convolve.com/#organization" }
           }
         ]
@@ -68,8 +102,8 @@
   <body>
     <div id="root"></div>
     <noscript>
-      <h1>Convolve — Build &amp; Backtest AI Trading Models</h1>
-      <p>Train neural networks on candlestick charts, visualize what AI learns, and backtest trading strategies. Convolve needs JavaScript to run.</p>
+      <h1>Convolve</h1>
+      <p>AI that reads charts. Train neural networks on candlestick charts, inspect what they learn, and backtest trading strategies. Convolve needs JavaScript to run.</p>
     </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>

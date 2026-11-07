@@ -7,6 +7,12 @@
 export const SITE_URL = "https://www.we-convolve.com";
 export const SITE_NAME = "Convolve";
 export const OG_IMAGE = `${SITE_URL}/og-image.png`;
+export const OG_IMAGE_ALT = "Convolve — chart-based neural nets for markets";
+
+/** Official public profiles that identify Convolve / its operator. Only real profiles — never placeholders. */
+export const OFFICIAL_PROFILES = [
+  "https://www.linkedin.com/in/alexander-nicoud-11a707398/",
+] as const;
 
 export type RouteMeta = {
   path: string;
@@ -23,7 +29,7 @@ export const PUBLIC_ROUTES: RouteMeta[] = [
     path: "/",
     title: "Convolve — Build & Backtest AI Trading Models",
     description:
-      "Train neural networks on candlestick charts, visualize what AI learns, and backtest trading strategies. Explore visual quantitative research with Convolve.",
+      "Convolve is a research workspace for training neural networks on candlestick charts, inspecting what they learn, and backtesting trading strategies on unseen data.",
     changefreq: "weekly",
     priority: 1,
   },

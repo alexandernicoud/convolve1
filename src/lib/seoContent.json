@@ -3,7 +3,11 @@
   "blocks": [
    [
     "h1",
-    "Build your own AI that reads charts."
+    "Convolve"
+   ],
+   [
+    "p",
+    "AI that reads charts."
    ],
    [
     "p",

@@ -56,9 +56,10 @@ function seoPages(): Plugin {
       const notFound = { path: "", title: "Page not found | Convolve", description: "This page does not exist." };
       fs.writeFileSync(path.join(outDir, "404.html"), withHead(index, notFound, null, "noindex"));
       fs.writeFileSync(path.join(outDir, "index.html"), withHead(index, PUBLIC_ROUTES[0], SITE_URL + "/", "index, follow"));
+      const lastmod = new Date().toISOString().slice(0, 10);
       const urls = PUBLIC_ROUTES.map(
         (r) =>
-          `  <url><loc>${SITE_URL}${r.path}</loc>${r.changefreq ? `<changefreq>${r.changefreq}</changefreq>` : ""}${
+          `  <url><loc>${SITE_URL}${r.path}</loc><lastmod>${lastmod}</lastmod>${r.changefreq ? `<changefreq>${r.changefreq}</changefreq>` : ""}${
             r.priority != null ? `<priority>${r.priority.toFixed(1)}</priority>` : ""
           }</url>`,
       );
