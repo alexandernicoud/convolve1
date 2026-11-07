@@ -25,9 +25,9 @@ type Store = {
   prev: () => void;
   arrived: () => void;
   left: () => void;
-  /** Close the tour, keeping the step so it can be resumed from Help. */
+  /** Pause the tour, keeping the step so it can be resumed from Help. */
   exit: () => void;
-  /** Dismiss the welcome without starting the tour. */
+  /** Skip the welcome without starting the tour. */
   skip: () => void;
   closeComplete: () => void;
   reset: () => void;

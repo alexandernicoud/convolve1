@@ -13,7 +13,8 @@ import { useRunsStore } from "@/state/runsStore";
 import { buildGraph, type AssetRefKind, type Graph } from "./lib/graph";
 import { datasetName, disambiguate, modelName, runName } from "./lib/naming";
 
-export const TABS = ["lineage", "overview", "models", "datasets", "runs", "compare"] as const;
+/** Overview first — practical starting point; Lineage is one click away. */
+export const TABS = ["overview", "lineage", "models", "datasets", "runs", "compare"] as const;
 export type TabId = (typeof TABS)[number];
 
 export interface AssetRef {
@@ -264,7 +265,7 @@ export function ReviewProvider({ children }: { children: React.ReactNode }) {
   // ---- URL state: ?tab=&inspect=kind:id&compare=kind:id,kind:id&focus=nodeKey
   const tabParam = params.get("tab");
   // "backtests" was folded into Runs; old links land there.
-  const tab: TabId = tabParam === "backtests" ? "runs" : (TABS as readonly string[]).includes(tabParam ?? "") ? (tabParam as TabId) : "lineage";
+  const tab: TabId = tabParam === "backtests" ? "runs" : (TABS as readonly string[]).includes(tabParam ?? "") ? (tabParam as TabId) : "overview";
   const inspected = parseRef(params.get("inspect"));
   const compare = useMemo(
     () =>
@@ -291,7 +292,7 @@ export function ReviewProvider({ children }: { children: React.ReactNode }) {
     [setParams],
   );
 
-  const setTab = useCallback((t: TabId) => update((p) => (t === "lineage" ? p.delete("tab") : p.set("tab", t))), [update]);
+  const setTab = useCallback((t: TabId) => update((p) => (t === "overview" ? p.delete("tab") : p.set("tab", t))), [update]);
   const inspect = useCallback((r: AssetRef | null) => update((p) => (r ? p.set("inspect", refKey(r)) : p.delete("inspect"))), [update]);
   const setFocus = useCallback((k: string | null) => update((p) => (k ? p.set("focus", k) : p.delete("focus"))), [update]);
   const setCompare = useCallback(

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ReviewEdge } from "@/lib/api";
 import { useReview } from "../ReviewContext";
-import { collapseLeafGroups, lineageOf, NODE_KIND_LABEL, RELATION_LABEL, type GraphNode, type NodeKind } from "../lib/graph";
+import { collapseLeafGroups, lineageOf, NODE_KIND_LABEL, RELATION_LABEL, simplifyResearchGraph, type GraphNode, type NodeKind } from "../lib/graph";
 import { edgePath, LAYOUT, layoutGraph } from "../lib/graphLayout";
 import { nodeActions } from "../lib/nodeActions";
 import { useRunRoute } from "../components/assets";
@@ -35,13 +35,17 @@ function nodeCaption(n: GraphNode): string {
 }
 
 export function LineageView() {
-  const { graph, focus, setFocus, inspect, data } = useReview();
+  const { graph: rawGraph, focus, setFocus, inspect, data } = useReview();
   const [mode, setMode] = useState<"graph" | "table">("graph");
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [showIsolated, setShowIsolated] = useState(false);
   const [showRecovered, setShowRecovered] = useState(true);
+  /** Default: research assets only (fold generator/trainer/testdata runs into their products). */
+  const [showTechnicalRuns, setShowTechnicalRuns] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [q, setQ] = useState("");
+
+  const graph = useMemo(() => (showTechnicalRuns ? rawGraph : simplifyResearchGraph(rawGraph)), [rawGraph, showTechnicalRuns]);
 
   const edges = useMemo(() => graph.edges.filter((e) => showRecovered || e.provenance === "recorded"), [graph.edges, showRecovered]);
 
@@ -170,6 +174,13 @@ export function LineageView() {
         <Chip active={showIsolated} onClick={() => setShowIsolated((v) => !v)} title="Assets with no recorded links">
           Unlinked assets
         </Chip>
+        <Chip
+          active={showTechnicalRuns}
+          onClick={() => setShowTechnicalRuns((v) => !v)}
+          title="Show generator, trainer and test-data runs as separate nodes (full technical lineage)"
+        >
+          Technical runs
+        </Chip>
         {expanded.size ? (
           <Chip active={false} onClick={() => setExpanded(new Set())} title="Fold repeated sibling assets back into groups">
             Collapse groups
@@ -208,6 +219,9 @@ export function LineageView() {
       )}
 
       <p className="max-w-5xl text-[13px] leading-relaxed text-white/40">
+        {showTechnicalRuns
+          ? "Technical view: generator, trainer and test-data runs appear as their own nodes."
+          : "Research view: each node is a stock, dataset, model, analysis, backtest or bot. Generator, trainer and test-data runs are folded into the assets they produced — turn on Technical runs for the full chain."}{" "}
         Every link comes from metadata the tools wrote (recorded) or from an explicit, documented reconstruction such as chart-filename overlap (recovered). Stock links come from the
         symbols each run recorded in its own configuration. Nothing is inferred from matching names.
         {unknownBots ? ` ${unknownBots} bot${unknownBots > 1 ? "s were" : " was"} deployed before provenance was recorded and stay unlinked.` : ""}

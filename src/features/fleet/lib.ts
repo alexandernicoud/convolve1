@@ -52,20 +52,21 @@ export function pickLayout(width: number, height: number): FleetLayout {
   if (height >= 740) {
     const kpi = 60;
     const avail = height - kpi - 3 * GAP;
-    const lane = clamp(Math.round(avail * 0.11), 88, 112);
-    const sec = Math.min(clamp(Math.round((avail - lane) * 0.44), 240, 460), avail - lane - MIN_MAIN_ROW);
+    const lane = clamp(Math.round(avail * 0.1), 84, 104);
+    // Secondary plots (daily / breakdown / exposure / health) need real height to be readable.
+    const sec = Math.min(clamp(Math.round((avail - lane) * 0.52), 280, 520), avail - lane - MIN_MAIN_ROW);
     const main = avail - lane - sec;
     return { ...base, tier: "L", rows: `${kpi}px minmax(0,1fr) ${sec}px ${lane}px`, kpiHeight: kpi, secondaryHeight: sec, swimlaneHeight: lane, secondary: ["daily", "contribution", "exposure", "health"], showSwimlane: true, showUnderwater: main >= MIN_MAIN, tableActivity: false, mainHeight: main };
   }
   if (height >= 600) {
     const kpi = 58;
     const avail = height - kpi - 2 * GAP;
-    const sec = Math.min(clamp(Math.round(avail * 0.42), 190, 300), avail - MIN_MAIN_ROW);
+    const sec = Math.min(clamp(Math.round(avail * 0.48), 220, 360), avail - MIN_MAIN_ROW);
     const main = avail - sec;
     return { ...base, tier: "M", rows: `${kpi}px minmax(0,1fr) ${sec}px`, kpiHeight: kpi, secondaryHeight: sec, swimlaneHeight: 0, secondary: ["daily", "contribution", "exposure", "health"], showSwimlane: false, showUnderwater: main >= MIN_MAIN, tableActivity: true, mainHeight: main };
   }
   const kpi = 56;
-  const sec = clamp(Math.round((height - kpi - 2 * GAP) * 0.36), 156, 220);
+  const sec = clamp(Math.round((height - kpi - 2 * GAP) * 0.42), 180, 260);
   const main = height - kpi - sec - 2 * GAP;
   return { ...base, tier: "S", rows: `${kpi}px minmax(0,1fr) ${sec}px`, kpiHeight: kpi, secondaryHeight: sec, swimlaneHeight: 0, secondary: ["daily", "health"], showSwimlane: false, showUnderwater: main >= MIN_MAIN, tableActivity: true, mainHeight: main };
 }

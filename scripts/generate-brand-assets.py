@@ -19,7 +19,7 @@ OUT = ROOT / "public"
 BG = (5, 5, 6, 255)
 
 
-def square_icon(size: int, pad_ratio: float = 0.18) -> Image.Image:
+def square_icon(size: int, pad_ratio: float = 0.04) -> Image.Image:
     canvas = Image.new("RGBA", (size, size), BG)
     pad = int(size * pad_ratio)
     inner = max(1, size - 2 * pad)
@@ -66,7 +66,7 @@ def write_og() -> None:
     og = Image.new("RGB", (w, h), (5, 5, 6))
     draw = ImageDraw.Draw(og)
     draw.rectangle([0, 0, w, 2], fill=(166, 236, 200))
-    mark = square_icon(220, pad_ratio=0.12).convert("RGBA")
+    mark = square_icon(240, pad_ratio=0.02).convert("RGBA")
     og.paste(mark, (96, (h - mark.height) // 2), mark)
     try:
         font_brand = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 92)
@@ -95,9 +95,9 @@ def main() -> None:
     save_png(square_icon(48), OUT / "favicon-48x48.png")
     save_png(square_icon(180), OUT / "apple-touch-icon.png", rgb=True)
     save_png(square_icon(192), OUT / "icon-192.png", rgb=True)
-    save_png(square_icon(512, pad_ratio=0.16), OUT / "icon-512.png", rgb=True)
+    save_png(square_icon(512, pad_ratio=0.03), OUT / "icon-512.png", rgb=True)
     save_png(square_icon(256), OUT / "favicon.png")
-    write_ico(OUT / "favicon.ico", [square_icon(16, 0.12), square_icon(32), square_icon(48)])
+    write_ico(OUT / "favicon.ico", [square_icon(16, 0.0), square_icon(32, 0.06), square_icon(48, 0.05)])
     png48 = (OUT / "favicon-48x48.png").read_bytes()
     (OUT / "favicon.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Convolve">\n'

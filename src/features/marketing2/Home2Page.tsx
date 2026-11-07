@@ -28,8 +28,7 @@ function Hero() {
   const consoleY = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : 50]);
   const enter = (delay: number) =>
     reduce ? {} : { initial: { opacity: 0, y: 18 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.9, ease: EASE, delay } };
-  // Brand name is the primary heading for branded search; layout/typography unchanged.
-  const lines = ["Convolve", "AI that reads charts"];
+  const lines = ["Build your own", "AI that reads charts"];
   return (
     <section ref={ref} className="relative isolate">
       <HeroContours />
@@ -43,13 +42,13 @@ function Hero() {
             {lines.map((l, i) => (
               <span key={l} className="-mb-[0.14em] block overflow-hidden pb-[0.14em]">
                 <motion.span
-                  className={i === 0 ? "block" : "block text-white/55"}
+                  className={i === 0 ? "block text-white/55" : "block"}
                   initial={reduce ? false : { y: "105%" }}
                   animate={{ y: 0 }}
                   transition={{ duration: 1.1, ease: EASE, delay: 0.1 + i * 0.12 }}
                 >
                   {l}
-                  {i === 0 && <span className="text-[#a6ecc8]">.</span>}
+                  {i === 1 && <span className="text-[#a6ecc8]">.</span>}
                 </motion.span>
               </span>
             ))}

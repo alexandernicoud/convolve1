@@ -52,6 +52,20 @@ const entries = [
     href: "/help#terms",
   },
   {
+    id: "gen-lookback",
+    title: "Chart history window",
+    body: "How much past price history each chart image shows (for example six months of daily bars). This is the model's input, not the training calendar and not the label horizon.",
+    more: "A longer lookback gives the network more context per image and changes which patterns it can see. It is independent of when those charts are sampled from.",
+    href: "/help#generate",
+  },
+  {
+    id: "gen-label-simulator",
+    title: "Labeling schematic",
+    body: "Shows lookback (the chart image), horizon (label lookahead), and take-profit / stop-loss lines from the entry.",
+    more: "Entry is the open of the bar after the chart. The sketch uses a synthetic price path so you can see the rule without running a dataset.",
+    href: "/help#labeling",
+  },
+  {
     id: "gen-horizon",
     title: "Future horizon",
     body: "How many bars after the chart's last candle are checked to decide its label.",
@@ -94,6 +108,43 @@ const entries = [
     title: "Training dataset",
     body: "The labelled chart images the network learns from. Your latest generator dataset is used unless you pick another or upload a ZIP.",
     href: "/help#train",
+  },
+  {
+    id: "train-dataset-selected",
+    title: "Selected training dataset",
+    body: "The dataset that will be used for this training run. Confirm name, symbol, timeframe, period and label rule before starting.",
+    href: "/help#train",
+  },
+  {
+    id: "train-dataset-change",
+    title: "Change dataset",
+    body: "Pick a different completed generator run or clear a workspace selection. Your previous choice stays until you change it.",
+  },
+  {
+    id: "train-dataset-picker",
+    title: "Generator datasets",
+    body: "Completed chart-generator runs with a downloadable ZIP. Latest completed is the default when you have not pinned another.",
+  },
+  {
+    id: "train-dataset-upload",
+    title: "External dataset upload",
+    body: "Optional alternative: upload a ZIP of labelled charts instead of a Convolve generator dataset.",
+    href: "/help#train",
+  },
+  {
+    id: "train-dataset-upload-open",
+    title: "Upload external dataset",
+    body: "Reveal the ZIP uploader. Use this only when you are not training on a Convolve-generated dataset.",
+  },
+  {
+    id: "train-dataset-use-convolve",
+    title: "Use Convolve dataset",
+    body: "Clears the uploaded ZIP so training returns to the selected generator or workspace dataset.",
+  },
+  {
+    id: "train-dataset-folder",
+    title: "Server folder path",
+    body: "Advanced: a folder of labelled images already on the server. Prefer a generator dataset or ZIP upload when possible.",
   },
   {
     id: "train-standard",

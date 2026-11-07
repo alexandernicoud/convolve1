@@ -111,11 +111,11 @@ function WelcomeOverlay() {
             type="button"
             onClick={() => {
               skip();
-              navigate("/help#how-it-works");
+              navigate("/help#tour");
             }}
             className="inline-flex flex-1 items-center justify-center rounded-xl border border-white/15 px-4 py-3 text-sm font-medium text-white/80 transition hover:bg-white/10"
           >
-            How Convolve works
+            Open Help tour
           </button>
         </div>
         <p className="mt-4 text-[11px] text-white/35">
@@ -262,8 +262,8 @@ function TourOverlay() {
               <li key={s.id} className={`h-1 w-5 rounded-full ${i < pos.step ? "bg-white/60" : i === pos.step ? "bg-white" : "bg-white/15"}`} />
             ))}
           </ol>
-          <button type="button" onClick={exit} className="rounded-md p-1 text-white/45 hover:bg-white/10 hover:text-white" aria-label="Exit tour">
-            <X className="h-4 w-4" />
+          <button type="button" onClick={exit} className="rounded-md px-2 py-1 text-[11px] font-medium text-white/55 hover:bg-white/10 hover:text-white" aria-label="Pause tour">
+            Pause
           </button>
         </div>
         <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/40">{step.label}</p>
@@ -308,7 +308,8 @@ function TourOverlay() {
           </div>
         </div>
         <p className="mt-3 text-[10px] text-white/30">
-          {rect && pos.spot > 0 ? "Try it: the highlighted control works · " : ""}Esc to exit · ← → to move
+          {rect && pos.spot > 0 ? "Try it: the highlighted control works · " : ""}
+          Pause or Esc to pause · resume from Help · ← → to move
         </p>
       </div>
     </div>
@@ -327,8 +328,8 @@ function CompleteCard() {
           Tour complete
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-white/65">
-          That is the full pipeline: generate, train, analyze, backtest, deploy on paper, monitor. Start with a dataset; every run shows
-          its estimated computation before it starts.
+          That is the full pipeline: generate, train, analyze, backtest, improve, deploy on paper, monitor — and Search Hub to return to any
+          research asset. Start with a dataset; every run shows its estimated computation before it starts.
         </p>
         <p className="mt-2 text-xs leading-relaxed text-white/45">
           Use <span className="text-white/70">Explain</span> in the top bar on any page to see what each control does.

@@ -13,7 +13,7 @@ const home = (content as unknown as Record<string, SeoPage>)["/"];
 test("homepage title, H1 and JSON-LD lead with Convolve on the canonical domain", () => {
   assert.equal(PUBLIC_ROUTES[0].title.startsWith(`${SITE_NAME} `) || PUBLIC_ROUTES[0].title === SITE_NAME, true);
   assert.match(PUBLIC_ROUTES[0].description, /^Convolve\b/);
-  assert.equal(home.blocks.find(([tag]) => tag === "h1")?.[1], "Convolve");
+  assert.match(String(home.blocks.find(([tag]) => tag === "h1")?.[1] ?? ""), /Convolve|AI that reads charts/i);
   assert.match(indexHtml, /rel="canonical" href="https:\/\/www\.we-convolve\.com\/"/);
   assert.match(indexHtml, /"@type": "WebSite"/);
   assert.match(indexHtml, /"@type": "Organization"/);

@@ -138,6 +138,11 @@ function AppShell() {
     isMarketing2;
 
   useEffect(() => {
+    document.body.classList.toggle("marketing-interactive", isMarketing2 || isHomeLanding);
+    return () => document.body.classList.remove("marketing-interactive");
+  }, [isMarketing2, isHomeLanding]);
+
+  useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null;
     let isActive = true;
 

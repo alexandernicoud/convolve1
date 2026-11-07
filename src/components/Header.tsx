@@ -91,10 +91,14 @@ function MainNav({
   return (
     <nav className="flex h-20 w-full items-center justify-between gap-3 md:grid md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-4">
       <div className="flex min-w-0 items-center md:justify-self-start">
-        <Link
-          to="/"
+        <a
+          href="/"
           aria-label="Convolve home"
           className="group -ml-1 flex min-h-11 shrink-0 items-center rounded-full p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+          onClick={(e) => {
+            e.preventDefault();
+            window.location.assign("/");
+          }}
         >
           <img src={logoMark} alt="" className="h-11 w-11 object-contain" />
           <span
@@ -106,7 +110,7 @@ function MainNav({
           >
             convolve.
           </span>
-        </Link>
+        </a>
       </div>
 
       <div className="hidden min-w-0 md:flex md:justify-center md:justify-self-center">

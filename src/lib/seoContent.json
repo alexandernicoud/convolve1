@@ -3,11 +3,7 @@
   "blocks": [
    [
     "h1",
-    "Convolve"
-   ],
-   [
-    "p",
-    "AI that reads charts."
+    "Build your own AI that reads charts."
    ],
    [
     "p",
@@ -589,15 +585,19 @@
    ],
    [
     "h2",
-    "How Convolve works"
-   ],
-   [
-    "h2",
     "Guided tour"
    ],
    [
     "p",
-    "Six steps, about three minutes. The tour highlights each tool in the sidebar, then the controls on its page. You can fill in and press each highlighted control as you go; nothing runs until you press a run button."
+    "The tour highlights each tool in the sidebar, then the controls on its page. You can fill in and press each highlighted control as you go; pause any time and resume here — nothing runs until you press a run button."
+   ],
+   [
+    "p",
+    "Explain mode stays available from the top bar on any workspace page: it outlines every control so you can click one for a short description."
+   ],
+   [
+    "h2",
+    "How Convolve works"
    ],
    [
     "h2",

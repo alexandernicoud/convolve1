@@ -9,6 +9,7 @@ import SymbolBasket from "@/components/generator/SymbolBasket";
 import { TIMESPAN_PRESETS } from "@/components/generator/timespanPresets";
 import { reviewApi, trainingChartGeneratorApi, ApiError, type ChartPreviewResult } from "@/lib/api";
 import { datasetHealth, type TestSetRef } from "@/features/generator/health";
+import LabelRuleSimulator from "@/features/generator/LabelRuleSimulator";
 import { FindingsList } from "@/features/research/FindingsList";
 import { worstSeverity } from "@/features/research/findings";
 import { useRunsStore } from "@/state/runsStore";
@@ -1065,7 +1066,7 @@ export default function Generator() {
                 <option value="1mo">Monthly (1mo)</option>
               </select>
             </div>
-            <div>
+            <div data-tour="gen-lookback" data-help="gen-lookback">
               <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
                 Chart history window <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="How much calendar history each chart image covers." />
@@ -1160,6 +1161,16 @@ export default function Generator() {
               </select>
             </div>
           </div>
+
+          <LabelRuleSimulator
+            horizonBars={config.horizonBars}
+            takeProfitFraction={config.takeProfitFraction}
+            stopLossFraction={config.stopLossFraction}
+            timespanUnit={config.timespanUnit}
+            timespanCount={config.timespanCount}
+            timeframe={config.timeframe}
+            useCandles={config.useCandles}
+          />
 
           {/* Live training image — identical to generated PNGs */}
           <div className="rounded-xl border border-white/12 bg-[#0a0a0a]/40 p-4">

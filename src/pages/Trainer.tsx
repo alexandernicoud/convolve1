@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, type ReactNode } from "react";
-import { ArrowLeft, ArrowRight, ChevronDown, ClipboardCheck, Loader2, Play } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, ChevronDown, ClipboardCheck, Loader2, Play } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import ToolLayout from "@/components/ToolLayout";
 import DatasetUploader from "@/components/DatasetUploader";
@@ -12,6 +12,7 @@ import {
   type GlobalRun,
   type DatasetListItem,
   type TrainerCatalog,
+  type TrainingChartGeneratorConfig,
   type SplitPreviewRequest,
   type SelectionMetric,
   type OptimizerSettings,
@@ -41,7 +42,9 @@ import {
 import { SplitPreviewView, useSplitPreview } from "@/features/trainer/SplitPreview";
 import { YourModels } from "@/features/trainer/YourModels";
 import { fmtDateTime, fmtInt } from "@/lib/viz/format";
-import { datasetListLabel } from "@/features/review/lib/naming";
+import { datasetListLabel, formatSymbols, labelingTag } from "@/features/review/lib/naming";
+import { fracLabel } from "@/features/review/lib/format";
+import { TIMESPAN_PRESETS } from "@/components/generator/timespanPresets";
 
 const fieldClass =
   "w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] placeholder-[#F5F5F5]/40 focus:border-white/30 focus:ring-1 focus:ring-white/50";
@@ -227,6 +230,13 @@ export default function Trainer() {
   /** null = follow “latest completed” in the store; otherwise load that run’s ZIP. */
   const [preferredGeneratorRunId, setPreferredGeneratorRunId] = useState<string | null>(null);
   const lastSeenLatestGenIdRef = useRef<string | null>(null);
+  /** Local UX: reveal DatasetUploader / generator-run picker / server-folder path. */
+  const [showUpload, setShowUpload] = useState(false);
+  const [showChangeDataset, setShowChangeDataset] = useState(false);
+  const [showServerFolder, setShowServerFolder] = useState(false);
+  /** Cached generator configs for confirmation-card metadata (TP/SL/horizon, stocks). */
+  const [genConfigByRunId, setGenConfigByRunId] = useState<Record<string, TrainingChartGeneratorConfig>>({});
+  const fetchedGenConfigRef = useRef<Set<string>>(new Set());
   /** Synchronous lock so rapid double-clicks / re-renders can't launch multiple trainings. */
   const startInFlightRef = useRef(false);
   /** Trainer run the server reports as active (source of truth for restore). */
@@ -440,6 +450,89 @@ export default function Trainer() {
       : generatorDataset
         ? generatorDatasetRunId ?? loadedGeneratorRunIdRef.current ?? undefined
         : undefined;
+
+  useEffect(() => {
+    const runId = lineageGeneratorRunId;
+    if (!runId || fetchedGenConfigRef.current.has(runId)) return;
+    fetchedGenConfigRef.current.add(runId);
+    let cancelled = false;
+    trainingChartGeneratorApi
+      .getSavedConfig(runId)
+      .then((cfg) => {
+        if (!cancelled) setGenConfigByRunId((m) => ({ ...m, [runId]: cfg }));
+      })
+      .catch(() => {
+        fetchedGenConfigRef.current.delete(runId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lineageGeneratorRunId]);
+
+  const uploadModeOpen = showUpload || !!manualUploadedDataset;
+  /** Explicit generator/library pick vs auto-following latest completed. */
+  const usingLatestGenerated =
+    !manualUploadedDataset && !libraryDataset && !preferredGeneratorRunId && !!generatorDataset;
+  const convolveDatasetReady =
+    !manualUploadedDataset && !ingestingGenZip && !!(libraryDataset || generatorDataset);
+
+  const datasetCardMeta = useMemo(() => {
+    if (!trainingDataset) return null;
+    const ds = datasetsById[trainingDataset.dataset_id];
+    const cfg = lineageGeneratorRunId ? genConfigByRunId[lineageGeneratorRunId] : undefined;
+    const fromRun =
+      lineageGeneratorRunId && runsById[lineageGeneratorRunId]
+        ? genRunLabel(runsById[lineageGeneratorRunId])
+        : null;
+    const name =
+      ds?.display_name ||
+      ds?.auto_name ||
+      ds?.name ||
+      cfg?.datasetName ||
+      fromRun ||
+      `dataset ${trainingDataset.dataset_id.slice(-8)}`;
+    const symbols = formatSymbols(ds?.symbols ?? cfg?.symbols ?? null);
+    const timeframe = (ds?.timeframe ?? cfg?.timeframe ?? null)?.toString().toUpperCase() || null;
+    const periodStart = ds?.period_start ?? cfg?.trainingStartIso ?? null;
+    const periodEnd = ds?.period_end ?? cfg?.referenceEndIso ?? null;
+    const period =
+      periodStart && periodEnd
+        ? `${String(periodStart).slice(0, 10)} → ${String(periodEnd).slice(0, 10)}`
+        : null;
+    const tp = cfg?.takeProfitFraction ?? null;
+    const sl = cfg?.stopLossFraction ?? null;
+    const horizon = cfg?.horizonBars ?? null;
+    const lookback =
+      cfg?.timespanUnit && cfg?.timespanCount != null
+        ? TIMESPAN_PRESETS.find(
+            (p) => p.unit === cfg.timespanUnit.toLowerCase() && p.count === cfg.timespanCount,
+          )?.label ?? `${cfg.timespanCount} ${cfg.timespanUnit}`
+        : null;
+    const labeling = labelingTag(tp, sl, horizon);
+    const tpSl =
+      tp != null || sl != null
+        ? `TP +${fracLabel(tp) ?? "?"}%, SL −${fracLabel(sl) ?? "?"}%`
+        : null;
+    return {
+      name,
+      symbols,
+      timeframe,
+      period,
+      lookback,
+      labeling,
+      tpSl,
+      horizon: horizon != null ? `${horizon} bars` : null,
+      images: trainingDataset.summary.total_images,
+    };
+  }, [
+    trainingDataset,
+    datasetsById,
+    lineageGeneratorRunId,
+    genConfigByRunId,
+    genRunLabel,
+    runsById,
+  ]);
+
   const changed = changedSections(opts, effSeed);
 
   const splitRequest = useMemo((): SplitPreviewRequest | null => {
@@ -1085,91 +1178,231 @@ export default function Trainer() {
           Training dataset <span className="text-[#e5e5e5]">*</span>
         </label>
         <p className="mb-3 text-[13px] leading-relaxed text-[#F5F5F5]/52">
-          Your latest completed chart generator dataset is used by default. Pick another run below, or upload your own ZIP, which then takes precedence.
+          A Convolve chart-generator dataset is selected by default. Upload an external ZIP only if you are not using one from Convolve.
         </p>
-        {chartGenRunsWithZip.length > 0 ? (
-          <div className="mb-3 space-y-2">
-            <label className={smallLabel}>Dataset from generator run</label>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <select
-                value={preferredGeneratorRunId ?? ""}
-                onChange={(e) => {
-                  const v = e.target.value.trim();
-                  loadedGeneratorRunIdRef.current = null;
-                  setPreferredGeneratorRunId(v === "" ? null : v);
-                }}
-                className={`${fieldClass} min-w-0 flex-1`}
-              >
-                <option value="">
-                  Latest completed
-                  {latestCompletedChartGen ? ` (${genRunLabel(latestCompletedChartGen)})` : ""}
-                </option>
-                {chartGenRunsWithZip.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {genRunLabel(r)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        ) : (
-          <p className="mb-3 text-[13px] text-white/55">No completed chart generator run with a dataset yet. Generate one first, or upload a ZIP below.</p>
-        )}
-        {effectiveGeneratorRun && generatorDataset && !ingestingGenZip ? (
-          <p className="mb-3 text-[12.5px] text-white/45">
-            {fmtInt(generatorDataset.summary.total_images)} images ready
-            {manualUploadedDataset ? " · your uploaded ZIP is used instead" : ""}
-          </p>
-        ) : null}
-        {ingestingGenZip ? (
+
+        {ingestingGenZip && !manualUploadedDataset ? (
           <div className="mb-3 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-3 text-sm text-white/70">
             <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
             Importing generator dataset…
           </div>
         ) : null}
-        {libraryDataset && !manualUploadedDataset ? (
-          <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[13px] text-white/75">
-            <span className="min-w-0 truncate">
-              From your workspace: {datasetsById[libraryDataset.dataset_id]?.display_name || datasetsById[libraryDataset.dataset_id]?.name || libraryDataset.dataset_id}
-            </span>
-            <button
-              type="button"
-              className="shrink-0 text-[12.5px] text-white/50 hover:text-white"
-              onClick={() => {
-                setLibraryDataset(null);
-                navigate("/tools/trainer?new=1", { replace: true });
-              }}
-            >
-              Use another dataset
-            </button>
+
+        {/* Primary: Convolve dataset confirmation (hidden while an external upload is the active input). */}
+        {!uploadModeOpen && convolveDatasetReady && datasetCardMeta ? (
+          <div
+            className="mb-3 rounded-xl border border-white/15 bg-white/[0.03] px-4 py-4"
+            data-help="train-dataset-selected"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-sm font-medium text-white">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/15">
+                    <Check className="h-3 w-3 text-white" aria-hidden />
+                  </span>
+                  {usingLatestGenerated
+                    ? "Latest generated dataset selected — Ready to train"
+                    : "Selected dataset — Ready to train"}
+                </p>
+                <p className="mt-2 truncate text-[13.5px] text-white/85">{datasetCardMeta.name}</p>
+              </div>
+              <button
+                type="button"
+                data-help="train-dataset-change"
+                onClick={() => setShowChangeDataset((v) => !v)}
+                className="shrink-0 rounded-lg border border-white/12 bg-white/[0.04] px-3 py-1.5 text-[12.5px] text-white/70 transition hover:border-white/25 hover:text-white"
+              >
+                {showChangeDataset ? "Hide picker" : "Change dataset"}
+              </button>
+            </div>
+            <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+              {(
+                [
+                  ["Stock(s)", datasetCardMeta.symbols],
+                  ["Timeframe", datasetCardMeta.timeframe],
+                  ["Historical period", datasetCardMeta.period],
+                  ["Chart window", datasetCardMeta.lookback],
+                  ["TP / SL", datasetCardMeta.tpSl],
+                  ["Horizon", datasetCardMeta.horizon],
+                  ["Images", fmtInt(datasetCardMeta.images)],
+                  ["Readiness", "Ready to train"],
+                ] as const
+              )
+                .filter(([, v]) => v != null && v !== "")
+                .map(([k, v]) => (
+                  <div key={k} className="min-w-0">
+                    <dt className="text-[10.5px] uppercase tracking-wide text-white/40">{k}</dt>
+                    <dd className="mt-0.5 truncate text-[13px] text-white/80">{v}</dd>
+                  </div>
+                ))}
+            </dl>
+            {datasetCardMeta.labeling ? (
+              <p className="mt-2 text-[12px] text-white/45">{datasetCardMeta.labeling}</p>
+            ) : null}
           </div>
         ) : null}
-        <label className={cx(smallLabel, "mb-2 block")}>Upload your own ZIP (optional)</label>
-        <DatasetUploader
-          onDatasetUploaded={(dataset) => {
-            setManualUploadedDataset(dataset);
-            setError(null);
-          }}
-          onDatasetRemoved={() => setManualUploadedDataset(null)}
-          uploadedDataset={manualUploadedDataset}
-        />
-        {!trainingDataset ? (
-          <div className="mt-4">
-            <label className={smallLabel}>Or a folder path on the server</label>
-            <input
-              type="text"
-              value={config.folder_name}
-              onChange={(e) => setConfig({ ...config, folder_name: e.target.value })}
-              placeholder="/path/to/labeled/images"
-              className={`mt-1 ${fieldClass}`}
+
+        {!uploadModeOpen && !convolveDatasetReady && !ingestingGenZip ? (
+          <p className="mb-3 text-[13px] text-white/55">
+            {chartGenRunsWithZip.length === 0
+              ? "No completed chart generator run with a dataset yet. Generate one first, or upload an external ZIP."
+              : "Choose a generator dataset below, or upload an external ZIP."}
+          </p>
+        ) : null}
+
+        {/* Generator / library picker — primary when nothing selected, or after Change dataset. */}
+        {!uploadModeOpen && (showChangeDataset || !convolveDatasetReady) ? (
+          <div className="mb-3 space-y-3" data-help="train-dataset-picker">
+            {chartGenRunsWithZip.length > 0 ? (
+              <div className="space-y-2">
+                <label className={smallLabel}>Dataset from generator run</label>
+                <select
+                  value={preferredGeneratorRunId ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    loadedGeneratorRunIdRef.current = null;
+                    setPreferredGeneratorRunId(v === "" ? null : v);
+                    if (libraryDataset) {
+                      setLibraryDataset(null);
+                      navigate("/tools/trainer?new=1", { replace: true });
+                    }
+                  }}
+                  className={`${fieldClass} min-w-0`}
+                >
+                  <option value="">
+                    Latest completed
+                    {latestCompletedChartGen ? ` (${genRunLabel(latestCompletedChartGen)})` : ""}
+                  </option>
+                  {chartGenRunsWithZip.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {genRunLabel(r)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {libraryDataset ? (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5 text-[13px] text-white/75">
+                <span className="min-w-0 truncate">
+                  From your workspace:{" "}
+                  {datasetsById[libraryDataset.dataset_id]?.display_name ||
+                    datasetsById[libraryDataset.dataset_id]?.name ||
+                    libraryDataset.dataset_id}
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 text-[12.5px] text-white/50 hover:text-white"
+                  onClick={() => {
+                    setLibraryDataset(null);
+                    navigate("/tools/trainer?new=1", { replace: true });
+                  }}
+                >
+                  Clear library dataset
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* Secondary: external upload, behind an explicit control. */}
+        {uploadModeOpen ? (
+          <div
+            className="mb-3 space-y-3 rounded-xl border border-white/15 bg-white/[0.03] px-4 py-4"
+            data-help="train-dataset-upload"
+          >
+            {manualUploadedDataset ? (
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 text-sm font-medium text-white">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/15">
+                      <Check className="h-3 w-3 text-white" aria-hidden />
+                    </span>
+                    Uploaded ZIP selected — Ready to train
+                  </p>
+                  <p className="mt-2 text-[13px] text-white/70">
+                    This external ZIP is the training input ({fmtInt(manualUploadedDataset.summary.total_images)}{" "}
+                    images). It takes precedence over Convolve datasets.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  data-help="train-dataset-use-convolve"
+                  onClick={() => {
+                    setManualUploadedDataset(null);
+                    setShowUpload(false);
+                  }}
+                  className="shrink-0 rounded-lg border border-white/12 bg-white/[0.04] px-3 py-1.5 text-[12.5px] text-white/70 transition hover:border-white/25 hover:text-white"
+                >
+                  Use Convolve dataset instead
+                </button>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm font-medium text-white">Upload external dataset</p>
+                <p className={cx(hint, "mt-1")}>
+                  Alternative to a Convolve generator or library dataset. Drop a labeled chart ZIP here.
+                </p>
+              </div>
+            )}
+            <DatasetUploader
+              onDatasetUploaded={(dataset) => {
+                setManualUploadedDataset(dataset);
+                setShowUpload(true);
+                setError(null);
+              }}
+              onDatasetRemoved={() => {
+                setManualUploadedDataset(null);
+                setShowUpload(false);
+              }}
+              uploadedDataset={manualUploadedDataset}
             />
+            {!manualUploadedDataset ? (
+              <button
+                type="button"
+                onClick={() => setShowUpload(false)}
+                className="text-[12.5px] text-white/50 hover:text-white"
+              >
+                Cancel — use Convolve dataset
+              </button>
+            ) : null}
           </div>
         ) : (
-          <p className="mt-3 text-[12.5px] text-white/45">
-            Training on {datasetsById[trainingDataset.dataset_id]?.name || `dataset ${trainingDataset.dataset_id.slice(-8)}`} ·{" "}
-            {fmtInt(trainingDataset.summary.total_images)} images
-          </p>
+          <button
+            type="button"
+            data-help="train-dataset-upload-open"
+            onClick={() => {
+              setShowUpload(true);
+              setShowChangeDataset(false);
+            }}
+            className="mb-3 rounded-lg border border-dashed border-white/15 bg-transparent px-3 py-2.5 text-[13px] text-white/55 transition hover:border-white/30 hover:text-white/80"
+          >
+            Upload external dataset
+          </button>
         )}
+
+        {/* Tertiary: server folder path when nothing else is selected. */}
+        {!trainingDataset ? (
+          <div className="mt-1">
+            <button
+              type="button"
+              data-help="train-dataset-folder"
+              onClick={() => setShowServerFolder((v) => !v)}
+              className="flex items-center gap-1.5 text-[12.5px] text-white/45 hover:text-white/70"
+            >
+              <ChevronDown className={cx("h-3.5 w-3.5 transition", showServerFolder && "rotate-180")} aria-hidden />
+              Or a folder path on the server
+            </button>
+            {showServerFolder ? (
+              <input
+                type="text"
+                value={config.folder_name}
+                onChange={(e) => setConfig({ ...config, folder_name: e.target.value })}
+                placeholder="/path/to/labeled/images"
+                className={`mt-2 ${fieldClass}`}
+              />
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div>

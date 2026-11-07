@@ -306,6 +306,74 @@ export function components(g: Graph, keys: Set<string>): string[][] {
 export const GROUP_MIN = 4;
 
 /**
+ * Research-facing graph: one node per user-facing asset. Generator runs fold into their
+ * training datasets, trainer runs into their models, and test-data runs into test sets.
+ * Full technical IDs remain on node sublabels and in the inspector — only the default
+ * canvas is simplified. Edges are rewritten; nothing is invented from stock symbols alone.
+ */
+export function simplifyResearchGraph(g: Graph): Graph {
+  const absorb = new Map<string, string>(); // hidden key → kept key
+  const producedBy = new Map<string, string>(); // artifact → producer run
+  for (const e of g.edges) {
+    if (e.relation !== "produced") continue;
+    const src = g.nodes.get(e.source);
+    const tgt = g.nodes.get(e.target);
+    if (!src || !tgt) continue;
+    if (src.kind === "generator" && (tgt.kind === "dataset" || tgt.kind === "archive")) {
+      absorb.set(e.source, e.target);
+      producedBy.set(e.target, e.source);
+    } else if (src.kind === "trainer" && tgt.kind === "model") {
+      absorb.set(e.source, e.target);
+      producedBy.set(e.target, e.source);
+    } else if (src.kind === "testdata" && tgt.kind === "testset") {
+      absorb.set(e.source, e.target);
+      producedBy.set(e.target, e.source);
+    }
+  }
+  if (!absorb.size) return g;
+
+  const resolve = (key: string): string => {
+    let k = key;
+    const seen = new Set<string>();
+    while (absorb.has(k) && !seen.has(k)) {
+      seen.add(k);
+      k = absorb.get(k)!;
+    }
+    return k;
+  };
+
+  const nodes = new Map<string, GraphNode>();
+  for (const [key, n] of g.nodes) {
+    if (absorb.has(key)) continue;
+    const producer = producedBy.get(key);
+    const run = producer ? g.nodes.get(producer) : null;
+    nodes.set(key, run ? { ...n, sublabel: [n.sublabel, `from ${run.label}`].filter(Boolean).join(" · ") } : n);
+  }
+
+  const edgeKeys = new Set<string>();
+  const edges: ReviewEdge[] = [];
+  for (const e of g.edges) {
+    if (absorb.has(e.source) && resolve(e.source) === e.target) continue; // producer → its own artifact
+    if (absorb.has(e.target) && resolve(e.target) === e.source) continue;
+    const source = resolve(e.source);
+    const target = resolve(e.target);
+    if (source === target || !nodes.has(source) || !nodes.has(target)) continue;
+    const id = `${source}|${e.relation}|${target}`;
+    if (edgeKeys.has(id)) continue;
+    edgeKeys.add(id);
+    edges.push({ ...e, source, target });
+  }
+
+  const out = new Map<string, ReviewEdge[]>();
+  const inc = new Map<string, ReviewEdge[]>();
+  for (const e of edges) {
+    (out.get(e.source) ?? out.set(e.source, []).get(e.source)!).push(e);
+    (inc.get(e.target) ?? inc.set(e.target, []).get(e.target)!).push(e);
+  }
+  return { nodes, edges, out, in: inc };
+}
+
+/**
  * Progressive disclosure: sibling leaves (one parent, no other links) of the same kind and
  * relation are replaced by one group node when there are at least GROUP_MIN of them. Pinned
  * keys (selection, focus) and expanded groups are never collapsed. Links are not altered,

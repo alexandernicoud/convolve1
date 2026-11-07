@@ -620,4 +620,49 @@
     padding-bottom: 7rem;
   }
 
+  /* Interactive controls: soft light sweep on hover (respects reduced motion). */
+  .convolve-btn-glow {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .convolve-btn-glow::after {
+    content: "";
+    position: absolute;
+    inset: -40% -60%;
+    background: linear-gradient(
+      105deg,
+      transparent 35%,
+      rgba(255, 255, 255, 0.14) 48%,
+      rgba(166, 236, 200, 0.12) 52%,
+      transparent 65%
+    );
+    transform: translateX(-45%) rotate(8deg);
+    opacity: 0;
+    transition: opacity 0.25s ease, transform 0.55s ease;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .convolve-btn-glow:hover::after,
+  .convolve-btn-glow:focus-visible::after {
+    opacity: 1;
+    transform: translateX(35%) rotate(8deg);
+  }
+  .convolve-btn-glow > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .convolve-btn-glow::after {
+      display: none;
+    }
+  }
+
+  /* Slightly more expressive pointer on the marketing surfaces. */
+  body.marketing-interactive a,
+  body.marketing-interactive button,
+  body.marketing-interactive [role="button"] {
+    cursor: pointer;
+  }
 }

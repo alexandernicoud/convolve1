@@ -3,7 +3,7 @@ import test from "node:test";
 import type { ReviewDataset, ReviewModel, ReviewOverviewResponse, ReviewRun } from "@/lib/api";
 import { classBalance, formatDuration, num, pctFrac, pctUnits } from "./format";
 import { datasetListLabel, datasetName, disambiguate, isOpaqueName, modelName, runName } from "./naming";
-import { buildGraph, collapseLeafGroups, COLUMNS, layoutGraph, lineageOf, stockEdges, type GraphNode as GraphNodeT } from "./graph";
+import { buildGraph, collapseLeafGroups, COLUMNS, layoutGraph, lineageOf, simplifyResearchGraph, stockEdges, type GraphNode as GraphNodeT } from "./graph";
 import { edgePath } from "./graphLayout";
 import { modelActions, nodeActions } from "./nodeActions";
 import { producedListedAsset } from "./runs";
@@ -261,6 +261,37 @@ test("dataset picker labels drop hashes and image-count names", () => {
   assert.equal(label, "MSFT 1d · 2019-01-02 → 2023-12-29 · 2,904 charts · training set");
   assert.equal(datasetListLabel({ name: "a1b2c3d4e5f6", kind: "test" }), "Chart dataset · test set");
   assert.equal(datasetListLabel({ name: "x", display_name: "Tech momentum", symbols: "AAPL", kind: "unknown" }), "Tech momentum · AAPL");
+});
+
+test("research simplify folds generator and trainer runs into their products", () => {
+  const g = buildGraph({
+    runs: [
+      { id: "g1", tool: "training-chart-generator", status: "succeeded", created_at: 1, display_name: "Gen" } as ReviewRun,
+      { id: "t1", tool: "trainer", status: "succeeded", created_at: 2, display_name: "Train" } as ReviewRun,
+      { id: "td1", tool: "testdata", status: "succeeded", created_at: 3, display_name: "TestGen" } as ReviewRun,
+      { id: "b1", tool: "backtester", status: "succeeded", created_at: 4, display_name: "BT" } as ReviewRun,
+    ],
+    models: [{ id: "m1", name: "m1", display_name: "Model A", created_at: 2 } as ReviewModel],
+    datasets: [
+      { id: "d1", dataset_id: "d1", kind: "training", display_name: "Train set", created_at: 1 } as ReviewDataset,
+      { id: "s1", dataset_id: "s1", kind: "test", display_name: "Test set", created_at: 3 } as ReviewDataset,
+    ],
+    bots: [],
+    edges: [
+      { source: "run:g1", target: "dataset:d1", relation: "produced", provenance: "recorded", basis: "" },
+      { source: "dataset:d1", target: "run:t1", relation: "trained_on", provenance: "recorded", basis: "" },
+      { source: "run:t1", target: "model:m1", relation: "produced", provenance: "recorded", basis: "" },
+      { source: "run:td1", target: "dataset:s1", relation: "produced", provenance: "recorded", basis: "" },
+      { source: "model:m1", target: "run:b1", relation: "backtested", provenance: "recorded", basis: "" },
+      { source: "dataset:s1", target: "run:b1", relation: "evaluated_on", provenance: "recorded", basis: "" },
+    ],
+  });
+  const s = simplifyResearchGraph(g);
+  assert.ok(!s.nodes.has("run:g1") && !s.nodes.has("run:t1") && !s.nodes.has("run:td1"));
+  assert.ok(s.nodes.has("dataset:d1") && s.nodes.has("model:m1") && s.nodes.has("dataset:s1") && s.nodes.has("run:b1"));
+  assert.ok(s.edges.some((e) => e.source === "dataset:d1" && e.target === "model:m1"));
+  assert.ok(s.edges.some((e) => e.source === "model:m1" && e.target === "run:b1"));
+  assert.ok(s.edges.some((e) => e.source === "dataset:s1" && e.target === "run:b1"));
 });
 
 test("sibling leaves fold into one expandable group; pinned and linked nodes stay", () => {

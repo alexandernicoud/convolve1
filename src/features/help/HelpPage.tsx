@@ -13,8 +13,8 @@ import { ANNOTATIONS } from "./annotations";
 import { InstallCard } from "@/features/pwa/InstallUI";
 
 const SECTIONS = [
-  { id: "how-it-works", title: "How Convolve works" },
   { id: "tour", title: "Guided tour" },
+  { id: "how-it-works", title: "How Convolve works" },
   { id: "install", title: "Install the app" },
   { id: "generate", title: "Build a dataset" },
   { id: "labeling", title: "Labeling rules" },
@@ -76,35 +76,44 @@ function TourControls() {
     start(step);
     navigate(TOUR_STEPS[step].route);
   };
-  const resumable = server && server.status !== "completed" && server.step > 0;
+  const canResume = Boolean(server && server.status !== "completed" && server.status !== "new");
   const btn = "inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium transition";
+  const primary = `${btn} bg-white text-[#0a0a0a] hover:bg-white/90`;
+  const secondary = `${btn} border border-white/15 text-white/80 hover:bg-white/10`;
+  const n = TOUR_STEPS.length;
 
   return (
     <div className="space-y-4">
       <p>
-        Six steps, about three minutes. The tour highlights each tool in the sidebar, then the controls on its page. You can fill in
-        and press each highlighted control as you go; nothing runs until you press a run button. {server?.status === "completed" ? "You have completed it; you can take it again any time." : null}
+        The guided tour walks all {n} research tools. The tour highlights each tool in the sidebar, then the controls on its page. You can
+        fill in and press each highlighted control as you go; pause any time and resume here — nothing runs until you press a run button.{" "}
+        {server?.status === "completed" ? "You have completed it; you can take it again any time." : null}
+      </p>
+      <p className="text-[13px] text-white/45">
+        Explain mode stays available from the top bar on any workspace page: it outlines every control so you can click one for a short description.
       </p>
       <div className="flex flex-wrap gap-2">
-        {resumable ? (
-          <button type="button" onClick={() => go(server.step)} className={`${btn} bg-white text-[#0a0a0a] hover:bg-white/90`}>
-            Resume at step {server.step + 1} <ArrowRight className="h-4 w-4" />
+        {canResume ? (
+          <button type="button" onClick={() => go(server!.step)} className={primary}>
+            Resume guided tour <ArrowRight className="h-4 w-4" />
+          </button>
+        ) : (
+          <button type="button" onClick={() => go(0)} className={primary}>
+            Start Guided Tour <ArrowRight className="h-4 w-4" />
+          </button>
+        )}
+        {canResume || server?.status === "completed" ? (
+          <button type="button" onClick={() => go(0)} className={secondary}>
+            Restart from the beginning
           </button>
         ) : null}
-        <button
-          type="button"
-          onClick={() => go(0)}
-          className={`${btn} ${resumable ? "border border-white/15 text-white/80 hover:bg-white/10" : "bg-white text-[#0a0a0a] hover:bg-white/90"}`}
-        >
-          {server?.status === "new" ? "Start the tour" : "Restart from the beginning"}
-        </button>
         <button
           type="button"
           onClick={() => {
             openWelcome();
             navigate("/dashboard");
           }}
-          className={`${btn} border border-white/15 text-white/80 hover:bg-white/10`}
+          className={secondary}
         >
           Show the welcome screen
         </button>
@@ -224,6 +233,10 @@ export default function HelpPage() {
           </p>
 
           <div className="mt-12">
+            <Section id="tour" title="Guided tour">
+              <TourControls />
+            </Section>
+
             <Section id="how-it-works" title="How Convolve works">
               <p>
                 Convolve turns price history into a supervised image-classification problem. Each chart window is rendered as a candlestick
@@ -238,10 +251,6 @@ export default function HelpPage() {
                 <strong>deploying</strong> as a paper-trading bot and <strong>monitoring</strong>. Training, evaluating, backtesting and paper bots are separate stages; Convolve does not
                 place real orders at any stage.
               </p>
-            </Section>
-
-            <Section id="tour" title="Guided tour">
-              <TourControls />
             </Section>
 
             <Section id="install" title="Install the app">
