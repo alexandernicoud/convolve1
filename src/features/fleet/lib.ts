@@ -1,6 +1,7 @@
 import type { FleetBot, FleetPayload, FleetSeries } from "./api";
 
 export const MISSING = "—";
+/** Default (pre-accent) fleet highlight. Prefer `useAccentHex()` / CSS `--convolve-chart-accent` at render time. */
 export const ACCENT = "#8FB3E0";
 export const ACCENT_DIM = "rgba(143,179,224,0.18)";
 

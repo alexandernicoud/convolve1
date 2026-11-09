@@ -645,7 +645,7 @@ function DoneBanner({ runId, session }: { runId: string; session: TrainingSessio
   const verdict = useMemo(() => skillVerdict(modelHealth(session, runId)), [session, runId]);
   const hasSkill = verdict.kind === "skill";
   const backtestFirst = hasSkill || verdict.kind === "unmeasured";
-  const primary = "inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90";
+  const primary = "inline-flex items-center justify-center gap-2 rounded-xl accent-btn convolve-press px-4 py-2.5 text-sm font-semibold transition";
   const secondary = "inline-flex items-center justify-center gap-2 rounded-xl border border-white/25 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10";
   const tone = hasSkill ? SEMANTIC.positive : verdict.kind === "worse" ? SEMANTIC.negative : "#f5c46b";
   return (

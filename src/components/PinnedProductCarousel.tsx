@@ -228,7 +228,7 @@ export default function PinnedProductCarousel({
                         {products[activeIndex].description}
                       </p>
                       <Link to={products[activeIndex].href}>
-                        <button className="px-4 py-2 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 inline-flex items-center gap-2">
+                        <button className="px-4 py-2 accent-btn convolve-press  font-medium rounded-lg transition-all duration-200 inline-flex items-center gap-2">
                           <span className="text-white">Try now</span>
                           <ArrowRight className="w-4 h-4" />
                         </button>

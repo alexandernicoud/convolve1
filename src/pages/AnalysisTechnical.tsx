@@ -400,7 +400,7 @@ export default function AnalysisTechnical() {
               className={cn(
                 "inline-flex w-full items-center justify-center gap-2 rounded-xl px-8 py-3.5 text-base font-semibold transition sm:w-auto",
                 canRun
-                  ? "bg-white text-[#0a0a0a] shadow-[0_0_24px_rgba(255,255,255,0.12)] hover:bg-white/90"
+                  ? "accent-btn convolve-press shadow-[0_0_24px_rgba(255,255,255,0.12)]"
                   : "cursor-not-allowed bg-white/20 text-white/40",
               )}
             >

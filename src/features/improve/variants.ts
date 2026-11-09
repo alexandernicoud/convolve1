@@ -308,6 +308,30 @@ export function describeChanges(a: TrainerRunRequest, b: TrainerRunRequest, arch
   return out;
 }
 
+/** Settings an experiment keeps from the original, as label/value pairs; omits what it changes. */
+export function unchangedSettings(a: TrainerRunRequest, b: TrainerRunRequest, archLabel: (id: string) => string = (id) => id): { label: string; value: string }[] {
+  const rows: [string, unknown, unknown][] = [
+    ["Dataset", a.dataset_id, b.dataset_id],
+    ["Validation share", a.val_split, b.val_split],
+    ["Validation method", a.validation_method ?? "chronological", b.validation_method ?? "chronological"],
+    ["Image size", `${a.image_width}×${a.image_height}`, `${b.image_width}×${b.image_height}`],
+    ["Batch size", a.batch_size, b.batch_size],
+    ["Max epochs", a.epochs, b.epochs],
+    ["Seed", a.random_seed, b.random_seed],
+    ["Architecture", archLabel(archOf(a)), archLabel(archOf(b))],
+    ["Optimizer", a.optimizer?.name ?? "adam", b.optimizer?.name ?? "adam"],
+    ["Learning rate", a.optimizer?.learning_rate ?? "default", b.optimizer?.learning_rate ?? "default"],
+    ["Dropout", a.regularization?.dropout ?? "architecture default", b.regularization?.dropout ?? "architecture default"],
+    ["L2 penalty", a.regularization?.l2 ?? 0, b.regularization?.l2 ?? 0],
+    ["Class weights", a.class_weighting ?? "none", b.class_weighting ?? "none"],
+    ["Early stopping", a.early_stopping ? "on" : "default", b.early_stopping ? "on" : "default"],
+    ["Selection metric", a.selection_metric ?? "default", b.selection_metric ?? "default"],
+    ["Augmentation", a.augmentation?.join(", ") || "none", b.augmentation?.join(", ") || "none"],
+    ["Pretrained weights", a.transfer?.mode ?? "none", b.transfer?.mode ?? "none"],
+  ];
+  return rows.filter(([, x, y]) => JSON.stringify(x) === JSON.stringify(y)).map(([label, x]) => ({ label, value: x == null ? "none" : String(x) }));
+}
+
 /** Every experiment branches from the session's original model and names it as the anchor. */
 export function experimentPayload(v: Variant, anchorRunId: string, origin: string | null): NonNullable<TrainerRunRequest["experiment"]> {
   return {

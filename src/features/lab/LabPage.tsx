@@ -308,7 +308,7 @@ function BacktestCta({ model, improveTo }: { model: { kind: ModelKind; id: strin
         ) : null}
         <Link
           to={to}
-          className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+          className="inline-flex items-center justify-center gap-2 rounded-xl accent-btn convolve-press px-4 py-2.5 text-sm font-semibold  transition hover:bg-white/90"
         >
           <LineChart className="h-4 w-4" /> Backtest this model
         </Link>

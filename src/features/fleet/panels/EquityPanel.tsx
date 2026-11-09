@@ -1,12 +1,12 @@
 import { useMemo } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from "recharts";
+import { useAccentHex } from "@/features/accent/AccentProvider";
 import { FLEET_LINE_COLORS } from "@/components/dashboard/fleetPalette";
 import { axisProps, gridProps } from "@/components/viz/chartKit";
 import { SEMANTIC, VIZ } from "@/lib/viz/tokens";
 import type { FleetPayload, FleetRange } from "../api";
 import { FLEET_RANGES } from "../api";
 import {
-  ACCENT,
   bands,
   botKey,
   buildChartRows,
@@ -31,7 +31,7 @@ const Y_AXIS_W = 62;
 const PLOT_LEFT = Y_AXIS_W;
 const PLOT_RIGHT = 8;
 
-function MainTooltip({ active, payload, mode, ccy, names, hovered }: { active?: boolean; payload?: { payload: ChartRow }[]; mode: ChartMode; ccy: string | null; names: Record<string, string>; hovered: string | null }) {
+function MainTooltip({ active, payload, mode, ccy, names, hovered, accent }: { active?: boolean; payload?: { payload: ChartRow }[]; mode: ChartMode; ccy: string | null; names: Record<string, string>; hovered: string | null; accent: string }) {
   if (!active || !payload?.length) return null;
   const r = payload[0].payload;
   if (r.value == null) return null;
@@ -39,12 +39,12 @@ function MainTooltip({ active, payload, mode, ccy, names, hovered }: { active?: 
   return (
     <TooltipBox>
       <p className="mb-1 text-white/50">{fmtDateTime(r.t)}</p>
-      <TipRow label="Net P&L" value={money(r.netPnl, true)} color={mode === "pnl" ? ACCENT : undefined} />
+      <TipRow label="Net P&L" value={money(r.netPnl, true)} color={mode === "pnl" ? accent : undefined} />
       <TipRow label="· realized" value={money(r.realized, true)} />
       <TipRow label="· unrealized" value={money(r.unrealized, true)} />
-      <TipRow label="Equity" value={money(r.equity)} color={mode === "equity" ? ACCENT : undefined} />
+      <TipRow label="Equity" value={money(r.equity)} color={mode === "equity" ? accent : undefined} />
       <TipRow label="Contributed" value={money(r.contributed)} />
-      <TipRow label="Return (TWR)" value={fmtPct(r.twr)} color={mode === "twr" ? ACCENT : undefined} />
+      <TipRow label="Return (TWR)" value={fmtPct(r.twr)} color={mode === "twr" ? accent : undefined} />
       {hovered && isNum(r[botKey(hovered)]) ? <TipRow label={names[hovered] ?? "Bot"} value={money(r[botKey(hovered)] ?? null, mode === "pnl")} /> : null}
       {r.closes.length ? (
         <p className="mt-1 border-t border-white/10 pt-1 text-white/60">
@@ -90,6 +90,7 @@ export function EquityPanel({
   showUnderwater: boolean;
   loadingRange: boolean;
 }) {
+  const accent = useAccentHex();
   const ccy = p.currency.base;
   const rows = useMemo(() => buildChartRows(p, mode), [p, mode]);
   const [plotRef, plot] = useElementSize<HTMLDivElement>();
@@ -170,7 +171,7 @@ export function EquityPanel({
         </span>
         {hasValues ? (
           <>
-            <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full" style={{ background: ACCENT }} />Fleet</span>
+            <span className="flex items-center gap-1.5"><span className="h-0.5 w-3 rounded-full" style={{ background: accent }} />Fleet</span>
             {mode === "equity" ? <span className="flex items-center gap-1.5"><svg width="14" height="4"><line x1="0" y1="2" x2="14" y2="2" stroke="rgba(255,255,255,0.45)" strokeDasharray="3 2" /></svg>Contributed</span> : null}
             <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: SEMANTIC.positive }} />close</span>
           </>
@@ -212,7 +213,7 @@ export function EquityPanel({
                     y={0}
                     r={3.5}
                     fill="#000"
-                    stroke={ACCENT}
+                    stroke={accent}
                     strokeWidth={1.5}
                     ifOverflow="visible"
                     label={{ value: `now · ${fmtMoney(0, ccy, { digits: 0 })}`, position: "top", fill: "rgba(201,219,241,0.8)", fontSize: 10.5, offset: 8 }}
@@ -265,10 +266,10 @@ export function EquityPanel({
                     );
                   })
                 : null}
-              <Line dataKey="value" type="stepAfter" stroke={ACCENT} strokeWidth={VIZ.stroke.primary} dot={false} isAnimationActive={false} connectNulls={false} />
+              <Line dataKey="value" type="stepAfter" stroke={accent} strokeWidth={VIZ.stroke.primary} dot={false} isAnimationActive={false} connectNulls={false} />
               <Scatter dataKey="closeUp" fill={SEMANTIC.positive} shape="circle" isAnimationActive={false} legendType="none" />
               <Scatter dataKey="closeDown" fill={SEMANTIC.negative} shape="circle" isAnimationActive={false} legendType="none" />
-              <Tooltip content={<MainTooltip mode={mode} ccy={ccy} names={names} hovered={hovered} />} cursor={{ stroke: "rgba(255,255,255,0.3)" }} isAnimationActive={false} />
+              <Tooltip content={<MainTooltip mode={mode} ccy={ccy} names={names} hovered={hovered} accent={accent} />} cursor={{ stroke: "rgba(255,255,255,0.3)" }} isAnimationActive={false} />
             </ComposedChart>
           </ResponsiveContainer>
         )}

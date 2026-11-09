@@ -1455,7 +1455,7 @@ export default function Generator() {
           onClick={() => void handleGenerate()}
           disabled={starting}
           aria-describedby={summaryErrors.length ? "gen-error-summary" : undefined}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-white px-8 py-3.5 text-base font-semibold text-[#0a0a0a] transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded-xl accent-btn convolve-press px-8 py-3.5 text-base font-semibold  transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Play className="h-5 w-5" />
           {starting ? (

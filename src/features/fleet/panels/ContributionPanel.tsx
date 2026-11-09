@@ -1,24 +1,22 @@
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useAccentHex } from "@/features/accent/AccentProvider";
 import { axisProps, gridProps } from "@/components/viz/chartKit";
 import { SEMANTIC } from "@/lib/viz/tokens";
 import type { FleetPayload } from "../api";
-import { ACCENT, contributionRows, decomposition, fmtMoney, FRAME_DOMAIN, FRAME_TICKS, type ContributionRow, type DecompRow } from "../lib";
+import { contributionRows, decomposition, fmtMoney, FRAME_DOMAIN, FRAME_TICKS, type ContributionRow, type DecompRow } from "../lib";
 import { BASELINE_STROKE, FrameNote, Panel, TipRow, TooltipBox, useElementSize } from "../ui";
 
 const EMPTY_ROWS = [{ label: "", realized: null }];
 
-const REALIZED = ACCENT;
-const UNREALIZED = "rgba(143,179,224,0.42)";
-
-function ContribTip({ active, payload, ccy }: { active?: boolean; payload?: { payload: ContributionRow }[]; ccy: string | null }) {
+function ContribTip({ active, payload, ccy, realized, unrealized }: { active?: boolean; payload?: { payload: ContributionRow }[]; ccy: string | null; realized: string; unrealized: string }) {
   if (!active || !payload?.length) return null;
   const r = payload[0].payload;
   return (
     <TooltipBox>
       <p className="mb-1 text-white/50">{r.label}</p>
       <TipRow label="Net P&L change" value={fmtMoney(r.pnl, ccy, { signed: true })} />
-      <TipRow label="Realized" value={fmtMoney(r.realized, ccy, { signed: true })} color={REALIZED} />
-      <TipRow label="Unrealized Δ" value={fmtMoney(r.unrealized, ccy, { signed: true })} color={UNREALIZED} />
+      <TipRow label="Realized" value={fmtMoney(r.realized, ccy, { signed: true })} color={realized} />
+      <TipRow label="Unrealized Δ" value={fmtMoney(r.unrealized, ccy, { signed: true })} color={unrealized} />
     </TooltipBox>
   );
 }
@@ -36,6 +34,14 @@ function DecompTip({ active, payload, ccy }: { active?: boolean; payload?: { pay
 const yTick = { ...axisProps.tick, fontSize: 11 };
 
 export function ContributionPanel({ p, hovered, onHover }: { p: FleetPayload; hovered: string | null; onHover: (id: string | null) => void }) {
+  const accent = useAccentHex();
+  const realized = accent;
+  const unrealized = (() => {
+    const h = accent.replace("#", "");
+    const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+    const n = parseInt(full, 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, 0.42)`;
+  })();
   const [ref, size] = useElementSize<HTMLDivElement>();
   const ccy = p.currency.base;
   const included = p.bots.filter((b) => b.in_aggregate);
@@ -76,8 +82,8 @@ export function ContributionPanel({ p, hovered, onHover }: { p: FleetPayload; ho
         <span className="flex items-center gap-2 text-[10.5px] text-white/40">
           {rows.length ? (
             <>
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ background: REALIZED }} />realized</span>
-              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ background: UNREALIZED }} />unrealized Δ</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ background: realized }} />realized</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm" style={{ background: unrealized }} />unrealized Δ</span>
             </>
           ) : null}
           <span className="text-white/30">{rows.length ? "· " : ""}{p.range}</span>
@@ -118,13 +124,13 @@ export function ContributionPanel({ p, hovered, onHover }: { p: FleetPayload; ho
               <XAxis type="number" {...axisProps} height={16} tickCount={4} tickFormatter={(v: number) => fmtMoney(v, ccy, { compact: true, digits: Math.abs(v) < 10 ? 1 : 0, signed: true })} />
               <YAxis type="category" dataKey="label" {...axisProps} tick={yTick} width={74} interval={0} />
               <ReferenceLine x={0} stroke="rgba(255,255,255,0.25)" />
-              <Bar dataKey="realized" stackId="c" fill={REALIZED} isAnimationActive={false}>
+              <Bar dataKey="realized" stackId="c" fill={realized} isAnimationActive={false}>
                 {rows.map((r) => <Cell key={r.id} fillOpacity={hovered && hovered !== r.id ? 0.35 : 1} />)}
               </Bar>
-              <Bar dataKey="unrealized" stackId="c" fill={UNREALIZED} isAnimationActive={false}>
+              <Bar dataKey="unrealized" stackId="c" fill={unrealized} isAnimationActive={false}>
                 {rows.map((r) => <Cell key={r.id} fillOpacity={hovered && hovered !== r.id ? 0.35 : 1} />)}
               </Bar>
-              <Tooltip content={<ContribTip ccy={ccy} />} cursor={{ fill: "rgba(255,255,255,0.05)" }} isAnimationActive={false} />
+              <Tooltip content={<ContribTip ccy={ccy} realized={realized} unrealized={unrealized} />} cursor={{ fill: "rgba(255,255,255,0.05)" }} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         )}

@@ -1128,7 +1128,7 @@ export default function Trainer() {
             data-help="train-run"
             onClick={handleStartTraining}
             disabled={starting || splitRefused || (splitPreview.loading && !splitPreview.data)}
-            className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-medium text-[#0a0a0a] transition-all hover:shadow-lg hover:shadow-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center gap-2 rounded-lg accent-btn convolve-press px-5 py-2.5 text-sm font-medium  transition-all hover:shadow-lg hover:shadow-white/10 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {starting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
             {starting ? (
@@ -1145,7 +1145,7 @@ export default function Trainer() {
             data-help="train-review-open"
             onClick={openReview}
             disabled={starting}
-            className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-medium text-[#0a0a0a] transition-all hover:shadow-lg hover:shadow-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center gap-2 rounded-lg accent-btn convolve-press px-5 py-2.5 text-sm font-medium  transition-all hover:shadow-lg hover:shadow-white/10 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <ClipboardCheck className="h-4 w-4" />
             Review run <RunCost tool="trainer" params={pricingParams} />

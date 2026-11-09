@@ -48,7 +48,7 @@ function Hero() {
                   transition={{ duration: 1.1, ease: EASE, delay: 0.1 + i * 0.12 }}
                 >
                   {l}
-                  {i === 1 && <span className="text-[#a6ecc8]">.</span>}
+                  {i === 1 && <span className="accent-period">.</span>}
                 </motion.span>
               </span>
             ))}

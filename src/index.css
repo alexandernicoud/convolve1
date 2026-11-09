@@ -620,44 +620,159 @@
     padding-bottom: 7rem;
   }
 
-  /* Premium hover glow — same treatment on every control that opts in. */
+  /*
+   * Global Convolve motion + pale accent tokens.
+   * Foundation stays black / grey; accents personalise CTAs, brand, nav and charts.
+   */
+  :root {
+    --convolve-accent: #ffffff;
+    --convolve-accent-rgb: 255, 255, 255;
+    --convolve-accent-fg: #0a0a0a;
+    --convolve-accent-hover: #f2f2f2;
+    --convolve-accent-hover-rgb: 242, 242, 242;
+    --convolve-accent-subtle: rgba(255, 255, 255, 0.14);
+    --convolve-accent-active: #f2f2f2;
+    --convolve-primary-button-bg: #ffffff;
+    --convolve-primary-button-text: #0a0a0a;
+    --convolve-chart-accent: #8fb3e0;
+    --convolve-chart-accent-rgb: 143, 179, 224;
+    --convolve-logo-accent: #ffffff;
+    --convolve-focus-ring: rgba(255, 255, 255, 0.45);
+    --convolve-interactive-highlight: #ffffff;
+    --convolve-active-navigation: #ffffff;
+    --convolve-secondary-button-text: rgba(255, 255, 255, 0.85);
+  }
+
+  /* Prefer `.animate-page-enter` for route fades (opacity-only; safe with fixed shell). */
+
+  /* Soft hover glow for opted-in CTAs (not the sidebar rail). */
   .convolve-btn-glow {
-    border-radius: 1rem;
     transition:
-      box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.2s ease,
       background-color 0.2s ease,
       border-color 0.2s ease,
       color 0.2s ease,
-      transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+      transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+      filter 0.2s ease;
   }
   .convolve-btn-glow:hover,
   .convolve-btn-glow:focus-visible {
     box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.22),
-      0 0 18px rgba(255, 255, 255, 0.14),
-      0 0 36px rgba(166, 236, 200, 0.1);
-  }
-  .convolve-btn-glow:active {
-    transform: translateY(0.5px);
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.18),
-      0 0 12px rgba(255, 255, 255, 0.1);
+      0 0 0 1px rgba(255, 255, 255, 0.2),
+      0 0 16px rgba(255, 255, 255, 0.14);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .convolve-btn-glow,
-    .convolve-btn-glow:hover,
-    .convolve-btn-glow:focus-visible,
-    .convolve-btn-glow:active {
-      transition: none;
-      transform: none;
-    }
+  /* Shared interactive press language for buttons / CTAs */
+  .accent-btn,
+  .convolve-press {
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease,
+      box-shadow 0.2s ease,
+      transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+      filter 0.2s ease,
+      border-color 0.2s ease;
+  }
+  .accent-btn:hover,
+  .convolve-press:hover {
+    transform: translateY(-1px);
+  }
+  .accent-btn:active,
+  .convolve-press:active {
+    transform: translateY(1px) scale(0.985);
   }
 
-  /* Slightly more expressive pointer on the marketing surfaces. */
   body.marketing-interactive a,
   body.marketing-interactive button,
   body.marketing-interactive [role="button"] {
     cursor: pointer;
+  }
+
+  /* Primary filled CTAs — white on Default, pale accent otherwise */
+  .accent-btn {
+    background-color: var(--convolve-primary-button-bg);
+    color: var(--convolve-primary-button-text);
+  }
+  .accent-btn:hover {
+    background-color: var(--convolve-accent-hover);
+    color: var(--convolve-primary-button-text);
+  }
+  html[data-accent]:not([data-accent="default"]) .accent-btn {
+    box-shadow: 0 0 22px rgb(var(--convolve-accent-rgb) / 0.22);
+  }
+  html[data-accent]:not([data-accent="default"]) .accent-btn:hover,
+  html[data-accent]:not([data-accent="default"]) .convolve-btn-glow.accent-btn:hover,
+  html[data-accent]:not([data-accent="default"]) .convolve-btn-glow.accent-btn:focus-visible {
+    box-shadow:
+      0 0 0 1px rgb(var(--convolve-accent-rgb) / 0.4),
+      0 0 22px rgb(var(--convolve-accent-rgb) / 0.32);
+  }
+  .accent-btn:disabled,
+  .accent-btn[aria-disabled="true"] {
+    opacity: 0.55;
+    transform: none;
+    box-shadow: none;
+  }
+
+  /* Secondary / transparent controls — accent on text & hover, not filled */
+  .accent-secondary {
+    color: inherit;
+  }
+  html[data-accent]:not([data-accent="default"]) .accent-secondary {
+    color: var(--convolve-secondary-button-text);
+  }
+  html[data-accent]:not([data-accent="default"]) .accent-secondary:hover {
+    color: var(--convolve-accent);
+    border-color: rgb(var(--convolve-accent-rgb) / 0.4);
+  }
+
+  .accent-text {
+    color: var(--convolve-active-navigation);
+  }
+  html[data-accent]:not([data-accent="default"]) .accent-link,
+  html[data-accent]:not([data-accent="default"]) a.accent-text {
+    color: var(--convolve-accent);
+  }
+
+  .accent-brand {
+    background-color: var(--convolve-logo-accent);
+  }
+
+  /* Landing branded punctuation — mint on Default, pale accent when themed */
+  .accent-period {
+    color: #a6ecc8;
+  }
+  html[data-accent]:not([data-accent="default"]) .accent-period {
+    color: var(--convolve-accent);
+  }
+
+  .accent-fill {
+    background-color: var(--convolve-interactive-highlight);
+  }
+
+  .accent-ring:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--convolve-focus-ring);
+  }
+
+  .accent-tab-active {
+    color: var(--convolve-active-navigation);
+  }
+  .accent-tab-underline {
+    background-color: var(--convolve-interactive-highlight);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .convolve-btn-glow,
+    .accent-btn,
+    .convolve-press {
+      transition: none;
+    }
+    .accent-btn:hover,
+    .convolve-press:hover,
+    .accent-btn:active,
+    .convolve-press:active {
+      transform: none;
+    }
   }
 }

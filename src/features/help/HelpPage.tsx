@@ -11,9 +11,11 @@ import { TOUR_STEPS } from "@/features/onboarding/steps";
 import { useOnboardingStore } from "@/features/onboarding/store";
 import { ANNOTATIONS } from "./annotations";
 import { InstallCard } from "@/features/pwa/InstallUI";
+import { AccentPicker } from "@/features/accent/AccentPicker";
 
 const SECTIONS = [
   { id: "tour", title: "Guided tour" },
+  { id: "appearance", title: "Appearance" },
   { id: "how-it-works", title: "How Convolve works" },
   { id: "install", title: "Install the app" },
   { id: "generate", title: "Build a dataset" },
@@ -78,7 +80,7 @@ function TourControls() {
   };
   const canResume = Boolean(server && server.status !== "completed" && server.status !== "new");
   const btn = "inline-flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-sm font-medium transition";
-  const primary = `${btn} bg-white text-[#0a0a0a] hover:bg-white/90`;
+  const primary = `${btn} accent-btn`;
   const secondary = `${btn} border border-white/15 text-white/80 hover:bg-white/10`;
   const n = TOUR_STEPS.length;
 
@@ -235,6 +237,20 @@ export default function HelpPage() {
           <div className="mt-12">
             <Section id="tour" title="Guided tour">
               <TourControls />
+            </Section>
+
+            <Section id="appearance" title="Appearance">
+              <p>
+                Choose an accent on the welcome screen, or change it any time here or under{" "}
+                <Link to="/account" className="text-white underline-offset-4 hover:underline">
+                  Account → Appearance
+                </Link>
+                . Accents colour primary buttons, chart highlights, the logo mark and selected labels. Panels, borders and secondary text stay
+                the original grey. The public marketing homepage keeps its established look.
+              </p>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4">
+                <AccentPicker label="Accent colour" />
+              </div>
             </Section>
 
             <Section id="how-it-works" title="How Convolve works">

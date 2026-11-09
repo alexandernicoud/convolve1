@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, type PointerEvent } from "react";
 import { motion, useReducedMotion, useSpring } from "framer-motion";
 import { ChevronDown } from "lucide-react";
-import logoMark from "@/assets/convolve-mark.png";
+import { ConvolveMark } from "@/components/brand/ConvolveMark";
 import { Container, EASE } from "../ui";
 import { contours } from "./TopoMap";
 
@@ -167,16 +167,15 @@ export function AboutLanding() {
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_65%_at_50%_50%,transparent_55%,#050506_100%)]" />
 
       <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-        <motion.img
-          src={logoMark}
-          alt="Convolve"
-          draggable={false}
+        <motion.div
           className="relative select-none"
-          style={{ width: "min(34vw, 220px)", height: "auto", filter: "drop-shadow(0 0 40px rgba(185,211,255,0.16))" }}
+          style={{ width: "min(34vw, 220px)", height: "min(34vw, 220px)", filter: "drop-shadow(0 0 40px rgba(var(--convolve-accent-rgb, 255,255,255),0.16))" }}
           initial={reduce ? false : { opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 1.1, ease: EASE }}
-        />
+        >
+          <ConvolveMark className="h-full w-full" title="Convolve" />
+        </motion.div>
       </div>
 
       <Container className="pointer-events-none relative flex min-h-[calc(100svh-80px)] flex-col justify-between py-8 md:py-10">

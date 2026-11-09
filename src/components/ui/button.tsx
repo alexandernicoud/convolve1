@@ -9,8 +9,8 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        primary: "bg-white text-[#0a0a0a] hover:bg-white/90 focus:ring-white/40",
+        default: "accent-btn convolve-press focus:ring-[color:var(--convolve-focus-ring)]",
+        primary: "accent-btn convolve-press focus:ring-[color:var(--convolve-focus-ring)]",
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
         danger:
           "border border-[#f87171]/50 bg-transparent text-[#fecaca] hover:bg-[#f87171]/10 focus:ring-[#f87171]/40",

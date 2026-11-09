@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
 import { Link } from "react-router-dom";
-import logoMark from "@/assets/convolve-mark.png";
+import { ConvolveMark } from "@/components/brand/ConvolveMark";
 
 export function AuthShell({
   title,
@@ -15,7 +15,7 @@ export function AuthShell({
     <div className="flex min-h-[calc(100vh-5rem)] items-start justify-center bg-black px-4 pb-16 pt-10">
       <div className="w-full max-w-md">
         <Link to="/" className="mb-8 flex items-center justify-center gap-1.5">
-          <img src={logoMark} alt="" className="h-10 w-10 object-contain" />
+          <ConvolveMark className="h-10 w-10" title="Convolve" />
           <span className="font-sans text-xl font-bold tracking-tight text-white">convolve.</span>
         </Link>
         <div className="rounded-2xl border border-white/[0.1] bg-white/[0.04] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-8">
@@ -74,7 +74,7 @@ export function AuthSubmit({
       type="submit"
       disabled={busy}
       onClick={onSubmit}
-      className="mt-2 flex w-full items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90 disabled:opacity-50"
+      className="mt-2 flex w-full items-center justify-center rounded-xl accent-btn convolve-press px-4 py-3 text-sm font-semibold transition disabled:opacity-50"
     >
       {children}
     </button>

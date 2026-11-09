@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import logoMark from "@/assets/convolve-mark.png";
+import { ConvolveMark } from "@/components/brand/ConvolveMark";
 import { isCompactHeaderPathname, useHeaderReveal } from "@/context/HeaderRevealContext";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
@@ -10,28 +10,36 @@ import { PRODUCT_PIPELINE_ITEMS } from "@/components/products/productPipelineLin
 
 function HeaderCta({ isHomeLanding }: { isHomeLanding: boolean }) {
   const { session, loading } = useAuth();
-  const className = cn(
-    "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition-all duration-200 sm:px-4 sm:py-2 sm:text-sm",
-    isHomeLanding
-      ? "border-white bg-white font-medium text-black hover:bg-white/90"
-      : "border-white/25 bg-white/[0.06] font-medium text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-sm hover:border-white/40 hover:bg-white/[0.1] focus:outline-none focus:ring-2 focus:ring-white/20",
+  const primary = cn(
+    "convolve-press accent-btn inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-transparent px-3 py-1.5 text-xs font-medium transition-all duration-200 sm:px-4 sm:py-2 sm:text-sm",
+    !isHomeLanding && "shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
   );
+  const accountLink = session ? "/account" : `/login?next=${encodeURIComponent("/account")}`;
+  const accountClass = "accent-secondary whitespace-nowrap text-xs text-white/60 transition-colors hover:text-white sm:text-sm";
   if (loading) {
-    return <span className={cn(className, "opacity-50")}>…</span>;
+    return <span className={cn(primary, "opacity-50")}>…</span>;
   }
   if (session) {
     return (
-      <Link to="/dashboard" className={className}>
-        Open workspace
-      </Link>
+      <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+        <Link to={accountLink} className={accountClass}>
+          Account
+        </Link>
+        <Link to="/dashboard" className={primary}>
+          Open workspace
+        </Link>
+      </div>
     );
   }
   return (
-    <div className="flex shrink-0 items-center gap-3 sm:gap-4">
-      <Link to="/login" className="hidden whitespace-nowrap text-xs text-white/60 transition-colors hover:text-white sm:inline sm:text-sm">
+    <div className="flex shrink-0 items-center gap-2.5 sm:gap-4">
+      <Link to={accountLink} className={accountClass}>
+        Account
+      </Link>
+      <Link to="/login" className={cn(accountClass, "hidden sm:inline")}>
         Sign in
       </Link>
-      <Link to="/signup" className={className}>
+      <Link to="/signup" className={primary}>
         Start building
       </Link>
     </div>
@@ -100,7 +108,7 @@ function MainNav({
             window.location.assign("/");
           }}
         >
-          <img src={logoMark} alt="" className="h-11 w-11 object-contain" />
+          <ConvolveMark className="h-11 w-11" title="Convolve" />
           <span
             aria-hidden
             className={cn(

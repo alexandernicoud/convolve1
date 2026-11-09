@@ -4,7 +4,7 @@ import { motion, useReducedMotion, useScroll, useTransform, type MotionValue } f
 import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
-import logoMark from "@/assets/convolve-mark.png";
+import { ConvolveMark } from "@/components/brand/ConvolveMark";
 import { LEGAL_LINKS, OPERATOR } from "@/features/legal/meta";
 import { PROVENANCE, type Provenance } from "./data";
 
@@ -237,7 +237,7 @@ export function PrimaryCta({ to, children, className, size = "md" }: { to: strin
     <Link
       to={to}
       className={cn(
-        "group relative inline-flex items-center gap-2.5 overflow-hidden rounded-full bg-white font-medium text-black transition-[background-color,transform] duration-300 hover:-translate-y-px hover:bg-white/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-black",
+        "group convolve-magnetic relative inline-flex items-center gap-2.5 overflow-hidden rounded-full accent-btn convolve-press font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--convolve-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-black",
         size === "lg" ? "px-8 py-4 text-[15.5px]" : "px-6 py-3.5 text-[14.5px]",
         className
       )}
@@ -262,7 +262,7 @@ export function SecondaryCta({
   size?: "md" | "lg";
 }) {
   const cls = cn(
-    "group inline-flex items-center gap-2.5 rounded-full border border-white/20 bg-white/[0.03] text-white/85 backdrop-blur-sm transition-colors duration-200 hover:border-white/45 hover:bg-white/[0.07] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40",
+    "group accent-secondary convolve-press inline-flex items-center gap-2.5 rounded-full border border-white/20 bg-white/[0.03] text-white/85 backdrop-blur-sm transition-colors duration-200 hover:border-white/45 hover:bg-white/[0.07] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--convolve-focus-ring)]",
     size === "lg" ? "px-8 py-4 text-[15.5px]" : "px-6 py-3.5 text-[14.5px]",
     className
   );
@@ -300,7 +300,7 @@ export function M2Footer() {
       <Container className="flex flex-col gap-10 py-14 md:flex-row md:items-end md:justify-between">
         <div className="max-w-md">
           <Link to="/" className="flex items-center gap-2">
-            <img src={logoMark} alt="" className="h-8 w-8 object-contain" />
+            <ConvolveMark className="h-8 w-8" title="Convolve" />
             <span className="text-lg font-semibold tracking-tight text-white">convolve.</span>
           </Link>
           <p className="mt-5 text-[13px] leading-relaxed text-white/40">

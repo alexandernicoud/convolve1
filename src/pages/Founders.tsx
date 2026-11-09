@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { FOUNDER_LINKEDIN_URL as LINKEDIN } from "@/lib/founderLinks";
-import logoMark from "@/assets/convolve-mark.png";
+import { ConvolveMark } from "@/components/brand/ConvolveMark";
 import { HEADER_HEIGHT_PX } from "@/context/HeaderRevealContext";
 
 const fadeUp = {
@@ -41,20 +41,19 @@ function AboutHero() {
       />
 
       {/* Centered logo */}
-      <motion.img
-        src={logoMark}
-        alt="Convolve"
+      <motion.div
         className="relative z-[1] select-none"
         style={{
           width: "min(56vw, 360px)",
-          height: "auto",
-          filter: "drop-shadow(0 0 24px rgba(255,255,255,0.08))",
+          height: "min(56vw, 360px)",
+          filter: "drop-shadow(0 0 24px rgba(var(--convolve-accent-rgb, 255,255,255),0.08))",
         }}
-        draggable={false}
         initial={reducedMotion ? false : { opacity: 0, scale: 0.94 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
-      />
+      >
+        <ConvolveMark className="h-full w-full" title="Convolve" />
+      </motion.div>
 
       {/* Scroll hint — lifted well above the fold */}
       <a

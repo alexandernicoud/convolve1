@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { asset, trace } from "@/features/marketing2/data";
 import { BetaOffersOverlay, offersSeen } from "@/features/beta/BetaOffersOverlay";
 import { useBetaInfo } from "@/features/beta/BetaUI";
+import { AccentPicker } from "@/features/accent/AccentPicker";
 import { placePopover } from "./model";
 import { TOUR_STEPS, type TourSpot } from "./steps";
 import { useOnboardingStore } from "./store";
@@ -88,6 +89,9 @@ function WelcomeOverlay() {
           Generate a labelled chart dataset, train a neural network, see what it looks at, backtest it against honest baselines and improve
           it with controlled experiments — all without writing code. Paper-trading bots come last, once a model holds up.
         </p>
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4">
+          <AccentPicker label="Choose an accent colour" />
+        </div>
         <div className="mt-6">
           <PipelineVisual />
         </div>
@@ -96,14 +100,14 @@ function WelcomeOverlay() {
             type="button"
             autoFocus
             onClick={() => start(0)}
-            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90 sm:flex-[1.4]"
+            className="convolve-btn-glow accent-btn inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-5 text-[15px] font-semibold transition sm:flex-[1.4]"
           >
-            Start guided research <ArrowRight className="h-4 w-4" />
+            Start guided research <ArrowRight className="h-5 w-5" />
           </button>
           <button
             type="button"
             onClick={skip}
-            className="inline-flex flex-1 items-center justify-center rounded-xl border border-white/15 px-4 py-3 text-sm font-medium text-white/80 transition hover:bg-white/10"
+            className="inline-flex h-12 flex-1 items-center justify-center rounded-xl border border-white/15 px-5 text-[15px] font-medium text-white/80 transition hover:bg-white/10"
           >
             Explore workspace
           </button>
@@ -113,7 +117,7 @@ function WelcomeOverlay() {
               skip();
               navigate("/help#tour");
             }}
-            className="inline-flex flex-1 items-center justify-center rounded-xl border border-white/15 px-4 py-3 text-sm font-medium text-white/80 transition hover:bg-white/10"
+            className="inline-flex h-12 flex-1 items-center justify-center rounded-xl border border-white/15 px-5 text-[15px] font-medium text-white/80 transition hover:bg-white/10"
           >
             Open Help tour
           </button>
@@ -292,7 +296,7 @@ function TourOverlay() {
               <button
                 type="button"
                 onClick={() => navigate(step.route)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-[#0a0a0a] hover:bg-white/90"
+                className="inline-flex items-center gap-1.5 rounded-lg accent-btn convolve-press px-3 py-1.5 text-xs font-semibold  hover:bg-white/90"
               >
                 Open {step.page} <ArrowRight className="h-3.5 w-3.5" />
               </button>
@@ -300,7 +304,7 @@ function TourOverlay() {
               <button
                 type="button"
                 onClick={next}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-[#0a0a0a] hover:bg-white/90"
+                className="inline-flex items-center gap-1.5 rounded-lg accent-btn convolve-press px-3 py-1.5 text-xs font-semibold  hover:bg-white/90"
               >
                 {isLast ? "Finish" : isLastSpot ? `Next: ${TOUR_STEPS[pos.step + 1].label}` : "Next"} <ArrowRight className="h-3.5 w-3.5" />
               </button>
@@ -342,7 +346,7 @@ function CompleteCard() {
               close();
               navigate("/tools/generator");
             }}
-            className="inline-flex flex-1 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] hover:bg-white/90"
+            className="inline-flex flex-1 items-center justify-center rounded-xl accent-btn convolve-press px-4 py-3 text-sm font-semibold  hover:bg-white/90"
           >
             Open Generator
           </button>

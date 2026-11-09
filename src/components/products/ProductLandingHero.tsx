@@ -100,7 +100,7 @@ export default function ProductLandingHero() {
         <div className="hero-fade mt-12 flex flex-wrap items-center gap-4">
           <Link
             to="/dashboard"
-            className="inline-flex items-center justify-center rounded-full border border-white/25 bg-white px-8 py-3.5 text-sm font-medium text-[#0a0a0a] shadow-[0_0_40px_rgba(255,255,255,0.1)] transition hover:bg-white/90"
+            className="inline-flex items-center justify-center rounded-full border border-white/25 accent-btn convolve-press px-8 py-3.5 text-sm font-medium  shadow-[0_0_40px_rgba(255,255,255,0.1)] transition hover:bg-white/90"
           >
             Start building
           </Link>

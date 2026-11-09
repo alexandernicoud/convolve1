@@ -37,7 +37,7 @@ export default function LiveBots() {
               >
                 <button
                   disabled
-                  className="px-6 py-2.5 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 opacity-50 cursor-not-allowed inline-flex items-center gap-2"
+                  className="px-6 py-2.5 accent-btn convolve-press  font-medium rounded-lg transition-all duration-200 opacity-50 cursor-not-allowed inline-flex items-center gap-2"
                 >
                   Coming soon
                 </button>

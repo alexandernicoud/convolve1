@@ -5,6 +5,7 @@ import { Bone, LoadingRegion, SkeletonRows, SkeletonStatGrid } from "@/component
 import type { FleetRange } from "./api";
 import { fmtAge, isInactive, pickLayout, type ChartMode, type SecondaryPanel } from "./lib";
 import { ResearchStart } from "@/features/onboarding/ResearchStart";
+import { readHideResearchStart } from "@/features/onboarding/researchStartPrefs";
 import { useFleet } from "./useFleet";
 import { useElementSize } from "./ui";
 import { auditOverview } from "./viewportAudit";
@@ -55,7 +56,7 @@ export function FleetOverview() {
   const [mode, setMode] = useState<ChartMode>("pnl");
   const [breakdown, setBreakdown] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
-  const [showFleet, setShowFleet] = useState(false);
+  const [showFleet, setShowFleet] = useState(() => readHideResearchStart());
   const fleet = useFleet(range);
   const now = useNow(5000);
   const [rootRef, size] = useElementSize<HTMLDivElement>();
@@ -72,7 +73,12 @@ export function FleetOverview() {
 
   let body: ReactNode;
   if (researchFirst) {
-    body = <ResearchStart onShowFleet={() => setShowFleet(true)} />;
+    body = (
+      <ResearchStart
+        onShowFleet={() => setShowFleet(true)}
+        onDismissForever={() => setShowFleet(true)}
+      />
+    );
   } else if (!p) {
     body = fleet.loading ? (
       <LoadingRegion label="Loading fleet overview" className="flex flex-col gap-3">

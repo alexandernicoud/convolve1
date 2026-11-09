@@ -257,14 +257,14 @@ export function EmptyState({ title, body, action }: { title: string; body?: Reac
 }
 
 export const btn =
-  "inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-lg border border-white/20 bg-white/[0.04] px-3 text-[13px] font-medium text-white/90 transition hover:border-white/40 hover:bg-white/[0.08] hover:text-white focus:outline-none focus-visible:ring-1 focus-visible:ring-white/40 disabled:pointer-events-none disabled:opacity-40";
+  "accent-secondary convolve-press inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-lg border border-white/20 bg-white/[0.04] px-3 text-[13px] font-medium text-white/90 transition hover:border-white/40 hover:bg-white/[0.08] hover:text-white focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--convolve-focus-ring)] disabled:pointer-events-none disabled:opacity-40";
 
 /** Compact variant for table rows. */
 export const btnSm =
-  "inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.14] px-2.5 text-[12.5px] font-medium text-white/80 transition hover:border-white/35 hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-1 focus-visible:ring-white/40 disabled:pointer-events-none disabled:opacity-40";
+  "accent-secondary convolve-press inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-white/[0.14] px-2.5 text-[12.5px] font-medium text-white/80 transition hover:border-white/35 hover:bg-white/[0.06] hover:text-white focus:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--convolve-focus-ring)] disabled:pointer-events-none disabled:opacity-40";
 
 export const btnPrimary =
-  "inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-lg bg-white px-4 text-[13px] font-semibold text-[#0a0a0a] transition hover:bg-white/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50 disabled:opacity-40";
+  "accent-btn convolve-press inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-lg px-4 text-[13px] font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--convolve-focus-ring)] disabled:opacity-40";
 
 /** Note qualifying a number (in-sample, net of costs…). */
 export function Caveat({ children }: { children: ReactNode }) {

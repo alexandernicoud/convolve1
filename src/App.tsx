@@ -8,6 +8,7 @@ import { lazy, Suspense, useEffect } from "react";
 import { useRunsStore } from "@/state/runsStore";
 import { HeaderRevealProvider, useHeaderReveal, isCompactHeaderPathname } from "@/context/HeaderRevealContext";
 import { AuthProvider } from "@/context/AuthContext";
+import { AccentProvider } from "@/features/accent/AccentProvider";
 import { ProtectedRoute, isProtectedAppPath } from "@/components/auth/ProtectedRoute";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -43,7 +44,7 @@ import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 
 import { ReferralClaimer } from "./features/rewards/ReferralClaimer";
-import { TechnicalLayout } from "@/components/layout/TechnicalLayout";
+import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 
 // Signed-in workspace pages load on demand, so public pages do not download the research tools.
 const Docs = lazy(() => import("./pages/Docs"));
@@ -248,299 +249,50 @@ function AppShell() {
             element={<Navigate to="/products/labeling-optimizer/technical" replace />}
           />
           <Route path="/products/live-bots" element={<Navigate to="/dashboard/bots" replace />} />
-          <Route
-            path="/products/labeling-optimizer/technical"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <LabelingOptimizerTechnical />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
           {/* Legacy plural /runs/ 404'd — rewrite to singular /run/ */}
-          <Route
-            path="/products/labeling-optimizer/runs/:runId"
-            element={<LegacyLabelingOptimizerRunsRedirect />}
-          />
-          <Route
-            path="/products/labeling-optimizer/run/:runId"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <LabelingOptimizerRun />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/products/labeling-optimizer/results/:runId"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <LabelingOptimizerResults />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/products/trainer/analysis/:runId/:analysisId"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <TrainerAdvancedVisuals />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-
-          {/* Tool pages */}
-          <Route
-            path="/tools/generator"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <Generator />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/tools/generator/runs/:runId"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <GeneratorResults />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/tools/trainer"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <Trainer />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/tools/trainer/runs/:runId"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <TrainingSessionPage />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
+          <Route path="/products/labeling-optimizer/runs/:runId" element={<LegacyLabelingOptimizerRunsRedirect />} />
           <Route path="/tools/trainer/runs/:runId/analysis" element={<LegacyTrainerAnalysisRedirect />} />
-          <Route
-            path="/tools/improve"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <ImprovePage />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/tools/analysis"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <LabPage />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/tools/analysis/legacy"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <AnalysisTechnical />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/tools/backtester"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <Backtester />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/tools/backtester/runs/:runId"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <BacktesterResults />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
           <Route path="/tools/optimizer" element={<Navigate to="/products/labeling-optimizer/technical" replace />} />
-          <Route
-            path="/tools/run-log/:toolFamily"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <RunLog />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
           <Route path="/tools/search-hub" element={<Navigate to="/tools/run-log" replace />} />
-          <Route
-            path="/tools/run-log"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <RunLog />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/tools/deploy"
-            element={
-              <PageWrapper>
-                <TechnicalLayout>
-                  <Deploy />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <Dashboard />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard/demo"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <DashboardDemo />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard/bots"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <DashboardBotsDirectory />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard/portfolio"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <DashboardPortfolio />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard/trade-history"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <DashboardTradeHistory />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard/feedback"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <FeedbackPage />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard/admin/citations"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <CitationReviewPage />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard/admin"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <AdminPage />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard/admin/feedback"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <FeedbackReviewPage />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard/community-ranking"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <DashboardCommunityRanking />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-          <Route
-            path="/dashboard/bots/:botId"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <LiveBotDetail />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
-
-          {/* Account workspace (dashboard shell so the sidebar balance stays live) */}
-          <Route
-            path="/account"
-            element={
-              <PageWrapper>
-                <TechnicalLayout variant="dashboard">
-                  <Account />
-                </TechnicalLayout>
-              </PageWrapper>
-            }
-          />
           <Route path="/credits" element={<Navigate to="/account?tab=usage" replace />} />
+
+          {/* Stable workspace chrome (sidebar stays mounted across tool hops) */}
+          <Route
+            element={
+              <PageWrapper>
+                <WorkspaceShell />
+              </PageWrapper>
+            }
+          >
+            <Route path="/products/labeling-optimizer/technical" element={<LabelingOptimizerTechnical />} />
+            <Route path="/products/labeling-optimizer/run/:runId" element={<LabelingOptimizerRun />} />
+            <Route path="/products/labeling-optimizer/results/:runId" element={<LabelingOptimizerResults />} />
+            <Route path="/products/trainer/analysis/:runId/:analysisId" element={<TrainerAdvancedVisuals />} />
+            <Route path="/tools/generator" element={<Generator />} />
+            <Route path="/tools/generator/runs/:runId" element={<GeneratorResults />} />
+            <Route path="/tools/trainer" element={<Trainer />} />
+            <Route path="/tools/trainer/runs/:runId" element={<TrainingSessionPage />} />
+            <Route path="/tools/improve" element={<ImprovePage />} />
+            <Route path="/tools/analysis" element={<LabPage />} />
+            <Route path="/tools/analysis/legacy" element={<AnalysisTechnical />} />
+            <Route path="/tools/backtester" element={<Backtester />} />
+            <Route path="/tools/backtester/runs/:runId" element={<BacktesterResults />} />
+            <Route path="/tools/run-log/:toolFamily" element={<RunLog />} />
+            <Route path="/tools/run-log" element={<RunLog />} />
+            <Route path="/tools/deploy" element={<Deploy />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/dashboard/demo" element={<DashboardDemo />} />
+            <Route path="/dashboard/bots" element={<DashboardBotsDirectory />} />
+            <Route path="/dashboard/portfolio" element={<DashboardPortfolio />} />
+            <Route path="/dashboard/trade-history" element={<DashboardTradeHistory />} />
+            <Route path="/dashboard/feedback" element={<FeedbackPage />} />
+            <Route path="/dashboard/admin/citations" element={<CitationReviewPage />} />
+            <Route path="/dashboard/admin" element={<AdminPage />} />
+            <Route path="/dashboard/admin/feedback" element={<FeedbackReviewPage />} />
+            <Route path="/dashboard/community-ranking" element={<DashboardCommunityRanking />} />
+            <Route path="/dashboard/bots/:botId" element={<LiveBotDetail />} />
+            <Route path="/account" element={<Account />} />
+          </Route>
 
           {/* Fallback */}
           <Route path="*" element={<PageWrapper><NotFound /></PageWrapper>} />
@@ -563,7 +315,9 @@ function AppShell() {
 const AppRoutes = () => (
   <HeaderRevealProvider>
     <AuthProvider>
-      <AppShell />
+      <AccentProvider>
+        <AppShell />
+      </AccentProvider>
     </AuthProvider>
   </HeaderRevealProvider>
 );

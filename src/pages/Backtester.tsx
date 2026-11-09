@@ -965,7 +965,7 @@ export default function Backtester() {
                   onClick={() => switchSourceMode("library")}
                   className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
                     sourceMode === "library"
-                      ? "bg-white text-[#0a0a0a]"
+           ? "accent-btn convolve-press "
                       : "text-white/60 hover:bg-white/[0.06] hover:text-white/85"
                   }`}
                 >
@@ -976,7 +976,7 @@ export default function Backtester() {
                   onClick={() => switchSourceMode("upload")}
                   className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
                     sourceMode === "upload"
-                      ? "bg-white text-[#0a0a0a]"
+           ? "accent-btn convolve-press "
                       : "text-white/60 hover:bg-white/[0.06] hover:text-white/85"
                   }`}
                 >
@@ -1425,7 +1425,7 @@ export default function Backtester() {
                         type="button"
                         onClick={() => void applyTrainingParamsFromPicker()}
                         disabled={applyingTrainingParams || !paramsSourceKey}
-                        className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-[#0a0a0a] transition hover:bg-white/90 disabled:opacity-45"
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg accent-btn convolve-press px-3 py-2 text-xs font-semibold  transition hover:bg-white/90 disabled:opacity-45"
                       >
                         {applyingTrainingParams ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1679,7 +1679,7 @@ export default function Backtester() {
                 type="submit"
                 data-help="bt-run"
                 disabled={!canRun}
-                className="flex w-full items-center justify-center gap-2 rounded-full border border-white/25 bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-45"
+                className="flex w-full items-center justify-center gap-2 rounded-full border border-white/25 accent-btn convolve-press px-4 py-3 text-sm font-semibold  transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 {isSubmitting ? (
                   <>

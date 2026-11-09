@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useInView, useMotionValueEvent, useReducedMotion, useScroll, useTransform, type MotionValue } from "framer-motion";
 import { Cpu, Database, LayoutDashboard, LineChart, Rocket, ScanSearch, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import logoMark from "@/assets/convolve-mark.png";
+import { ConvolveMark } from "@/components/brand/ConvolveMark";
 import { PRODUCT_PIPELINE_ITEMS } from "@/components/products/productPipelineLinks";
 import { asset, backtest, fleet, labmaps, training } from "../data";
 import { linePath, scale } from "../ui";
@@ -129,7 +129,7 @@ export function DashboardSurface({ stage = null, region = null }: { stage?: numb
           )}
           style={{ opacity: dim && !lit([], "nav") && region != null ? 0.38 : 1 }}
         >
-          <img src={logoMark} alt="" className="mb-2 h-6 w-6 object-contain" />
+          <ConvolveMark className="mb-2 h-6 w-6" />
           {STAGES.map((s, i) => {
             const Icon = s.icon;
             const on = stage === i || (all && i === HUB);
@@ -150,7 +150,7 @@ export function DashboardSurface({ stage = null, region = null }: { stage?: numb
           <span className="text-[14px] font-medium">Overview</span>
           <span className="rounded-full border border-white/10 px-2 py-0.5 font-mono text-[10px] text-white/45">workspace · research</span>
           <span className="ml-auto rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-white/60">Search runs…</span>
-          <span className="rounded-md bg-white px-2.5 py-1 text-[11px] font-medium text-black">New run</span>
+          <span className="rounded-md accent-btn px-2.5 py-1 text-[11px] font-medium">New run</span>
         </div>
 
         {/* KPIs */}

@@ -162,9 +162,15 @@ export function creditsUnit(n: number): string {
 export const REASON_LABELS: Record<string, string> = {
   grant: "Starter allocation",
   allocation: "Plan allocation",
-  charge: "Run",
-  refund: "Refund",
+  charge: "Run charge",
+  refund: "Run refund",
   adjustment: "Adjustment",
+  subscription: "Subscription credit",
+  purchase: "Credit purchase",
+  reward: "Reward",
+  expiry: "Credit expiry",
+  credit_refund: "Cash refund of credits",
+  credit_refund_reversal: "Cash refund reversal",
 };
 
 export function formatPrice(price: PlanPrice): string | null {

@@ -157,7 +157,7 @@ export default function Optimizer() {
         <button
           onClick={handleRunOptimization}
           disabled={status === 'running'}
-          className="w-full px-6 py-2.5 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full px-6 py-2.5 accent-btn convolve-press  font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {status === 'running' ? 'Optimizing...' : 'Run optimization'}
         </button>

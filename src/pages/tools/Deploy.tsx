@@ -661,7 +661,7 @@ export default function Deploy() {
               >
                 Deploy another
               </button>
-              <Link to={`/dashboard/bots/${successBot.id}`} className="rounded-lg bg-white px-5 py-2.5 text-sm font-medium text-[#0a0a0a]">
+              <Link to={`/dashboard/bots/${successBot.id}`} className="rounded-lg accent-btn convolve-press px-5 py-2.5 text-sm font-medium ">
                 Monitor deployment
               </Link>
             </div>
@@ -678,7 +678,7 @@ export default function Deploy() {
                 type="button"
                 onClick={() => void confirmDeploy()}
                 disabled={isSubmitting}
-                className="rounded-lg bg-white px-6 py-2.5 text-sm font-medium text-[#0a0a0a] disabled:opacity-60"
+                className="rounded-lg accent-btn convolve-press px-6 py-2.5 text-sm font-medium  disabled:opacity-60"
               >
                 {isSubmitting ? "Deploying…" : "Confirm and deploy"}
               </button>
@@ -688,7 +688,7 @@ export default function Deploy() {
               type="submit"
               data-help="deploy-run"
               disabled={isSubmitting}
-              className="rounded-lg bg-white px-6 py-2.5 text-sm font-medium text-[#0a0a0a] disabled:opacity-60"
+              className="rounded-lg accent-btn convolve-press px-6 py-2.5 text-sm font-medium  disabled:opacity-60"
             >
               Review deployment
             </button>

@@ -100,6 +100,81 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   </head>
   <body>
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("convolve:accent") || "default";
+          var map = { original: "default", ice: "blue", mint_old: "mint", violet: "lavender", emerald: "mint", orange: "peach" };
+          var id = map[raw] || raw;
+          var hex = {
+            default: "#ffffff",
+            rose: "#F4B6C2",
+            lavender: "#CBB8F5",
+            blue: "#A9CFF4",
+            cyan: "#A5E5E7",
+            mint: "#A9DEC9",
+            peach: "#F5C5A5",
+            amber: "#F4DCAC",
+          };
+          var fg = {
+            default: "#0a0a0a",
+            rose: "#2a1218",
+            lavender: "#1c1430",
+            blue: "#101a28",
+            cyan: "#102022",
+            mint: "#10241c",
+            peach: "#2a1810",
+            amber: "#241c0c",
+          };
+          var hover = {
+            default: "#f2f2f2",
+            rose: "#f7c5cf",
+            lavender: "#d6c6f7",
+            blue: "#b8d7f6",
+            cyan: "#b5eaea",
+            mint: "#b8e5d2",
+            peach: "#f7d0b5",
+            amber: "#f6e3bb",
+          };
+          var chart = {
+            default: "#8FB3E0",
+            rose: "#F4B6C2",
+            lavender: "#CBB8F5",
+            blue: "#A9CFF4",
+            cyan: "#A5E5E7",
+            mint: "#A9DEC9",
+            peach: "#F5C5A5",
+            amber: "#F4DCAC",
+          };
+          if (!hex[id]) id = "default";
+          var h = hex[id];
+          var hv = hover[id];
+          var ch = chart[id];
+          function rgb(x) {
+            var n = parseInt(x.slice(1), 16);
+            return ((n >> 16) & 255) + ", " + ((n >> 8) & 255) + ", " + (n & 255);
+          }
+          var r = document.documentElement;
+          r.dataset.accent = id;
+          r.style.setProperty("--convolve-accent", h);
+          r.style.setProperty("--convolve-accent-rgb", rgb(h));
+          r.style.setProperty("--convolve-accent-fg", fg[id]);
+          r.style.setProperty("--convolve-accent-hover", hv);
+          r.style.setProperty("--convolve-accent-hover-rgb", rgb(hv));
+          r.style.setProperty("--convolve-accent-subtle", "rgba(" + rgb(h) + ", 0.14)");
+          r.style.setProperty("--convolve-accent-active", hv);
+          r.style.setProperty("--convolve-primary-button-bg", h);
+          r.style.setProperty("--convolve-primary-button-text", fg[id]);
+          r.style.setProperty("--convolve-chart-accent", ch);
+          r.style.setProperty("--convolve-chart-accent-rgb", rgb(ch));
+          r.style.setProperty("--convolve-logo-accent", h);
+          r.style.setProperty("--convolve-focus-ring", "rgba(" + rgb(h) + ", 0.45)");
+          r.style.setProperty("--convolve-interactive-highlight", h);
+          r.style.setProperty("--convolve-active-navigation", id === "default" ? "#ffffff" : h);
+          r.style.setProperty("--convolve-secondary-button-text", id === "default" ? "rgba(255,255,255,0.85)" : h);
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <noscript>
       <h1>Convolve</h1>

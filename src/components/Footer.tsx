@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import logoMark from "@/assets/convolve-mark.png";
+import { ConvolveMark } from "@/components/brand/ConvolveMark";
 import { LEGAL_LINKS, OPERATOR } from "@/features/legal/meta";
 
 const links = [
@@ -17,7 +17,7 @@ export default function Footer() {
       <div className="container-aligned py-12 md:py-14">
         <div className="flex flex-col gap-10 md:flex-row md:items-center md:justify-between">
           <Link to="/" className="flex items-center gap-3 shrink-0">
-            <img src={logoMark} alt="" className="h-8 w-8 object-contain" width={32} height={32} />
+            <ConvolveMark className="h-8 w-8" title="Convolve" />
             <span className="font-sans text-lg font-normal tracking-tight text-foreground">convolve.</span>
           </Link>
           <nav className="flex flex-wrap gap-x-8 gap-y-3">

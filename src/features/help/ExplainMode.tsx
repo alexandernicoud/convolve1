@@ -274,7 +274,7 @@ export function ExplainToggle({ className = "" }: { className?: string }) {
       onClick={toggle}
       aria-pressed={on}
       className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition ${
-        on ? "border-white/60 bg-white text-[#0a0a0a]" : "border-white/12 text-white/70 hover:bg-white/[0.06] hover:text-white"
+        on ? "border-transparent accent-btn" : "border-white/12 text-white/70 hover:bg-white/[0.06] hover:text-white"
       } ${className}`}
     >
       <HelpCircle className="h-3.5 w-3.5" aria-hidden />

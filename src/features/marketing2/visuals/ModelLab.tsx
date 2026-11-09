@@ -191,7 +191,7 @@ function Explorer({ phase = 4 }: { phase?: number }) {
             onClick={() => touch(setMethod)(m.key)}
             className={cn(
               "rounded-full border px-3 py-1.5 text-[12.5px] transition-colors",
-              m.key === method ? "border-white/50 bg-white text-black" : "border-white/[0.1] text-white/60 hover:border-white/25 hover:text-white"
+              m.key === method ? "border-transparent accent-btn" : "border-white/[0.1] text-white/60 hover:border-white/25 hover:text-white"
             )}
           >
             {m.label}
@@ -332,7 +332,7 @@ function Explorer({ phase = 4 }: { phase?: number }) {
                     type="button"
                     aria-pressed={split === (i === 1)}
                     onClick={() => touch(setSplit)(i === 1)}
-                    className={cn("rounded-full px-2.5 py-1 text-[11.5px] transition-colors", split === (i === 1) ? "bg-white text-black" : "text-white/55 hover:text-white")}
+                    className={cn("rounded-full px-2.5 py-1 text-[11.5px] transition-colors", split === (i === 1) ? "accent-btn" : "text-white/55 hover:text-white")}
                   >
                     {l}
                   </button>

@@ -316,7 +316,7 @@ export function SectionAdvantagesHub({
 }
 
 const BTN_NEUTRAL_SOLID =
-  "inline-flex items-center justify-center gap-2 rounded-full bg-white px-7 py-3.5 text-base font-medium text-[#0a0a0a] transition duration-300 ease-out hover:bg-white/90 active:scale-[0.98] sm:px-8 sm:py-4 sm:text-lg";
+  "inline-flex items-center justify-center gap-2 rounded-full accent-btn convolve-press px-7 py-3.5 text-base font-medium transition duration-300 ease-out active:scale-[0.98] sm:px-8 sm:py-4 sm:text-lg";
 
 /** Same figures as `/` Vision proof — large mono display for /home2. */
 export function SectionHome2ProofStats({

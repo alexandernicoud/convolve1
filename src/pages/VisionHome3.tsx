@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
 import { motion, useReducedMotion } from "framer-motion";
 import { HEADER_HEIGHT_PX } from "@/context/HeaderRevealContext";
-import logoMark from "@/assets/convolve-mark.png";
+import { ConvolveMark } from "@/components/brand/ConvolveMark";
 import macbookCutoutImg from "@/assets/macbook_cutout_transparent.png";
 import { Home2GlowMockup } from "@/pages/VisionHome2Mockup";
 import {
@@ -19,7 +19,7 @@ import {
 } from "@/pages/VisionHome2Sections";
 
 const heroBtnPrimary =
-  "inline-flex items-center justify-center gap-2 rounded-full border border-white/20 bg-white px-8 py-4 text-lg font-semibold text-[#0a0a0a] transition duration-300 ease-out hover:bg-white/90 active:scale-[0.98] sm:px-10 sm:py-5 sm:text-xl";
+  "inline-flex items-center justify-center gap-2 rounded-full border border-transparent accent-btn convolve-press px-8 py-4 text-lg font-semibold transition duration-300 ease-out active:scale-[0.98] sm:px-10 sm:py-5 sm:text-xl";
 
 function Home3ScienceSection({ reducedMotion }: { reducedMotion: boolean | null }) {
   const rm = !!reducedMotion;
@@ -113,13 +113,7 @@ export default function VisionHome3() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: reducedMotion ? 0 : 0.86, ease: [0.22, 1, 0.36, 1] }}
         >
-          <img
-            src={logoMark}
-            alt="Convolve"
-            className="h-auto w-[min(34vw,182px)] select-none"
-            style={{ filter: "drop-shadow(0 0 24px rgba(255,255,255,0.08))" }}
-            draggable={false}
-          />
+          <ConvolveMark className="aspect-square w-[min(34vw,182px)] select-none" title="Convolve" />
           <img
             src={macbookCutoutImg}
             alt=""

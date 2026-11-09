@@ -88,8 +88,8 @@ export function Button({
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" }) {
   const styles = {
-    primary: "bg-white text-[#0a0a0a] hover:bg-white/90",
-    secondary: "border border-white/15 text-white/80 hover:bg-white/[0.06]",
+    primary: "accent-btn convolve-press",
+    secondary: "accent-secondary border border-white/15 text-white/80 hover:bg-white/[0.06]",
     danger: "bg-red-500/90 text-white hover:bg-red-500",
   }[variant];
   return (

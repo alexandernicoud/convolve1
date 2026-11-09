@@ -21,7 +21,7 @@ function Segmented<T extends string | number>({ value, options, onChange, label 
           type="button"
           aria-pressed={v === value}
           onClick={() => onChange(v)}
-          className={cn("rounded-full px-4 py-1.5 text-[13.5px] transition-colors", v === value ? "bg-white text-black" : "text-white/60 hover:text-white")}
+          className={cn("rounded-full px-4 py-1.5 text-[13.5px] transition-colors", v === value ? "accent-btn" : "text-white/60 hover:text-white")}
         >
           {text}
         </button>
@@ -199,7 +199,7 @@ export function QuickStart() {
             type="button"
             onClick={start}
             disabled={!sym}
-            className="group relative mt-5 inline-flex w-full items-center justify-center gap-3 overflow-hidden rounded-full bg-white px-8 py-4 text-[16px] font-medium text-black transition-[background-color,transform,opacity] hover:bg-white/90 hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
+            className="group relative mt-5 inline-flex w-full items-center justify-center gap-3 overflow-hidden accent-btn convolve-press rounded-full px-8 py-4 text-[16px] font-medium disabled:cursor-not-allowed disabled:opacity-40"
           >
             {lit >= 0 ? "Opening the Generator…" : "Start engineering"}
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" aria-hidden />

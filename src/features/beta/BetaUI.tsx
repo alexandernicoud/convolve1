@@ -262,7 +262,7 @@ export function RunRefusedModal() {
               type="button"
               autoFocus
               onClick={() => go("/dashboard/feedback")}
-              className="inline-flex flex-1 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+              className="inline-flex flex-1 items-center justify-center rounded-xl accent-btn convolve-press px-4 py-3 text-sm font-semibold  transition hover:bg-white/90"
             >
               Answer now (3 min, +5 credits)
             </button>
@@ -271,7 +271,7 @@ export function RunRefusedModal() {
               type="button"
               autoFocus
               onClick={() => go(refusal.contact ? "/contact" : refusal.runId ? "/tools/run-log" : BETA_LIMITS_HREF)}
-              className="inline-flex flex-1 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+              className="inline-flex flex-1 items-center justify-center rounded-xl accent-btn convolve-press px-4 py-3 text-sm font-semibold  transition hover:bg-white/90"
             >
               {refusal.contact ? "Contact us" : refusal.runId ? "View runs" : "See beta limits"}
             </button>

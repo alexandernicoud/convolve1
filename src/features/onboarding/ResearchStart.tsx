@@ -6,6 +6,7 @@ import { useBetaInfo } from "@/features/beta/BetaUI";
 import { dashboardCard } from "@/components/dashboard/dashboardCard";
 import { cn } from "@/lib/utils";
 import { nextStep, researchSteps } from "./researchPath";
+import { writeHideResearchStart } from "./researchStartPrefs";
 
 function useOverview() {
   const [data, setData] = useState<ReviewOverviewResponse | null>(null);
@@ -24,9 +25,16 @@ function useOverview() {
 }
 
 /** Overview for accounts without paper bots: the research path first, the fleet one click away. */
-export function ResearchStart({ onShowFleet }: { onShowFleet: () => void }) {
+export function ResearchStart({
+  onShowFleet,
+  onDismissForever,
+}: {
+  onShowFleet: () => void;
+  onDismissForever: () => void;
+}) {
   const { data, failed } = useOverview();
   const { beta } = useBetaInfo();
+  const [dontShow, setDontShow] = useState(false);
   const s = data?.summary;
   const steps = researchSteps({
     datasets: s?.totalDatasets ?? 0,
@@ -37,6 +45,20 @@ export function ResearchStart({ onShowFleet }: { onShowFleet: () => void }) {
   });
   const next = data || failed ? nextStep(steps) : null;
   const fresh = !!data && steps.every((x) => !x.done);
+
+  const goFleet = () => {
+    if (dontShow) {
+      writeHideResearchStart(true);
+      onDismissForever();
+    } else {
+      onShowFleet();
+    }
+  };
+
+  const onDontShowChange = (v: boolean) => {
+    setDontShow(v);
+    if (v) writeHideResearchStart(true);
+  };
 
   return (
     <div data-research-start className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
@@ -55,10 +77,10 @@ export function ResearchStart({ onShowFleet }: { onShowFleet: () => void }) {
         {next ? (
           <Link
             to={next.to}
-            className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg bg-white px-5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+            className="convolve-btn-glow accent-btn mt-5 inline-flex h-12 items-center gap-2 rounded-xl px-6 text-[15px] font-semibold transition"
           >
             {next.cta}
-            <ArrowRight className="h-4 w-4" aria-hidden />
+            <ArrowRight className="h-5 w-5" aria-hidden />
           </Link>
         ) : null}
       </section>
@@ -77,7 +99,10 @@ export function ResearchStart({ onShowFleet }: { onShowFleet: () => void }) {
                 )}
               >
                 <span className="flex items-center justify-between">
-                  <span className="font-digits text-[11px] text-white/40">0{i + 1}{step.id === "analyze" ? " · optional" : ""}</span>
+                  <span className="font-digits text-[11px] text-white/40">
+                    0{i + 1}
+                    {step.id === "analyze" ? " · optional" : ""}
+                  </span>
                   {step.done ? (
                     <span className="inline-flex items-center gap-1 text-[11px] text-[#a6ecc8]">
                       <Check className="h-3.5 w-3.5" aria-hidden />
@@ -114,18 +139,36 @@ export function ResearchStart({ onShowFleet }: { onShowFleet: () => void }) {
         </section>
       </div>
 
-      <section className={cn(dashboardCard, "flex flex-wrap items-center justify-between gap-3 px-5 py-3.5")}>
-        <p className="flex items-center gap-2 text-[13px] text-white/60">
-          <Rocket className="h-4 w-4 text-white/45" aria-hidden />
+      <section className={cn(dashboardCard, "flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between")}>
+        <p className="flex max-w-xl items-start gap-2.5 text-[14px] leading-relaxed text-white/60">
+          <Rocket className="mt-0.5 h-5 w-5 shrink-0 text-white/45" aria-hidden />
           No paper bots are running. Launch one only after a model holds up on an independent backtest; execution is always simulated.
         </p>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={onShowFleet} className="rounded-lg border border-white/15 px-3 py-1.5 text-[12.5px] text-white/70 hover:text-white">
-            Show fleet dashboard
-          </button>
-          <Link to="/tools/deploy" className="rounded-lg border border-white/25 bg-white/[0.04] px-3 py-1.5 text-[12.5px] font-semibold text-white hover:border-white/40">
-            Launch Bot
-          </Link>
+        <div className="flex flex-col gap-2 sm:items-end">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={goFleet}
+              className="convolve-btn-glow inline-flex h-12 items-center justify-center rounded-xl border border-white/30 bg-white/[0.06] px-5 text-[15px] font-semibold text-white transition hover:border-white/50 hover:bg-white/[0.1]"
+            >
+              Show fleet dashboard
+            </button>
+            <Link
+              to="/tools/deploy"
+              className="convolve-btn-glow accent-btn inline-flex h-12 items-center justify-center rounded-xl px-5 text-[15px] font-semibold transition"
+            >
+              Launch Bot
+            </Link>
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-white/50">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 rounded border-white/30 bg-black"
+              checked={dontShow}
+              onChange={(e) => onDontShowChange(e.target.checked)}
+            />
+            Don&apos;t show this starting screen again
+          </label>
         </div>
       </section>
     </div>

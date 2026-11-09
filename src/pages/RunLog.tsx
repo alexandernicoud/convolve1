@@ -133,7 +133,7 @@ export default function RunLog() {
                   <button
                     type="button"
                     onClick={handleRefresh}
-                    className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 font-medium text-[#0a0a0a] transition-all duration-200 hover:bg-white/90 "
+                    className="flex items-center gap-2 rounded-lg accent-btn convolve-press px-4 py-2 font-medium  transition-all duration-200 hover:bg-white/90 "
                   >
                     <RefreshCw className="h-4 w-4" />
                     Refresh
@@ -206,7 +206,7 @@ export default function RunLog() {
                             <Link
                               to={getRunRoute(run)}
                               state={{ fromRunHistory: `/tools/run-log/${activeFamily.slug}` }}
-                              className="flex items-center gap-2 rounded-full border border-white/25 bg-white px-4 py-2 text-sm font-medium text-[#0a0a0a] transition hover:bg-white/90"
+                              className="flex items-center gap-2 rounded-full border border-white/25 accent-btn convolve-press px-4 py-2 text-sm font-medium  transition hover:bg-white/90"
                             >
                               <Eye className="h-4 w-4" />
                               {run.status === "running" || run.status === "queued" ? "Open" : "View results"}

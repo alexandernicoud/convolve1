@@ -31,7 +31,7 @@ function TierAction({ tier, signedIn, beta }: { tier: Tier; signedIn: boolean; b
   return (
     <Link
       to={signedIn ? planPath(tier.id) : signupForPlan(tier.id)}
-      className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-5 py-3 text-[14px] font-medium text-[#0a0a0a] transition hover:bg-white/90"
+      className="inline-flex w-full items-center justify-center gap-2 rounded-full accent-btn convolve-press px-5 py-3 text-[14px] font-medium  transition hover:bg-white/90"
     >
       Start {tier.name}
       <ArrowRight className="h-4 w-4" aria-hidden />

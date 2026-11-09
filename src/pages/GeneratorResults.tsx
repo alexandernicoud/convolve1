@@ -441,7 +441,7 @@ export default function GeneratorResults() {
               <button
                 type="button"
                 onClick={() => void handleDownload()}
-                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-white px-4 py-3 text-sm font-medium text-[#0a0a0a]"
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg accent-btn convolve-press px-4 py-3 text-sm font-medium "
               >
                 <Download className="h-4 w-4" />
                 Download ZIP

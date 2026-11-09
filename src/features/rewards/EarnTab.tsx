@@ -103,7 +103,7 @@ function Questionnaire({ r }: { r: RewardsStatus }) {
       {r.questionnaire.completed ? (
         <Done>Completed. The credits are in your balance.</Done>
       ) : (
-        <Link to="/dashboard/feedback" className="inline-flex rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-black hover:bg-white/90">
+        <Link to="/dashboard/feedback" className="inline-flex rounded-xl accent-btn convolve-press px-4 py-2.5 text-sm font-medium">
           Answer the questions
         </Link>
       )}

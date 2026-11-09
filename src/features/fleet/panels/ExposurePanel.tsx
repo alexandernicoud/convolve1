@@ -1,22 +1,24 @@
 import { useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useAccentHex } from "@/features/accent/AccentProvider";
 import { FLEET_LINE_COLORS } from "@/components/dashboard/fleetPalette";
 import { axisProps, gridProps } from "@/components/viz/chartKit";
 import type { FleetPayload } from "../api";
-import { ACCENT, fmtDateTime, fmtMoney, fmtPct, isNum, ms, tickLabel, timeTicks } from "../lib";
+import { fmtDateTime, fmtMoney, fmtPct, isNum, ms, tickLabel, timeTicks } from "../lib";
 import { BASELINE_STROKE, FrameNote, Panel, TipRow, TooltipBox, Unavailable, useElementSize } from "../ui";
 
-function Tip({ active, payload }: { active?: boolean; payload?: { payload: { t: number; exposure: number | null } }[] }) {
+function Tip({ active, payload, accent }: { active?: boolean; payload?: { payload: { t: number; exposure: number | null } }[]; accent: string }) {
   if (!active || !payload?.length || payload[0].payload.exposure == null) return null;
   return (
     <TooltipBox>
       <p className="mb-1 text-white/50">{fmtDateTime(payload[0].payload.t)}</p>
-      <TipRow label="Gross exposure" value={fmtPct(payload[0].payload.exposure, 1, false)} color={ACCENT} />
+      <TipRow label="Gross exposure" value={fmtPct(payload[0].payload.exposure, 1, false)} color={accent} />
     </TooltipBox>
   );
 }
 
 export function ExposurePanel({ p, hovered }: { p: FleetPayload; hovered: string | null }) {
+  const accent = useAccentHex();
   const [ref, size] = useElementSize<HTMLDivElement>();
   const ccy = p.currency.base;
   const k = p.kpis;
@@ -79,8 +81,8 @@ export function ExposurePanel({ p, hovered }: { p: FleetPayload; hovered: string
                   <CartesianGrid {...gridProps} />
                   <XAxis dataKey="t" type="number" scale="time" domain={[start, end]} ticks={ticks} tickFormatter={(t: number) => tickLabel(t, step)} {...axisProps} height={16} />
                   <YAxis {...axisProps} width={40} domain={[0, (max: number) => Math.max(0.05, Math.min(1, max * 1.15))]} tickCount={3} tickFormatter={(v: number) => fmtPct(v, 0, false)} />
-                  <Area dataKey="exposure" type="stepAfter" stroke={ACCENT} strokeWidth={1.2} fill={ACCENT} fillOpacity={0.14} isAnimationActive={false} connectNulls={false} />
-                  <Tooltip content={<Tip />} cursor={{ stroke: "rgba(255,255,255,0.3)" }} isAnimationActive={false} />
+                  <Area dataKey="exposure" type="stepAfter" stroke={accent} strokeWidth={1.2} fill={accent} fillOpacity={0.14} isAnimationActive={false} connectNulls={false} />
+                  <Tooltip content={<Tip accent={accent} />} cursor={{ stroke: "rgba(255,255,255,0.3)" }} isAnimationActive={false} />
                 </AreaChart>
               </ResponsiveContainer>
             )}

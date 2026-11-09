@@ -3,7 +3,7 @@ import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Too
 import { KV, Panel, cx, surface } from "@/features/review/components/primitives";
 import { axisProps, ChartFrame, ChartLoading, ChartPlaceholder, ChartTooltip, gridProps, type LegendItem } from "@/components/viz/chartKit";
 import { fmtInt, fmtPct, isFiniteNum, niceScale, paddedDomain } from "@/lib/viz/format";
-import { SERIES, VIZ } from "@/lib/viz/tokens";
+import { CHART_ACCENT, SERIES, VIZ } from "@/lib/viz/tokens";
 import { labelMethodName, outcomeConventionName } from "@/features/research/conventions";
 import { useWorkspace } from "../BacktestWorkspace";
 import { AuditList, Banner, fmtDay, fmtMoney, fmtSignedPct, metricValue, MetricStat, monthTick } from "../ui";
@@ -33,7 +33,7 @@ export default function OverviewTab() {
   const benchKeys = Object.keys(bm).filter((k) => rows?.some((r) => isFiniteNum((r as Record<string, unknown>)[k])));
 
   const legend: LegendItem[] = [
-    { label: "Strategy (net, marked to market)", color: SERIES.primary.color },
+    { label: "Strategy (net, marked to market)", color: CHART_ACCENT },
     ...benchKeys.map((k) => ({ label: bm[k].label, color: BENCH_STYLE[k]?.color ?? SERIES.tertiary.color, dash: BENCH_STYLE[k]?.dash })),
   ];
   const scale = rows ? niceScale(paddedDomain(rows.flatMap((r) => ["equity", ...benchKeys].map((k) => (r as Record<string, unknown>)[k])))) : undefined;
@@ -117,7 +117,7 @@ export default function OverviewTab() {
                 {benchKeys.map((k) => (
                   <Line key={k} type="linear" dataKey={k} name={bm[k].label} stroke={BENCH_STYLE[k]?.color} strokeDasharray={BENCH_STYLE[k]?.dash} strokeWidth={VIZ.stroke.secondary} dot={false} isAnimationActive={false} connectNulls={false} />
                 ))}
-                <Line type="linear" dataKey="equity" name="Strategy" stroke={SERIES.primary.color} strokeWidth={VIZ.stroke.primary} dot={false} isAnimationActive={false} />
+                <Line type="linear" dataKey="equity" name="Strategy" stroke={CHART_ACCENT} strokeWidth={VIZ.stroke.primary} dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           )}

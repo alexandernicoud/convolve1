@@ -1,27 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Loader2, Play, Star } from "lucide-react";
-import { improveApi, trainerApi, type ImproveSession, type TrainerArchitecture, type TrainingSession } from "@/lib/api";
-import { confirmRun, chargeRunCredits } from "@/state/creditsStore";
-import { RunCost } from "@/components/RunCostHint";
-import { useRunsStore } from "@/state/runsStore";
-import { btn, btnPrimary, btnSm, Caveat, cx, EmptyState, Panel, StatusPill, surface } from "@/features/review/components/primitives";
-import { fmtNum, fmtPct, MISSING } from "@/lib/viz/format";
+import { AlertTriangle, ArrowRight, ChevronDown, FlaskConical, Loader2 } from "lucide-react";
 import {
-  baselineFromSession,
-  buildVariant,
-  experimentPayload,
-  nextReplicate,
-  ORDER,
-  PRESET_SELECTS,
-  pricingFor,
-  selectionStatus,
-  VARIANT_COPY,
-  type Variant,
-  type VariantKey,
-} from "./variants";
-import { byGroup, changeLines, GROUP_COPY, GROUP_ORDER, isActive, VERDICT_COPY } from "./workspace";
-import { DecisionCard, Fact, ModelPicker, NoisePanel, ResultsTable, RestoreButton, Shell } from "./ImproveParts";
+  improveApi,
+  internalModelsApi,
+  trainerApi,
+  type ImproveExperiment,
+  type ImproveSession,
+  type InternalModel,
+  type TrainerArchitecture,
+  type TrainingSession,
+} from "@/lib/api";
+import { confirmRun, chargeRunCredits } from "@/state/creditsStore";
+import { useRunsStore } from "@/state/runsStore";
+import { btn, btnPrimary, btnSm, Caveat, cx, EmptyState, StatusPill, surface } from "@/features/review/components/primitives";
+import { findingBadge, type Finding } from "@/features/research/findings";
+import { modelHealth, skillVerdict } from "@/features/trainer/health";
+import { fmtNum, fmtPct, MISSING } from "@/lib/viz/format";
+import { baselineFromSession, buildVariant, experimentPayload, nextReplicate, pricingFor, selectionStatus, VARIANT_COPY, type Variant, type VariantKey } from "./variants";
+import { byGroup, experimentTitle, isActive } from "./workspace";
+import { ACTION_TITLE, PURPOSES, recommend, type Recommendation } from "./recommend";
+import { Fact, ModelPicker, modelName, NoiseStrip, ResultsTable, Shell, TIMEFRAME } from "./ImproveParts";
+import { ExperimentCard, RunningCard } from "./ExperimentCard";
+import { ConfigureExperiment } from "./ConfigureExperiment";
 
 const ORIGIN_LABEL: Record<string, string> = {
   backtest: "a backtest",
@@ -39,6 +40,8 @@ function parseModel(p: string | null): { kind: "trained" | "uploaded" | null; id
   const id = rest.join(":");
   return kind === "trained" || kind === "uploaded" ? { kind, id: id || null } : { kind: null, id: null };
 }
+
+type Tab = "running" | "awaiting" | "completed" | "kept" | "archived" | "failed";
 
 export default function ImprovePage() {
   const [sp, setSp] = useSearchParams();
@@ -59,11 +62,17 @@ export default function ImprovePage() {
   const [session, setSession] = useState<TrainingSession | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [archs, setArchs] = useState<TrainerArchitecture[]>([]);
-  const [launching, setLaunching] = useState<string | null>(null);
+  const [library, setLibrary] = useState<InternalModel[]>([]);
+  const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [config, setConfig] = useState<Variant | null>(null);
+  const [tab, setTab] = useState<Tab | null>(null);
+  const experimentsRef = useRef<HTMLElement>(null);
+  const exploreRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     trainerApi.getCatalog().then((c) => setArchs(c.architectures ?? [])).catch(() => setArchs([]));
+    internalModelsApi.list().then(({ models }) => setLibrary(models)).catch(() => setLibrary([]));
   }, []);
 
   const refresh = useCallback(async () => {
@@ -92,6 +101,7 @@ export default function ImprovePage() {
 
   useEffect(() => {
     setWs(null);
+    setTab(null);
     void refresh();
   }, [refresh]);
 
@@ -118,13 +128,27 @@ export default function ImprovePage() {
     (key: VariantKey) => (baseline ? buildVariant(key, baseline.request, archLabel, nextReplicate(key, ws?.experiments ?? [])) : null),
     [baseline, archLabel, ws],
   );
+  const findings = useMemo(() => (session && anchorId ? modelHealth(session, anchorId) : []), [session, anchorId]);
+  const rec = useMemo(
+    () =>
+      ws && baseline
+        ? recommend({ findings, experiments: ws.experiments, noise: ws.noise, available: (k) => !!variantFor(k)?.available, preset })
+        : null,
+    [ws, baseline, findings, variantFor, preset],
+  );
+
+  const cost = (v: Variant) => pricingFor(v.request, session?.dataset?.image_count ?? null);
 
   const launch = async (v: Variant) => {
     if (!anchorId || !baseline || launching) return;
     setLaunchError(null);
-    const pricing = pricingFor(v.request, session?.dataset?.image_count ?? null);
-    if (!(await confirmRun("trainer", pricing))) return;
-    setLaunching(`${v.key}:${v.replicate}`);
+    // The credit confirmation is its own modal; close the configuration first so it is not blocked.
+    setConfig(null);
+    if (!(await confirmRun("trainer", cost(v)))) {
+      setConfig(v);
+      return;
+    }
+    setLaunching(true);
     try {
       const res = await trainerApi.run({ ...v.request, experiment: experimentPayload(v, anchorId, from) });
       chargeRunCredits("trainer");
@@ -138,10 +162,13 @@ export default function ImprovePage() {
         route: `/tools/trainer/runs/${res.run_id}`,
       });
       await refresh();
+      setTab("running");
+      experimentsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
       setLaunchError(e instanceof Error ? e.message : "Could not start the run");
+      setConfig(v);
     } finally {
-      setLaunching(null);
+      setLaunching(false);
     }
   };
 
@@ -166,11 +193,15 @@ export default function ImprovePage() {
       </Shell>
     );
   }
-  if (!ws || !session || !baseline) {
+  if (!ws || !session || !baseline || !rec) {
     return (
       <Shell>
-        <p className="flex items-center gap-2 text-[13px] text-white/50">
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading the improvement workspace…
+        <div className="grid gap-4 lg:grid-cols-2" aria-busy>
+          <div className={cx(surface, "h-64 animate-pulse")} />
+          <div className={cx(surface, "h-64 animate-pulse")} />
+        </div>
+        <p className="flex items-center gap-2 text-[13px] text-white/45">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Diagnosing the model…
         </p>
       </Shell>
     );
@@ -179,23 +210,43 @@ export default function ImprovePage() {
   const groups = byGroup(ws.experiments);
   const status = selectionStatus({ experiment: (ws.anchor.experiment ?? null) as TrainingSession["experiment"] });
   const originKind = from?.split(":")[0] ?? "";
-  const recommended = new Set<VariantKey>(preset && PRESET_SELECTS[preset] ? PRESET_SELECTS[preset] : []);
-  const seedVariant = variantFor("seed");
-  const variants = ORDER.filter((k) => k !== "seed")
-    .map((k) => variantFor(k)!)
-    .sort((x, y) => Number(recommended.has(y.key)) - Number(recommended.has(x.key)));
-  const cost = (v: Variant) => pricingFor(v.request, session.dataset?.image_count ?? null);
   const blocked = baseline.problems.length > 0;
-  const a = ws.anchor.metrics;
+  const seedVariant = variantFor("seed");
+  const lib = library.find((m) => m.training_run_id === anchorId);
+  const originalName = lib ? modelName(lib) : (ws.anchor.display_name ?? ws.anchor.name ?? "Original model").replace(/\.keras$/i, "");
   const redirected = redirectedFrom ? ws.experiments.find((e) => e.run_id === redirectedFrom) : null;
+  const validation = `${fmtPct(session.config?.val_split ?? 0.2, 0)} of charts, ${session.config?.validation_method ?? "chronological"} split`;
+  const configure = (k: VariantKey) => {
+    const v = variantFor(k);
+    if (v) setConfig(v);
+  };
+
+  const finished = ws.experiments.filter((e) => e.group === "awaiting_decision" || e.group === "kept" || e.group === "archived");
+  const lists: Record<Tab, ImproveExperiment[]> = {
+    running: [...groups.running, ...groups.queued],
+    awaiting: groups.awaiting_decision,
+    completed: finished,
+    kept: groups.kept,
+    archived: groups.archived,
+    failed: groups.failed,
+  };
+  const current: Tab = tab ?? (lists.awaiting.length ? "awaiting" : lists.running.length ? "running" : "completed");
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "running", label: "Running" },
+    { id: "awaiting", label: "Awaiting decision" },
+    { id: "completed", label: "Completed" },
+    { id: "kept", label: "Kept" },
+    { id: "archived", label: "Archived" },
+    ...(lists.failed.length ? [{ id: "failed" as Tab, label: "Failed" }] : []),
+  ];
 
   return (
     <Shell>
       {redirectedFrom ? (
         <div className={cx(surface, "flex flex-wrap items-center justify-between gap-3 p-4 text-[13px] text-white/75")}>
-          <p>
-            <span className="text-white/90">{redirected?.display_name ?? redirected?.name ?? redirectedFrom}</span> is an experiment. Every experiment is compared with the
-            original model, so this is the original's workspace.
+          <p className="text-[13px]">
+            <span className="text-white/90">{redirected ? experimentTitle(redirected, VARIANT_COPY) : "That model"}</span> is an experiment. Experiments are always
+            compared with their original model, so this is the original's workspace.
           </p>
           {redirected?.lifecycle === "kept" ? (
             <Link className={btnSm} to={`/tools/improve?model=${encodeURIComponent(`trained:${redirectedFrom}`)}&anchor=self`}>
@@ -205,192 +256,420 @@ export default function ImprovePage() {
         </div>
       ) : null}
 
-      <section className={cx(surface, "p-5")} data-help="improve-anchor">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-[12px] uppercase tracking-wide text-white/40">Original model · fixed baseline</p>
-            <h2 className="mt-1 text-[18px] font-medium text-white">{ws.anchor.display_name ?? ws.anchor.name ?? anchorId}</h2>
-            <p className="mt-1 font-digits text-[12px] text-white/40">{anchorId}</p>
-          </div>
-          <Link to={`/tools/trainer/runs/${anchorId}`} className={btnSm}>
-            Open training results
-          </Link>
-        </div>
-        <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-[13px] sm:grid-cols-4">
-          <Fact k="Dataset" v={session.dataset?.name ?? session.dataset?.id ?? MISSING} />
-          <Fact k="Architecture" v={archLabel(session.config?.architecture ?? "convolve-cnn-v1")} />
-          <Fact k="Validation" v={`${fmtPct(session.config?.val_split ?? 0.2, 0)} · ${session.config?.validation_method ?? "chronological"}`} />
-          <Fact k="Seed" v={String(session.config?.random_seed ?? 7)} />
-          <Fact k="ROC-AUC" v={fmtNum(a?.roc_auc, 3)} />
-          <Fact k="PR-AUC" v={fmtNum(a?.pr_auc, 3)} />
-          <Fact k="Log loss" v={fmtNum(a?.log_loss, 3)} />
-          <Fact k="Train − val acc." v={a?.train_val_gap == null ? MISSING : fmtPct(a.train_val_gap, 1)} />
-        </dl>
-        <p className="mt-3 text-[13px] text-white/60">
-          <span className="text-white/80">{status.label}.</span> {status.detail}
-        </p>
-        {ws.selection.status === "test_results" ? (
-          <Caveat>
-            A backtest result was inspected while designing experiments in this session. Every experiment here inherits that history, so a later backtest on
-            overlapping dates is research evaluation, not independent confirmation.
-          </Caveat>
-        ) : null}
-        {from && ORIGIN_LABEL[originKind] ? (
-          <p className="mt-1 text-[12.5px] text-white/40">Opened from {ORIGIN_LABEL[originKind]}; the origin is recorded with every experiment you launch.</p>
-        ) : null}
-        {originKind === "backtest" ? (
-          <Caveat>You came here from a backtest. Experiments you design now are informed by that test's outcomes; confirm improvements on a later test period.</Caveat>
-        ) : null}
-        {baseline.problems.map((p) => (
-          <Caveat key={p}>{p}</Caveat>
-        ))}
-        {baseline.notes.map((n) => (
-          <p key={n} className="mt-2 text-[12.5px] leading-relaxed text-amber-200/80">
-            {n}
-          </p>
-        ))}
-      </section>
-
-      <NoisePanel ws={ws} seed={seedVariant} cost={seedVariant ? cost(seedVariant) : null} launching={launching} blocked={blocked} onLaunch={(v) => void launch(v)} />
-
-      <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
-        {GROUP_ORDER.map((g) => (
-          <span key={g} className={cx("rounded-full border px-2.5 py-1", ws.counts[g] ? "border-white/20 text-white/80" : "border-white/[0.06] text-white/35")}>
-            {GROUP_COPY[g]} · {ws.counts[g] ?? 0}
-          </span>
-        ))}
-        {active ? (
-          <span className="flex items-center gap-1 text-white/45">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> refreshing every {POLL_MS / 1000}s
-          </span>
-        ) : null}
+      {/* 1 · Selected model and diagnosis */}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <OriginalPanel
+          name={originalName}
+          lib={lib}
+          ws={ws}
+          session={session}
+          archLabel={archLabel}
+          findings={findings}
+          anchorId={anchorId!}
+          status={status}
+          asAnchor={asAnchor}
+        />
+        <RecommendationPanel
+          rec={rec}
+          blocked={blocked}
+          launching={launching}
+          onConfigure={() => configure(rec.key)}
+          onAlternative={configure}
+          onExplore={() => exploreRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        />
       </div>
 
-      {groups.awaiting_decision.length ? (
-        <Panel
-          help="improve-decision"
-          title="Awaiting your decision"
-          description="Each completed experiment is compared with the original model. Nothing is kept or archived until you confirm; archived experiments can be restored."
-        >
-          <div className="grid gap-3 lg:grid-cols-2">
-            {groups.awaiting_decision.map((e) => {
-              const repeat = e.variant_key ? variantFor(e.variant_key as VariantKey) : null;
-              return (
-                <DecisionCard
-                  key={e.run_id}
-                  e={e}
-                  onDone={() => void refresh()}
-                  onRepeat={() => repeat && void launch(repeat)}
-                  repeatCost={repeat ? cost(repeat) : null}
-                  launching={!!launching || blocked}
-                />
-              );
-            })}
+      {blocked || ws.selection.status === "test_results" || originKind === "backtest" ? (
+        <div className="rounded-xl border border-amber-300/20 bg-amber-300/[0.04] px-4 py-3 text-[12.5px] leading-relaxed text-amber-100/80">
+          {baseline.problems.map((p) => (
+            <p key={p} className="text-[12.5px] flex gap-2">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden /> {p} Experiments cannot be started for this model.
+            </p>
+          ))}
+          {ws.selection.status === "test_results" ? (
+            <p className="text-[12.5px]">
+              A backtest result was inspected while designing experiments in this session. A later backtest on overlapping dates is research evaluation, not independent
+              confirmation.
+            </p>
+          ) : originKind === "backtest" ? (
+            <p className="text-[12.5px]">You came here from a backtest. Experiments you design now are informed by that test; confirm improvements on a later test period.</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* 2 · My experiments */}
+      <section ref={experimentsRef} className={cx(surface, "scroll-mt-24 p-5")} data-help="improve-decision">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-[17px] font-medium text-white">My experiments</h2>
+            <p className="mt-0.5 text-[12.5px] text-white/45">Each result is compared with the original. Nothing is kept or archived until you confirm.</p>
           </div>
-        </Panel>
-      ) : null}
+          {active ? (
+            <span className="flex items-center gap-1.5 text-[12px] text-white/45">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> updating automatically
+            </span>
+          ) : null}
+        </div>
 
-      {groups.running.length + groups.queued.length ? (
-        <Panel title="In progress" description="Status refreshes automatically; you can leave this page and come back.">
-          <ul className="divide-y divide-white/[0.06]">
-            {[...groups.running, ...groups.queued].map((e) => (
-              <li key={e.run_id} className="flex items-center justify-between gap-3 py-2.5">
-                <div className="min-w-0">
-                  <Link to={`/tools/trainer/runs/${e.run_id}`} className="truncate text-[14px] text-white/85 hover:underline">
-                    {e.display_name ?? e.name ?? e.run_id}
-                  </Link>
-                  <p className="truncate text-[12px] text-white/45">{changeLines(e).join("; ") || "—"}</p>
-                </div>
-                <StatusPill status={e.status} />
-              </li>
-            ))}
-          </ul>
-        </Panel>
-      ) : null}
-
-      <ResultsTable ws={ws} />
-
-      <Panel
-        help="improve-variants"
-        title="Available experiments"
-        description="Each experiment keeps the original's dataset, chronological split, validation share, epochs, seed and every other setting, and changes only what is listed. Nothing starts until you press Train; each run asks you to confirm its credits first."
-      >
-        <div className="grid gap-3 lg:grid-cols-2">
-          {variants.map((v) => (
-            <article
-              key={v.key}
-              className={cx("rounded-xl border p-4", recommended.has(v.key) ? "border-white/25 bg-white/[0.03]" : "border-white/[0.07]", !v.available && "opacity-55")}
-            >
-              <p className="text-[14.5px] font-medium text-white">
-                {VARIANT_COPY[v.key].label}
-                {recommended.has(v.key) ? (
-                  <span className="ml-2 rounded-full border border-emerald-300/30 px-2 py-0.5 text-[11px] font-normal text-emerald-200/90">Recommended</span>
-                ) : null}
-              </p>
-              <p className="mt-0.5 text-[12.5px] leading-relaxed text-white/50">{VARIANT_COPY[v.key].hypothesis}</p>
-              {v.available ? (
-                <>
-                  <ul className="mt-2.5 space-y-0.5 font-digits text-[12.5px] text-white/70">
-                    {v.changed.map((c) => (
-                      <li key={c}>{c}</li>
-                    ))}
-                  </ul>
-                  {v.note ? <p className="mt-1.5 text-[12px] text-white/45">{v.note}</p> : null}
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button type="button" className={cx(btnPrimary, "h-8 px-3 text-[13px]")} disabled={!!launching || blocked} onClick={() => void launch(v)}>
-                      {launching === `${v.key}:${v.replicate}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Play className="h-3.5 w-3.5" aria-hidden />}
-                      {v.replicate > 0 ? `Run again (seed ${v.request.random_seed})` : "Train"} <RunCost tool="trainer" params={cost(v)} />
-                    </button>
-                    <span className="truncate text-[12px] text-white/35">{v.request.model_name}</span>
-                  </div>
-                </>
-              ) : (
-                <p className="mt-2 text-[12.5px] text-white/45">{v.reason}</p>
+        <div className="mt-4 flex gap-1.5 overflow-x-auto pb-1" role="tablist" aria-label="Experiment status">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={current === t.id}
+              onClick={() => setTab(t.id)}
+              className={cx(
+                "convolve-press shrink-0 rounded-full border px-3 py-1 text-[12.5px] transition",
+                current === t.id ? "accent-btn border-transparent font-medium" : lists[t.id].length ? "border-white/20 text-white/75 hover:border-white/40" : "border-white/[0.07] text-white/35",
               )}
-            </article>
+            >
+              {t.label} · {lists[t.id].length}
+            </button>
           ))}
         </div>
-        {launchError ? <p className="mt-3 text-[13px] text-red-300">{launchError}</p> : null}
-      </Panel>
 
-      {(["kept", "archived", "failed"] as const).map((g) =>
-        groups[g].length ? (
-          <Panel
-            key={g}
-            title={GROUP_COPY[g]}
-            description={g === "archived" ? "Hidden from your library and tools. Files are kept; Restore puts an experiment back up for decision." : undefined}
-          >
+        <div className="mt-4">
+          <NoiseStrip ws={ws} seed={seedVariant} cost={seedVariant ? cost(seedVariant) : null} launching={launching} blocked={blocked} onConfigure={setConfig} />
+        </div>
+
+        <div key={current} className="animate-fade-in mt-4">
+          {!lists[current].length ? (
+            <p className="rounded-xl border border-dashed border-white/[0.1] px-4 py-6 text-center text-[13px] text-white/45">
+              {ws.experiments.length
+                ? `No ${tabs.find((t) => t.id === current)?.label.toLowerCase()} experiments.`
+                : "No experiments yet. Start with the recommended experiment above; its result will appear here."}
+            </p>
+          ) : current === "running" ? (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {lists.running.map((e) => (
+                <RunningCard key={e.run_id} e={e} />
+              ))}
+            </div>
+          ) : current === "failed" ? (
             <ul className="divide-y divide-white/[0.06]">
-              {groups[g].map((e) => (
-                <li key={e.run_id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                  <div className="min-w-0">
-                    <Link to={`/tools/trainer/runs/${e.run_id}`} className="text-[14px] text-white/85 hover:underline">
-                      {e.display_name ?? e.name ?? e.run_id}
-                    </Link>
-                    {e.decision?.preferred ? (
-                      <span className="ml-2 inline-flex items-center gap-1 text-[12px] text-amber-200/90">
-                        <Star className="h-3 w-3" aria-hidden /> preferred version
-                      </span>
-                    ) : null}
-                    <p className="truncate text-[12px] text-white/45">
-                      {changeLines(e).join("; ") || "—"} · {VERDICT_COPY[e.verdict.verdict]?.label}
-                    </p>
-                  </div>
-                  {g === "archived" ? (
-                    <RestoreButton runId={e.run_id} onDone={() => void refresh()} />
-                  ) : g === "failed" ? (
-                    <StatusPill status={e.status} />
-                  ) : (
-                    <Link className={btnSm} to={`/tools/improve?model=${encodeURIComponent(`trained:${e.run_id}`)}&anchor=self`}>
-                      New session from this model
-                    </Link>
-                  )}
+              {lists.failed.map((e) => (
+                <li key={e.run_id} className="flex items-center justify-between gap-3 py-2.5">
+                  <Link to={`/tools/trainer/runs/${e.run_id}`} className="truncate text-[14px] text-white/80 hover:underline">
+                    {experimentTitle(e, VARIANT_COPY)}
+                  </Link>
+                  <StatusPill status={e.status} />
                 </li>
               ))}
             </ul>
-          </Panel>
-        ) : null,
-      )}
+          ) : (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {lists[current].map((e) => {
+                const k = (e.variant_key as VariantKey | null) ?? null;
+                return (
+                  <ExperimentCard
+                    key={e.run_id}
+                    e={e}
+                    ws={ws}
+                    busy={launching || blocked}
+                    onDone={() => void refresh()}
+                    onSeedOriginal={() => seedVariant && setConfig(seedVariant)}
+                    onRepeat={k && k in VARIANT_COPY ? () => configure(k) : null}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {launchError && !config ? <p className="mt-3 text-[13px] text-red-300">{launchError}</p> : null}
+      </section>
+
+      {/* 3 · Explore more experiments */}
+      <section ref={exploreRef} className="scroll-mt-24 space-y-3" data-help="improve-variants" id="explore">
+        <div>
+          <h2 className="text-[17px] font-medium text-white">Explore more experiments</h2>
+          <p className="mt-0.5 max-w-3xl text-[12.5px] text-white/45">
+            Each changes one thing and keeps the dataset, split and every other setting identical. Prefer a few motivated experiments: trying many and picking the best
+            number overfits to the validation data.
+          </p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {PURPOSES.map((p) => (
+            <div key={p.id} className={cx(surface, "flex flex-col p-4")}>
+              <p className="text-[14.5px] font-medium text-white">{p.title}</p>
+              <p className="mt-0.5 text-[12px] leading-relaxed text-white/45">{p.blurb}</p>
+              <ul className="mt-3 space-y-2">
+                {p.keys.map((k) => {
+                  const v = variantFor(k)!;
+                  const runs = ws.experiments.filter((e) => e.variant_key === k && e.group !== "failed").length;
+                  const isRec = rec.key === k;
+                  return (
+                    <li key={k} className={cx("rounded-lg border px-3 py-2.5", isRec ? "border-[rgba(var(--convolve-accent-rgb),0.45)] bg-white/[0.03]" : "border-white/[0.07]")}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[13.5px] text-white/90">
+                            {VARIANT_COPY[k].label}
+                            {isRec ? <span className="accent-text ml-2 text-[11px] font-medium">Recommended</span> : null}
+                          </p>
+                          <p className="mt-0.5 text-[12px] leading-relaxed text-white/45">
+                            {v.available ? v.changed.join(" · ") || "Same settings" : v.reason}
+                          </p>
+                          {runs ? <p className="mt-0.5 text-[11.5px] text-white/40">Run {runs}× in this session</p> : null}
+                        </div>
+                        {v.available ? (
+                          <button type="button" className={cx(btnSm, "shrink-0")} disabled={launching || blocked} onClick={() => setConfig(v)}>
+                            {runs ? "Repeat" : "Configure"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 4 · Advanced research details */}
+      <details className={cx(surface, "group p-5")} data-help="improve-advanced">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+          <span>
+            <span className="block text-[15px] font-medium text-white">Advanced research details</span>
+            <span className="block text-[12.5px] text-white/45">Full metrics table, seed evidence, provenance, selection history and integrity notes</span>
+          </span>
+          <ChevronDown className="h-4 w-4 text-white/50 transition-transform group-open:rotate-180" aria-hidden />
+        </summary>
+        <div className="mt-5 space-y-6">
+          <ResultsTable ws={ws} />
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="text-[12.5px]">
+              <p className="text-[14px] font-medium text-white">Seed evidence</p>
+              <p className="text-[12.5px] mt-1 text-white/60">
+                {ws.noise.baseline_runs} of {ws.noise.required} required runs of the original settings
+                {ws.noise.seed_sd != null ? ` · ROC-AUC seed spread ${fmtNum(ws.noise.seed_sd, 3)}` : ""}.
+              </p>
+              <ul className="mt-1 font-digits text-[11.5px] text-white/40">
+                {ws.noise.baseline_run_ids.map((id) => (
+                  <li key={id}>{id}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="text-[12.5px]">
+              <p className="text-[14px] font-medium text-white">Provenance</p>
+              <dl className="mt-1 space-y-0.5 text-white/60">
+                <div>
+                  Original run: <span className="font-digits text-white/75">{anchorId}</span>
+                </div>
+                <div>
+                  Dataset: <span className="font-digits text-white/75">{session.dataset?.id ?? MISSING}</span>
+                </div>
+                <div>Session: <span className="font-digits text-white/75">{ws.session_id}</span></div>
+                <div>
+                  {status.label}. {status.detail}
+                </div>
+                {from && ORIGIN_LABEL[originKind] ? <div>Opened from {ORIGIN_LABEL[originKind]}; recorded with every experiment you launch.</div> : null}
+              </dl>
+            </div>
+            <div className="text-[12.5px]">
+              <p className="text-[14px] font-medium text-white">Test-set selection history</p>
+              {ws.selection.history?.length ? (
+                <ul className="mt-1 space-y-0.5 text-white/60">
+                  {ws.selection.history.map((h, i) => (
+                    <li key={i}>
+                      {h.kind}: {h.first_decision ?? "?"} to {h.last_decision ?? "?"}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12.5px] mt-1 text-white/50">No test results were inspected in this session; experiments are selected on validation data only.</p>
+              )}
+            </div>
+            <div className="text-[12.5px]">
+              <p className="text-[14px] font-medium text-white">Integrity notes</p>
+              <ul className="mt-1 space-y-1 text-white/60">
+                {[...baseline.problems, ...baseline.notes].map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+                <li>Every experiment uses the original's dataset and validation split; verdicts use validation ROC-AUC with a seed-noise and sampling margin.</li>
+                <li>Validation improvements are not trading results. Confirm a kept model with a backtest on a later, untouched period.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <ConfigureExperiment
+        variant={config}
+        base={baseline.request}
+        pricing={config ? cost(config) : null}
+        originalName={originalName}
+        datasetName={session.dataset?.name ?? (lib?.symbols ? `Same ${lib.symbols} charts` : (session.dataset?.id ?? MISSING))}
+        validation={validation}
+        recommendation={rec}
+        archLabel={archLabel}
+        launching={launching}
+        error={launchError}
+        onClose={() => {
+          setConfig(null);
+          setLaunchError(null);
+        }}
+        onRun={(v) => void launch(v)}
+      />
     </Shell>
+  );
+}
+
+const SEVERITY_DOT: Record<string, string> = {
+  problem: "bg-red-300/80",
+  warning: "bg-amber-300/80",
+  info: "bg-white/40",
+  ok: "bg-emerald-300/70",
+};
+
+function OriginalPanel({
+  name,
+  lib,
+  ws,
+  session,
+  archLabel,
+  findings,
+  anchorId,
+  status,
+  asAnchor,
+}: {
+  name: string;
+  lib: InternalModel | undefined;
+  ws: ImproveSession;
+  session: TrainingSession;
+  archLabel: (id: string) => string;
+  findings: Finding[];
+  anchorId: string;
+  status: ReturnType<typeof selectionStatus>;
+  asAnchor: boolean;
+}) {
+  const skill = skillVerdict(findings);
+  const issues = findings.filter((f) => f.severity === "problem" || f.severity === "warning").slice(0, 3);
+  const a = ws.anchor.metrics;
+  const meta = [
+    lib?.symbols?.split(/[,\s]+/).filter(Boolean).slice(0, 4).join(", "),
+    lib?.timeframe ? TIMEFRAME[lib.timeframe] ?? lib.timeframe : null,
+    session.dataset?.name,
+  ].filter(Boolean);
+  return (
+    <section className={cx(surface, "flex flex-col p-5")} data-help="improve-anchor">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11.5px] uppercase tracking-wide text-white/40">{asAnchor ? "Original model · new session" : "Original model · fixed reference"}</p>
+          <h2 className="mt-1 truncate text-[20px] font-medium text-white">{name}</h2>
+          {meta.length ? <p className="mt-0.5 truncate text-[12.5px] text-white/50">{meta.join(" · ")}</p> : null}
+        </div>
+        <Link to="/tools/improve" className="shrink-0 text-[12.5px] text-white/45 hover:text-white/80">
+          Change model
+        </Link>
+      </div>
+
+      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-[13px] sm:grid-cols-4">
+        <Fact k="Validation ROC-AUC" v={fmtNum(a?.roc_auc, 3)} />
+        <Fact k="Balanced accuracy" v={fmtNum(a?.balanced_accuracy, 3)} />
+        <Fact k="Train − val gap" v={a?.train_val_gap == null ? MISSING : fmtPct(a.train_val_gap, 1)} />
+        <Fact k="Architecture" v={archLabel(session.config?.architecture ?? "convolve-cnn-v1")} />
+      </dl>
+
+      <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5" data-help="model-health">
+        <p className="text-[12px] uppercase tracking-wide text-white/40">Model Health</p>
+        <p className="mt-1 text-[14px] font-medium text-white">{skill.headline}</p>
+        {issues.length ? (
+          <ul className="mt-2 space-y-1.5">
+            {issues.map((f) => (
+              <li key={f.id} className="flex items-start gap-2 text-[12.5px]">
+                <span className={cx("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", SEVERITY_DOT[f.severity])} aria-hidden />
+                <span className="min-w-0 text-white/75">
+                  {f.title}
+                  {findingBadge(f) ? <span className="ml-1.5 text-white/40">· {findingBadge(f)}</span> : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1 text-[12.5px] text-white/55">No problems or warnings in the recorded training run.</p>
+        )}
+        <Link to={`/tools/trainer/runs/${anchorId}`} className="mt-2.5 inline-flex items-center gap-1 text-[12.5px] text-white/55 hover:text-white">
+          Full Model Health and training results <ArrowRight className="h-3 w-3" aria-hidden />
+        </Link>
+      </div>
+      <p className="mt-3 text-[12px] text-white/40">{status.label}. Every experiment in this session is compared with this model; it is never replaced automatically.</p>
+    </section>
+  );
+}
+
+const KIND_LABEL: Record<Recommendation["kind"], string> = {
+  diagnosis: "Based on Model Health",
+  evidence: "Needed to judge your results",
+  exploratory: "Exploratory",
+  done: "Strengthen the evidence",
+};
+
+function RecommendationPanel({
+  rec,
+  blocked,
+  launching,
+  onConfigure,
+  onAlternative,
+  onExplore,
+}: {
+  rec: Recommendation;
+  blocked: boolean;
+  launching: boolean;
+  onConfigure: () => void;
+  onAlternative: (k: VariantKey) => void;
+  onExplore: () => void;
+}) {
+  return (
+    <section
+      className={cx(surface, "relative flex flex-col overflow-hidden border-[rgba(var(--convolve-accent-rgb),0.35)] p-5")}
+      data-help="improve-recommendation"
+      aria-label="Recommended next experiment"
+    >
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-[rgba(var(--convolve-accent-rgb),0.08)] to-transparent" aria-hidden />
+      <div className="relative flex items-center gap-2 text-[11.5px] uppercase tracking-wide text-white/45">
+        <FlaskConical className="accent-text h-4 w-4" aria-hidden /> Recommended next experiment
+        <span className="rounded-full border border-white/15 px-2 py-px text-[10.5px] normal-case tracking-normal text-white/55">{KIND_LABEL[rec.kind]}</span>
+      </div>
+      <h2 className="relative mt-2 text-[22px] font-medium leading-tight text-white">{rec.title}</h2>
+
+      <div className="relative mt-4 space-y-3 text-[13px] leading-relaxed">
+        {rec.observed ? (
+          <div>
+            <p className="text-[11.5px] font-medium uppercase tracking-wide text-white/40">
+              Observed{rec.evidence ? <span className="ml-1.5 normal-case tracking-normal text-white/35">· {rec.evidence}</span> : null}
+            </p>
+            <p className="text-[13.5px] mt-0.5 text-white/75">{rec.observed}</p>
+          </div>
+        ) : null}
+        <div>
+          <p className="text-[11.5px] font-medium uppercase tracking-wide text-white/40">{rec.key === "seed" ? "Why" : "Why it may help · hypothesis"}</p>
+          <p className="text-[13.5px] mt-0.5 text-white/75">{rec.hypothesis}</p>
+        </div>
+        {rec.key !== "seed" ? <p className="text-[12px] text-white/40">An experiment tests this; it does not guarantee an improvement.</p> : null}
+      </div>
+
+      <div className="relative mt-auto flex flex-wrap items-center gap-2 pt-5">
+        <button type="button" className={cx(btnPrimary, "h-10 px-5")} disabled={blocked || launching} onClick={onConfigure}>
+          Configure Recommended Experiment <ArrowRight className="h-4 w-4" aria-hidden />
+        </button>
+        <button type="button" className={cx(btn, "h-10")} onClick={onExplore}>
+          Explore All Experiments
+        </button>
+      </div>
+      {rec.alternatives.length ? (
+        <p className="relative mt-3 text-[12px] text-white/45">
+          Also tests this:{" "}
+          {rec.alternatives.map((k, i) => (
+            <span key={k}>
+              {i ? ", " : ""}
+              <button type="button" className="text-white/70 underline-offset-2 hover:text-white hover:underline" disabled={blocked} onClick={() => onAlternative(k)}>
+                {ACTION_TITLE[k].replace(/^Test /, "")}
+              </button>
+            </span>
+          ))}
+        </p>
+      ) : null}
+    </section>
   );
 }

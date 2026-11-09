@@ -18,7 +18,7 @@ import {
 import { useIsAdmin } from "@/features/admin/useIsAdmin";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCreditsStore } from "@/state/creditsStore";
 import { InstallSideLink } from "@/features/pwa/InstallUI";
 import { readSidebarUnpinned, writeSidebarUnpinned } from "./sidebarCollapse";
@@ -43,8 +43,8 @@ export const nav = [
   { to: "/tools/deploy", label: "Deploy (paper)", tag: "Deploy", icon: Rocket, tour: "nav-deploy" },
 ] as const;
 
-const navBtn =
-  "convolve-btn-glow flex w-full flex-col items-center gap-0.5 rounded-2xl px-0.5 py-1.5 transition-all duration-200";
+/** Initial rail button chrome (selection is a shared sliding indicator). */
+const navBtn = "relative z-[1] flex w-full flex-col items-center gap-0.5 rounded-xl px-0.5 py-1.5 transition-colors";
 
 function SideLink({
   to,
@@ -94,6 +94,8 @@ export function sidebarLinkActive(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
+type CtxMenu = { x: number; y: number } | null;
+
 export function DashboardSidebar() {
   const { pathname, search } = useLocation();
   const balance = useCreditsStore((s) => s.balance);
@@ -104,6 +106,13 @@ export function DashboardSidebar() {
   /** Unpinned = hidden until edge hover. Default pinned (visible on load). */
   const [unpinned, setUnpinned] = useState(readSidebarUnpinned);
   const [edgeHover, setEdgeHover] = useState(false);
+  const [menu, setMenu] = useState<CtxMenu>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const itemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
+  const [indicator, setIndicator] = useState({ top: 0, height: 0, ready: false });
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
+  const reduceMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   useEffect(() => {
     void refresh();
@@ -112,6 +121,23 @@ export function DashboardSidebar() {
   useEffect(() => {
     writeSidebarUnpinned(unpinned);
   }, [unpinned]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node)) return;
+      setMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenu(null);
+    };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
 
   const enforced = mode === "enforce";
   const cheapest = Math.min(...Object.values(costs).filter((c) => c > 0), Infinity);
@@ -127,9 +153,22 @@ export function DashboardSidebar() {
 
   const revealed = !unpinned || edgeHover;
 
-  const togglePin = () => {
-    setUnpinned((u) => !u);
+  const activeNavKey = nav.find((n) => linkActive(n.to))?.to ?? nav[0].to;
+  const indicatorKey = hoverKey ?? activeNavKey;
+
+  useEffect(() => {
+    const el = itemRefs.current[indicatorKey];
+    const navEl = navRef.current;
+    if (!el || !navEl) return;
+    const nr = navEl.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    setIndicator({ top: er.top - nr.top + navEl.scrollTop, height: er.height, ready: true });
+  }, [indicatorKey, pathname, revealed]);
+
+  const setPinned = (pinned: boolean) => {
+    setUnpinned(!pinned);
     setEdgeHover(false);
+    setMenu(null);
   };
 
   return (
@@ -159,19 +198,34 @@ export function DashboardSidebar() {
         }}
         onContextMenu={(e) => {
           e.preventDefault();
-          togglePin();
+          setMenu({ x: e.clientX, y: e.clientY });
         }}
-        title={unpinned ? "Right-click to pin the toolbar open" : "Right-click to unpin the toolbar"}
       >
         <aside
           className={cn(
-            "flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl",
-            "border border-white/22 bg-black/95 shadow-[0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl",
+            "flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/25",
+            "bg-black/95 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] backdrop-blur-xl",
             "w-[92px]",
           )}
-          aria-label="Workspace toolbar. Right-click to pin or unpin."
+          aria-label="Workspace toolbar. Right-click for pin options."
         >
-          <nav className="flex flex-1 flex-col items-center gap-0.5 px-1.5 py-3">
+          <nav
+            ref={navRef}
+            className="relative flex flex-1 flex-col items-center gap-0.5 overflow-y-auto px-1.5 py-3"
+            onMouseLeave={() => setHoverKey(null)}
+          >
+            {indicator.ready ? (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute left-1.5 right-1.5 z-0 rounded-xl bg-white/[0.1] ring-1 ring-white/25"
+                style={{
+                  top: indicator.top,
+                  height: indicator.height,
+                  transition: reduceMotion ? undefined : "top 220ms cubic-bezier(0.22, 1.4, 0.36, 1), height 180ms ease-out",
+                  boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
+                }}
+              />
+            ) : null}
             {nav.map(({ to, label, tag, icon: Icon, tour }) => {
               const active = linkActive(to);
               return (
@@ -180,18 +234,16 @@ export function DashboardSidebar() {
                     <Link
                       to={to}
                       data-tour={tour}
-                      className={cn(
-                        navBtn,
-                        active
-                          ? "bg-white/15 text-white shadow-[0_0_24px_rgba(255,255,255,0.12)] ring-2 ring-white/35 ring-offset-2 ring-offset-black"
-                          : "text-white/70 hover:bg-white/[0.06] hover:text-white",
-                      )}
+                      ref={(node) => {
+                        itemRefs.current[to] = node;
+                      }}
+                      onMouseEnter={() => setHoverKey(to)}
+                      onFocus={() => setHoverKey(to)}
+                      onBlur={() => setHoverKey(null)}
+                      className={cn(navBtn, active ? "accent-text text-white" : "text-white/70 hover:text-white")}
                     >
-                      <Icon
-                        className={`h-[20px] w-[20px] shrink-0 stroke-[1.75] ${active ? "drop-shadow-[0_0_8px_rgba(255,255,255,0.45)]" : ""}`}
-                        aria-hidden
-                      />
-                      <span className="max-w-[5.5rem] text-center text-[8px] font-semibold uppercase leading-tight tracking-wide text-white/55">
+                      <Icon className="h-[20px] w-[20px] shrink-0 stroke-[1.75]" aria-hidden />
+                      <span className={cn("max-w-[5.5rem] text-center text-[8px] font-semibold uppercase leading-tight tracking-wide", active ? "accent-text" : "text-white/55")}>
                         {tag}
                       </span>
                       <span className="sr-only">
@@ -206,7 +258,7 @@ export function DashboardSidebar() {
               );
             })}
           </nav>
-          <div className="flex flex-col items-center gap-1 border-t border-white/15 px-1.5 py-3">
+          <div className="flex flex-col items-center gap-1 border-t border-white/25 px-1.5 py-3">
             {admin && (
               <SideLink to="/dashboard/admin" active={pathname.startsWith("/dashboard/admin")} icon={ShieldCheck} label="Admin" tip="Admin console" />
             )}
@@ -290,6 +342,27 @@ export function DashboardSidebar() {
           </div>
         </aside>
       </div>
+
+      {menu ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-[80] min-w-[168px] rounded-lg border border-white/15 bg-[#0c0c0c] py-1 shadow-[0_16px_48px_-12px_rgba(0,0,0,0.9)]"
+          style={{
+            left: Math.min(menu.x, typeof window !== "undefined" ? window.innerWidth - 180 : menu.x),
+            top: Math.min(menu.y, typeof window !== "undefined" ? window.innerHeight - 56 : menu.y),
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="flex w-full px-3 py-2 text-left text-[13px] font-medium text-white/90 hover:bg-white/[0.08]"
+            onClick={() => setPinned(unpinned)}
+          >
+            {unpinned ? "Pin sidebar" : "Unpin sidebar"}
+          </button>
+        </div>
+      ) : null}
     </>
   );
 }

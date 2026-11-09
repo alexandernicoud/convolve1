@@ -174,7 +174,7 @@ export default function TrainerAdvancedVisuals() {
             <p className="mt-3 text-sm leading-relaxed text-[rgba(255,255,255,0.55)]">{error}</p>
             <Link
               to="/tools/analysis"
-              className="mt-8 inline-flex rounded-xl bg-white px-6 py-3 text-sm font-medium text-[#0a0a0a] hover:bg-white/90"
+              className="mt-8 inline-flex rounded-xl accent-btn convolve-press px-6 py-3 text-sm font-medium  hover:bg-white/90"
             >
               Back to Analyse
             </Link>
@@ -242,7 +242,7 @@ export default function TrainerAdvancedVisuals() {
             {runId ? (
               <Link
                 to={`/tools/backtester?modelRunId=${encodeURIComponent(runId)}`}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-3.5 py-2 text-[13px] font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+                className="inline-flex items-center justify-center gap-2 rounded-lg accent-btn convolve-press px-3.5 py-2 text-[13px] font-semibold  transition hover:bg-white/90"
               >
                 <LineChart className="h-3.5 w-3.5" />
                 Backtest this model

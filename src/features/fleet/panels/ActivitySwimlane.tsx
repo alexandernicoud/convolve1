@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { useAccentHex } from "@/features/accent/AccentProvider";
 import { SEMANTIC } from "@/lib/viz/tokens";
 import type { FleetPayload } from "../api";
-import { ACCENT, fleetLane, fmtClock, fmtMoney, laneOrder, ms, tickLabel, timeTicks } from "../lib";
+import { fleetLane, fmtClock, fmtMoney, laneOrder, ms, tickLabel, timeTicks } from "../lib";
 import { FrameNote, Panel, TipRow, TooltipBox, useElementSize } from "../ui";
 
 const LABEL_W = 72;
@@ -9,6 +10,7 @@ const LANE_H = 18;
 const AXIS_H = 18;
 
 export function ActivitySwimlane({ p, hovered, onHover }: { p: FleetPayload; hovered: string | null; onHover: (id: string | null) => void }) {
+  const accent = useAccentHex();
   const [ref, size] = useElementSize<HTMLDivElement>();
   const [hover, setHover] = useState<{ lane: string; i: number; x: number; y: number } | null>(null);
   const a = p.activity;
@@ -37,7 +39,7 @@ export function ActivitySwimlane({ p, hovered, onHover }: { p: FleetPayload; hov
       title="Activity · last 24 h"
       aside={
         <span className="flex items-center gap-2.5 text-[10.5px] text-white/40">
-          <span className="flex items-center gap-1"><span className="h-2 w-1 bg-[#8FB3E0]/60" />run</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-1" style={{ background: accent, opacity: 0.6 }} />run</span>
           <span className="flex items-center gap-1"><span className="h-2 w-1 bg-[#F87171]" />failed</span>
           <span className="flex items-center gap-1"><svg width="7" height="7"><path d="M3.5 0 L7 7 L0 7 Z" fill="#FFFFFF" fillOpacity={0.85} /></svg>open</span>
           <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full" style={{ background: SEMANTIC.positive }} />close</span>
@@ -71,7 +73,7 @@ export function ActivitySwimlane({ p, hovered, onHover }: { p: FleetPayload; hov
                   {ok.map((o, i) => {
                     const e = err[i] ?? 0;
                     if (!o && !e) return null;
-                    return <rect key={i} x={LABEL_W + i * bw} y={e ? y + 2 : y + 4} width={Math.max(1.5, bw - 0.5)} height={e ? LANE_H - 4 : LANE_H - 8} fill={e ? "#F87171" : ACCENT} fillOpacity={e ? 0.92 : isFleet ? 0.65 : 0.5} rx={1} />;
+                    return <rect key={i} x={LABEL_W + i * bw} y={e ? y + 2 : y + 4} width={Math.max(1.5, bw - 0.5)} height={e ? LANE_H - 4 : LANE_H - 8} fill={e ? "#F87171" : accent} fillOpacity={e ? 0.92 : isFleet ? 0.65 : 0.5} rx={1} />;
                   })}
                   {(l?.opens ?? []).map((o) => {
                     const t = ms(o.t);

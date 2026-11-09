@@ -54,3 +54,6 @@ export const SEMANTIC = {
 } as const;
 
 export const CLASS_COLORS: Record<string, string> = { "0": SEMANTIC.classA, "1": SEMANTIC.classB };
+
+/** Primary performance / equity series — respects the user accent via CSS var. */
+export const CHART_ACCENT = "var(--convolve-chart-accent, #8FB3E0)";

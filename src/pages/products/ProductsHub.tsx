@@ -97,7 +97,7 @@ export default function ProductsHub() {
           <div className="relative z-10 mt-auto flex flex-col items-center justify-center gap-3 pt-8 sm:flex-row sm:gap-4">
             <Link
               to="/tools/trainer"
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-8 py-3.5 text-sm font-medium text-[#0a0a0a] transition hover:bg-white/90 active:scale-[0.98] sm:px-10 sm:text-base"
+              className="inline-flex items-center justify-center gap-2 rounded-full accent-btn convolve-press px-8 py-3.5 text-sm font-medium  transition hover:bg-white/90 active:scale-[0.98] sm:px-10 sm:text-base"
             >
               Start developing
               <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />

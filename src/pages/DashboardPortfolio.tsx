@@ -193,7 +193,7 @@ export default function DashboardPortfolio() {
             <button
               type="button"
               onClick={applyWallet}
-              className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-[#0a0a0a] hover:bg-white/90"
+              className="rounded-lg accent-btn convolve-press px-4 py-2 text-sm font-semibold  hover:bg-white/90"
             >
               Update balance
             </button>

@@ -30,7 +30,7 @@ export function MobileNav() {
     <>
       <nav
         aria-label="Workspace"
-        className="fixed inset-x-0 bottom-0 z-[45] flex h-[60px] items-stretch justify-around border-t border-white/[0.1] bg-black/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
+        className="fixed inset-x-0 bottom-0 z-[45] flex h-[60px] items-stretch justify-around border-t border-white/25 bg-black/95 px-1 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
       >
         {TABS.map(({ to, label, icon: Icon, ...rest }) => {
           const active = sidebarLinkActive(pathname, to);
@@ -45,7 +45,7 @@ export function MobileNav() {
                 active ? "text-white" : "text-white/55",
               )}
             >
-              <span className={cn("flex h-7 w-11 items-center justify-center rounded-full", primary ? "bg-white text-[#0a0a0a]" : active ? "bg-white/12" : "")}>
+              <span className={cn("flex h-7 w-11 items-center justify-center rounded-full", primary ? "accent-btn" : active ? "bg-white/12 accent-text" : "")}>
                 <Icon className="h-[18px] w-[18px]" aria-hidden />
               </span>
               {label}

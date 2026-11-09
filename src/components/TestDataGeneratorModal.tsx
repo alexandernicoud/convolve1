@@ -592,7 +592,7 @@ export default function TestDataGeneratorModal({
                 <button
                   type="button"
                   onClick={applyFittingSettings}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/30 accent-btn convolve-press px-4 py-2.5 text-sm font-semibold  transition hover:bg-white/90"
                 >
                   <Sparkles className="h-4 w-4" />
                   {fittingApplied ? "Re-apply training settings" : "Apply training settings"}
@@ -998,7 +998,7 @@ export default function TestDataGeneratorModal({
                 onClick={() => void handleGenerate()}
                 disabled={starting || overlapsTraining}
                 title={overlapsTraining ? "Test period overlaps the training period" : undefined}
-                className="flex items-center justify-center gap-2 rounded-xl bg-white px-8 py-3.5 text-base font-semibold text-[#0a0a0a] transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex items-center justify-center gap-2 rounded-xl accent-btn convolve-press px-8 py-3.5 text-base font-semibold  transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Play className="h-5 w-5" />
                 {starting ? (

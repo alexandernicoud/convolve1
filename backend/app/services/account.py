@@ -207,7 +207,7 @@ def save_onboarding(user_id: str, status: str, step: int, welcome_seen: bool) ->
 TERMINAL_FAILURES = ("failed", "interrupted")
 
 
-def get_usage(user_id: str, weeks: int = 12, recent: int = 20) -> Dict[str, Any]:
+def get_usage(user_id: str, weeks: int = 12, recent: int = 50) -> Dict[str, Any]:
     """Research activity from the caller's own pipeline_runs rows. No estimates."""
     from app.plans import TOOL_LABELS
 

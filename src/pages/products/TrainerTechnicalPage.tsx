@@ -356,7 +356,7 @@ export default function TrainerTechnicalPage() {
       <button
         onClick={handleStartTraining}
         disabled={trainerProgress?.status === 'running'}
-        className="w-full px-6 py-3 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="w-full px-6 py-3 accent-btn convolve-press  font-medium rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
         <Play className="w-4 h-4" />
         {trainerProgress?.status === 'running' ? 'Training in Progress...' : 'Start Training'}
@@ -472,7 +472,7 @@ export default function TrainerTechnicalPage() {
             <div className="flex gap-3">
               <button
                 onClick={handleDownloadModel}
-                className="flex-1 px-4 py-2 bg-white text-[#0a0a0a] font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 accent-btn convolve-press  font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-2"
               >
                 <Download className="w-4 h-4" />
                 Download Model
@@ -521,7 +521,7 @@ export default function TrainerTechnicalPage() {
               {analysisStatus.status === 'done' && analysisId && (
                 <button
                   onClick={handleDownloadAnalysis}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-white px-4 py-2 font-medium text-[#0a0a0a] transition-all duration-200 hover:bg-white/90"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg accent-btn convolve-press px-4 py-2 font-medium  transition-all duration-200 hover:bg-white/90"
                 >
                   <Download className="w-4 h-4" />
                   Download Analysis ZIP

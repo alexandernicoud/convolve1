@@ -91,7 +91,7 @@ function Thanks({ data }: { data: FeedbackStatus }) {
       </p>
       <Link
         to="/dashboard"
-        className="mt-5 inline-flex items-center justify-center rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+        className="mt-5 inline-flex items-center justify-center rounded-xl accent-btn convolve-press px-4 py-2.5 text-sm font-semibold  transition hover:bg-white/90"
       >
         Continue researching
       </Link>
@@ -151,7 +151,7 @@ function Questionnaire({ data, onDone }: { data: FeedbackStatus; onDone?: () => 
                       className={cn(
                         "h-10 w-10 rounded-lg border text-sm transition",
                         answers[q.id] === n
-                          ? "border-white bg-white text-[#0a0a0a]"
+             ? "border-white accent-btn convolve-press "
                           : "border-white/15 text-white/75 hover:bg-white/[0.06]",
                       )}
                     >
@@ -175,7 +175,7 @@ function Questionnaire({ data, onDone }: { data: FeedbackStatus; onDone?: () => 
                         onClick={() => set(q.id, toggleOption(answers[q.id], o.id))}
                         className={cn(
                           "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[13px] transition",
-                          on ? "border-white bg-white text-[#0a0a0a]" : "border-white/15 text-white/75 hover:bg-white/[0.06]",
+                          on ? "border-transparent accent-btn" : "border-white/15 text-white/75 hover:bg-white/[0.06]",
                         )}
                       >
                         {on && <Check className="h-3.5 w-3.5" aria-hidden />}
@@ -196,7 +196,7 @@ function Questionnaire({ data, onDone }: { data: FeedbackStatus; onDone?: () => 
                       className={cn(
                         "rounded-full border px-3.5 py-1.5 text-[13px] transition",
                         answers[q.id] === o.id
-                          ? "border-white bg-white text-[#0a0a0a]"
+             ? "border-white accent-btn convolve-press "
                           : "border-white/15 text-white/75 hover:bg-white/[0.06]",
                       )}
                     >

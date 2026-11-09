@@ -63,7 +63,7 @@ export function RunConfirmModal() {
             type="button"
             autoFocus
             onClick={() => resolve(true)}
-            className="inline-flex flex-1 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+            className="inline-flex flex-1 items-center justify-center rounded-xl accent-btn convolve-press px-4 py-3 text-sm font-semibold  transition hover:bg-white/90"
           >
             Start run
           </button>
@@ -141,7 +141,7 @@ export function BillingBlockModal() {
               type="button"
               autoFocus
               onClick={() => go(primary.to)}
-              className="inline-flex flex-1 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+              className="inline-flex flex-1 items-center justify-center rounded-xl accent-btn convolve-press px-4 py-3 text-sm font-semibold  transition hover:bg-white/90"
             >
               {primary.label}
             </button>
@@ -243,7 +243,7 @@ export default function CreditGuardModal() {
             <button
               type="button"
               onClick={() => go(freeBeta ? "/contact" : packs ? "/account?tab=plan#credits" : "/products#pricing")}
-              className="inline-flex flex-1 items-center justify-center rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90"
+              className="inline-flex flex-1 items-center justify-center rounded-xl accent-btn convolve-press px-4 py-3 text-sm font-semibold  transition hover:bg-white/90"
             >
               {freeBeta ? "Contact us" : packs ? "Buy credits" : "View plans"}
             </button>

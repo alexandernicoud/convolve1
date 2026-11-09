@@ -150,7 +150,7 @@ export function TermsGate({ children }: { children: ReactNode }) {
           type="button"
           disabled={!checked || busy}
           onClick={() => void accept()}
-          className="w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90 disabled:opacity-50"
+          className="w-full rounded-xl accent-btn convolve-press px-4 py-3 text-sm font-semibold  transition hover:bg-white/90 disabled:opacity-50"
         >
           {busy ? "Saving…" : "Accept and continue"}
         </button>

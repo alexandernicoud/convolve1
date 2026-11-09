@@ -494,7 +494,7 @@ export default function LabelingOptimizerTechnical() {
                 type="submit"
                 data-help="opt-run"
                 disabled={isSubmitting || selectedSymbols.length === 0}
-                className="flex w-full items-center justify-center gap-2 rounded-full border border-white/25 bg-white px-4 py-3 text-sm font-semibold text-[#0a0a0a] transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-full border border-white/25 accent-btn convolve-press px-4 py-3 text-sm font-semibold  transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSubmitting ? (
                   <>

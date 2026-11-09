@@ -52,7 +52,7 @@ export function GeneratorDemo({ sample }: { sample?: number }) {
                 aria-pressed={i === idx}
                 className={cn(
                   "rounded-full px-2 py-0.5 font-mono text-[10px] transition-colors",
-                  i === idx ? "bg-white text-black" : "text-white/45 hover:bg-white/[0.06] hover:text-white"
+                  i === idx ? "accent-btn" : "text-white/45 hover:bg-white/[0.06] hover:text-white"
                 )}
               >
                 {fmtDate(smp.date, { month: "short", year: "2-digit" })}

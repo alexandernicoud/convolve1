@@ -253,7 +253,7 @@ export const TOUR_STEPS: TourStep[] = [
         target: '[data-help="improve-variants"]',
         title: "Validation, not cherry-picking",
         body: "Each variant changes one setting and keeps the split identical. Verdicts use validation metrics with a noise margin — not backtest profit. Prefer few motivated experiments over many trials.",
-        fallback: "Available experiments appear once a workspace is open. Nothing trains until you press Train and confirm credits.",
+        fallback: "Experiments appear once a workspace is open. Nothing trains until you configure an experiment and confirm its credits.",
       },
       {
         target: '[data-help="improve-decision"]',

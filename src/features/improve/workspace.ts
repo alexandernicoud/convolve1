@@ -4,12 +4,12 @@
  * The server decides the verdict (app/services/improve_sessions.py). This module only maps it to
  * wording and to what the workspace suggests; the user always makes the decision.
  */
-import type { ImproveExperiment, ImproveGroup, ImproveVerdictId } from "@/lib/api";
+import type { ImproveExperiment, ImproveGroup, ImproveSession, ImproveVerdictId } from "@/lib/api";
 
 export const VERDICT_COPY: Record<ImproveVerdictId, { label: string; tone: "good" | "bad" | "neutral" | "muted" }> = {
   clearly_improved: { label: "Clearly improved", tone: "good" },
   no_clear_difference: { label: "No clear difference", tone: "neutral" },
-  insufficient_evidence: { label: "No clear difference · insufficient evidence", tone: "neutral" },
+  insufficient_evidence: { label: "Insufficient evidence", tone: "neutral" },
   worse: { label: "Worse", tone: "bad" },
   not_comparable: { label: "Not comparable", tone: "muted" },
   pending: { label: "Waiting for results", tone: "muted" },
@@ -50,6 +50,96 @@ export function suggestion(e: Pick<ImproveExperiment, "verdict" | "is_replicate"
     default:
       return { action: null, text: "" };
   }
+}
+
+export type NextAction = { kind: "keep" | "archive" | "seed_original" | "repeat" | null; label: string; why: string };
+
+export interface ResultCopy {
+  label: string;
+  tone: "good" | "bad" | "neutral" | "muted";
+  /** One plain sentence on what the numbers mean. */
+  meaning: string;
+  next: NextAction;
+}
+
+/**
+ * Plain-language reading of a server verdict. Only ``clearly_improved`` reads as better: a small
+ * positive difference under ``no_clear_difference`` or ``insufficient_evidence`` is described as
+ * not (yet) evidence of improvement, and never suggests keeping.
+ */
+export function resultCopy(
+  e: Pick<ImproveExperiment, "verdict" | "deltas" | "is_replicate" | "variant_key">,
+  noise: Pick<ImproveSession["noise"], "sufficient" | "baseline_runs" | "required">,
+): ResultCopy {
+  const v = e.verdict.verdict;
+  const base = VERDICT_COPY[v] ?? VERDICT_COPY.pending;
+  const d = e.deltas?.roc_auc ?? e.verdict.difference ?? null;
+  const dir = d == null || Math.abs(d) < 0.0005 ? "flat" : d > 0 ? "up" : "down";
+  const moreSeeds: NextAction = noise.sufficient
+    ? e.variant_key && !e.is_replicate
+      ? { kind: "repeat", label: "Run another seed", why: "A second run of this same change shows whether the difference holds or was luck." }
+      : { kind: null, label: "", why: "" }
+    : {
+        kind: "seed_original",
+        label: "Run another seed of the original",
+        why: `Verdicts need ${noise.required} runs of the original settings to measure run-to-run noise; ${noise.baseline_runs} ${noise.baseline_runs === 1 ? "exists" : "exist"} so far.`,
+      };
+  if (e.is_replicate || v === "replicate")
+    return {
+      ...base,
+      meaning: "A rerun of the original settings with another seed. It measures run-to-run noise and is not a candidate model.",
+      next: { kind: "archive", label: "Archive replicate", why: "It stays in the noise estimate after archiving." },
+    };
+  switch (v) {
+    case "clearly_improved":
+      return {
+        ...base,
+        meaning: "ROC-AUC rose by more than run-to-run noise and validation sampling can explain.",
+        next: { kind: "keep", label: "Keep improved model", why: "It joins your library next to the original; the original is not replaced." },
+      };
+    case "worse":
+      return {
+        ...base,
+        meaning: "ROC-AUC fell by more than the noise margin. This change did not help this model.",
+        next: { kind: "archive", label: "Archive experiment", why: "Archiving hides it from your tools and can be undone. The original model is unchanged." },
+      };
+    case "no_clear_difference":
+      return {
+        ...base,
+        meaning:
+          dir === "up"
+            ? "ROC-AUC is slightly higher, but within the noise margin, so this is not evidence of an improvement."
+            : dir === "down"
+              ? "ROC-AUC is slightly lower, but within the noise margin, so this is not evidence it is worse."
+              : "ROC-AUC is practically the same as the original.",
+        next: moreSeeds.kind ? moreSeeds : { kind: "archive", label: "Archive experiment", why: "Not clearly better than the original. Archiving can be undone." },
+      };
+    case "insufficient_evidence":
+      return {
+        ...base,
+        meaning:
+          dir === "up"
+            ? "Performance increased slightly, but there is not enough evidence yet to separate the difference from training randomness."
+            : dir === "down"
+              ? "Performance decreased slightly, but there is not enough evidence yet to separate the difference from training randomness."
+              : "There is not enough evidence yet to compare this experiment with the original.",
+        next: moreSeeds.kind ? moreSeeds : { kind: "archive", label: "Archive experiment", why: "Archiving can be undone." },
+      };
+    case "not_comparable":
+      return { ...base, meaning: "Its validation setup differs from the original, so the numbers cannot be compared directly.", next: { kind: null, label: "", why: "" } };
+    default:
+      return { ...base, meaning: "Results appear when training finishes.", next: { kind: null, label: "", why: "" } };
+  }
+}
+
+/** Human-readable experiment name: the change it tests, then which run of it. */
+export function experimentTitle(
+  e: Pick<ImproveExperiment, "variant_key" | "replicate" | "is_replicate" | "display_name" | "name" | "run_id">,
+  labels: Record<string, { label: string }>,
+): string {
+  const key = e.variant_key ?? (e.is_replicate ? "seed" : null);
+  const base = key && labels[key] ? labels[key].label : (e.display_name ?? e.name ?? e.run_id).replace(/\.keras$/i, "");
+  return (e.replicate ?? 0) > 0 ? `${base} · run ${(e.replicate ?? 0) + 1}` : base;
 }
 
 export const GROUP_ORDER: ImproveGroup[] = ["awaiting_decision", "running", "queued", "kept", "archived", "failed"];

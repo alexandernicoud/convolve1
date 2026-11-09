@@ -10,6 +10,8 @@ import { PlanTab } from "@/features/account/PlanTab";
 import { RunList, UsageTab } from "@/features/account/UsageTab";
 import { EarnTab } from "@/features/rewards/EarnTab";
 import type { CreditSummary } from "@/features/credits/model";
+import { AccentPicker } from "@/features/accent/AccentPicker";
+import { readHideResearchStart, writeHideResearchStart } from "@/features/onboarding/researchStartPrefs";
 
 type DeletionStep = { step: string; ok: boolean; detail: string };
 
@@ -67,11 +69,11 @@ function Tabs({ active, onSelect }: { active: TabId; onSelect: (id: TabId) => vo
             tabIndex={selected ? 0 : -1}
             onClick={() => onSelect(t.id)}
             className={`relative shrink-0 whitespace-nowrap px-3 pb-3 pt-1 text-sm transition-colors ${
-              selected ? "text-white" : "text-white/45 hover:text-white/80"
+              selected ? "accent-tab-active" : "text-white/45 hover:text-white/80"
             }`}
           >
             {t.label}
-            {selected && <span className="absolute inset-x-3 -bottom-px h-px bg-white" aria-hidden />}
+            {selected && <span className="accent-tab-underline absolute inset-x-3 -bottom-px h-px" aria-hidden />}
           </button>
         );
       })}
@@ -141,6 +143,7 @@ export default function Account() {
                 verified={Boolean(user.email_confirmed_at)}
                 memberSince={user.created_at}
               />
+              <AppearanceCard />
               <ProfileCard
                 email={user.email ?? "—"}
                 verified={Boolean(user.email_confirmed_at)}
@@ -244,6 +247,31 @@ function OverviewSummary({
       <Stat label="Credits used, 30 days" value={c ? last30.toLocaleString() : "…"} />
       <Stat label="Member since" value={formatDate(p?.created_at ?? memberSince)} />
     </div>
+  );
+}
+
+function AppearanceCard() {
+  const [hideStart, setHideStart] = useState(readHideResearchStart);
+  return (
+    <Card title="Appearance" description="Optional accent for buttons, charts and branding. Default keeps the original grey look.">
+      <AccentPicker label="Accent colour" />
+      <label className="mt-5 flex cursor-pointer items-start gap-2.5 border-t border-white/[0.08] pt-4 text-[13.5px] text-white/70">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-3.5 w-3.5 rounded border-white/30 bg-black"
+          checked={hideStart}
+          onChange={(e) => {
+            const v = e.target.checked;
+            setHideStart(v);
+            writeHideResearchStart(v);
+          }}
+        />
+        <span>
+          Hide the Manage starting screen when you have no paper bots
+          <span className="mt-0.5 block text-[12.5px] text-white/45">Shows the fleet dashboard directly instead.</span>
+        </span>
+      </label>
+    </Card>
   );
 }
 

@@ -1,5 +1,6 @@
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { REASON_LABELS, type CreditSummary, type PlanCatalogue } from "@/features/credits/model";
+import { REASON_LABELS, type CreditSummary, type LedgerEntry, type PlanCatalogue } from "@/features/credits/model";
 import { runHref, type Loadable, type RunSummary, type Usage } from "./data";
 import { BarChart, Card, Empty, Notice, Stat, formatDateTime, formatDuration } from "./ui";
 import { LoadingRegion, SkeletonChart, SkeletonStatGrid } from "@/components/skeleton/Skeleton";
@@ -13,27 +14,97 @@ const STATUS_STYLE: Record<string, string> = {
   queued: "text-amber-200",
 };
 
+const RECENT_PREVIEW = 5;
+
 function shortDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
-export function RunList({ runs }: { runs: RunSummary[] }) {
+function reasonKind(reason: string): "reward" | "charge" | "refund" | "other" {
+  if (reason === "charge") return "charge";
+  if (reason === "refund" || reason === "credit_refund" || reason === "credit_refund_reversal") return "refund";
+  if (reason === "grant" || reason === "allocation" || reason === "adjustment" || reason === "subscription" || reason === "purchase" || reason === "reward") {
+    return "reward";
+  }
+  return "other";
+}
+
+function TransactionRow({ t }: { t: LedgerEntry }) {
+  const kind = reasonKind(t.reason);
+  const title = REASON_LABELS[t.reason] ?? t.reason;
+  return (
+    <li className="flex items-start justify-between gap-4 py-2.5 text-sm">
+      <div className="min-w-0">
+        <div className="truncate text-white/85">
+          {title}
+          {t.tool_label ? ` · ${t.tool_label}` : ""}
+        </div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-white/40">
+          <span>{formatDateTime(t.created_at)}</span>
+          <span className="text-white/25">·</span>
+          <span className="capitalize">{kind === "reward" ? "credit added" : kind === "charge" ? "deduction" : kind === "refund" ? "refund" : t.reason}</span>
+          {t.run_id ? (
+            <>
+              <span className="text-white/25">·</span>
+              <span className="font-mono truncate" title={t.run_id}>
+                run {t.run_id.slice(0, 8)}
+              </span>
+            </>
+          ) : null}
+          {t.note ? (
+            <>
+              <span className="text-white/25">·</span>
+              <span className="truncate">{t.note}</span>
+            </>
+          ) : null}
+        </div>
+      </div>
+      <div className="shrink-0 text-right">
+        <div className={`tabular-nums ${t.delta < 0 ? "text-white" : "text-[#a6ecc8]"}`}>
+          {t.delta > 0 ? "+" : ""}
+          {t.delta}
+        </div>
+        <div className="text-[11px] tabular-nums text-white/35">balance {t.balance_after}</div>
+      </div>
+    </li>
+  );
+}
+
+export function RunList({
+  runs,
+  creditsByRun,
+  preview = runs.length,
+  expanded,
+}: {
+  runs: RunSummary[];
+  creditsByRun?: Map<string, number>;
+  preview?: number;
+  expanded?: boolean;
+}) {
   if (runs.length === 0) return <Empty>No research runs yet. Runs you start in any tool appear here.</Empty>;
+  const shown = expanded || preview >= runs.length ? runs : runs.slice(0, preview);
   return (
     <ul className="divide-y divide-white/[0.06]">
-      {runs.map((r) => {
+      {shown.map((r) => {
         const href = runHref(r);
+        const credits = creditsByRun?.get(r.id);
         const body = (
           <div className="flex items-center justify-between gap-4 py-3">
             <div className="min-w-0">
               <div className="truncate text-sm text-white/85">{r.label}</div>
-              <div className="truncate font-mono text-[11px] text-white/35">{r.id}</div>
+              <div className="mt-0.5 flex flex-wrap gap-x-2 text-[11px] text-white/40">
+                <span className="capitalize">{r.tool.replace(/_/g, " ")}</span>
+                <span className="text-white/25">·</span>
+                <span>{formatDateTime(r.created_at)}</span>
+              </div>
               {r.error_summary && <div className="mt-1 line-clamp-1 text-xs text-red-300/80">{r.error_summary}</div>}
             </div>
             <div className="shrink-0 text-right">
               <div className={`text-xs capitalize ${STATUS_STYLE[r.status] ?? "text-white/55"}`}>{r.status}</div>
-              <div className="text-[11px] text-white/35">{formatDateTime(r.created_at)}</div>
+              <div className="text-[11px] tabular-nums text-white/40">
+                {credits == null ? "not charged" : credits === 0 ? "no charge" : `${Math.abs(credits)} cr`}
+              </div>
             </div>
           </div>
         );
@@ -57,6 +128,10 @@ function CreditsSection({ credits, plans }: { credits: Loadable<CreditSummary>; 
   const c = credits.data;
   const enforced = c?.mode === "enforce";
   const last30 = c?.daily.reduce((s, d) => s + d.credits, 0) ?? 0;
+  const [txExpanded, setTxExpanded] = useState(false);
+  const txPreview = 12;
+  const txs = c?.transactions ?? [];
+  const shownTx = txExpanded || txs.length <= txPreview ? txs : txs.slice(0, txPreview);
 
   return (
     <>
@@ -67,7 +142,7 @@ function CreditsSection({ credits, plans }: { credits: Loadable<CreditSummary>; 
             ? undefined
             : enforced
               ? "Your balance is held and charged by the server. Each run is charged once, when it is accepted."
-              : "Runs are not charged yet. When charging starts, each run's cost below is deducted from a server-held balance."
+              : "Free beta: research runs are not charged. Ledger entries below still show allocations, rewards and any recorded activity."
         }
         action={
           <Link to="/products#pricing" className="shrink-0 text-sm text-white/55 underline-offset-4 hover:text-white hover:underline">
@@ -92,13 +167,41 @@ function CreditsSection({ credits, plans }: { credits: Loadable<CreditSummary>; 
       </Card>
 
       {c && (
-        <Card title="Credit history" description="Credits used per day over the last 30 days, net of refunds.">
-          {c.transactions.length === 0 ? (
+        <Card
+          title="Credit History"
+          description="Ledger of credits added, deducted and refunded. Free-beta compute usage is not billed and does not create charge rows."
+        >
+          {txs.length === 0 ? (
             <Empty>
               {enforced
-                ? "No credit activity yet."
-                : "No credits have been charged. History appears here once charging is switched on."}
+                ? "No credit transactions yet. Allocations, run charges, refunds and rewards will appear here."
+                : "No credit transactions yet. During the free beta, runs are not charged. Rewards and allocations appear here when recorded."}
             </Empty>
+          ) : (
+            <>
+              <ul className="divide-y divide-white/[0.06]">
+                {shownTx.map((t) => (
+                  <TransactionRow key={t.id} t={t} />
+                ))}
+              </ul>
+              {txs.length > txPreview ? (
+                <button
+                  type="button"
+                  onClick={() => setTxExpanded((v) => !v)}
+                  className="mt-3 text-sm font-medium text-white/55 underline-offset-4 hover:text-white hover:underline"
+                >
+                  {txExpanded ? "Show less" : `Show more (${txs.length - txPreview} more)`}
+                </button>
+              ) : null}
+            </>
+          )}
+        </Card>
+      )}
+
+      {c && (
+        <Card title="Credits used per day" description="Net credits used per day over the last 30 days (charges minus refunds).">
+          {c.daily.every((d) => d.credits === 0) ? (
+            <Empty>{enforced ? "No charged usage in the last 30 days." : "No charged usage yet — free-beta runs do not appear here."}</Empty>
           ) : (
             <BarChart
               label="Credits used per day"
@@ -132,34 +235,6 @@ function CreditsSection({ credits, plans }: { credits: Loadable<CreditSummary>; 
         </Card>
       )}
 
-      {c && c.transactions.length > 0 && (
-        <Card title="Recent transactions">
-          <ul className="divide-y divide-white/[0.06]">
-            {c.transactions.slice(0, 15).map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-4 py-2.5 text-sm">
-                <div className="min-w-0">
-                  <div className="truncate text-white/80">
-                    {REASON_LABELS[t.reason] ?? t.reason}
-                    {t.tool_label ? ` · ${t.tool_label}` : ""}
-                  </div>
-                  <div className="truncate text-[11px] text-white/35">
-                    {formatDateTime(t.created_at)}
-                    {t.note ? ` · ${t.note}` : ""}
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className={`tabular-nums ${t.delta < 0 ? "text-white" : "text-[#a6ecc8]"}`}>
-                    {t.delta > 0 ? "+" : ""}
-                    {t.delta}
-                  </div>
-                  <div className="text-[11px] tabular-nums text-white/35">balance {t.balance_after}</div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
       {plans.data && (
         <Card title="Cost per run" description="Set by the server. Failed or interrupted runs are refunded automatically.">
           <div className="grid gap-2 sm:grid-cols-2">
@@ -177,8 +252,17 @@ function CreditsSection({ credits, plans }: { credits: Loadable<CreditSummary>; 
   );
 }
 
-function ActivitySection({ usage }: { usage: Loadable<Usage> }) {
+function ActivitySection({ usage, credits }: { usage: Loadable<Usage>; credits: Loadable<CreditSummary> }) {
   const u = usage.data;
+  const [expanded, setExpanded] = useState(false);
+  const creditsByRun = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of credits.data?.transactions ?? []) {
+      if (t.run_id && t.reason === "charge") m.set(t.run_id, (m.get(t.run_id) ?? 0) + t.delta);
+    }
+    return m;
+  }, [credits.data]);
+
   if (usage.error) {
     return (
       <Card title="Research activity">
@@ -196,6 +280,7 @@ function ActivitySection({ usage }: { usage: Loadable<Usage> }) {
       </Card>
     );
   }
+  const more = Math.max(0, u.recent.length - RECENT_PREVIEW);
   return (
     <>
       <Card title="Research activity" description="Counted from the runs stored under your account.">
@@ -250,8 +335,17 @@ function ActivitySection({ usage }: { usage: Loadable<Usage> }) {
         </Card>
       )}
 
-      <Card title="Recent runs">
-        <RunList runs={u.recent} />
+      <Card title="Recent runs" description="Most recent research runs. Expand to see more from this page.">
+        <RunList runs={u.recent} creditsByRun={creditsByRun} preview={RECENT_PREVIEW} expanded={expanded} />
+        {more > 0 ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="mt-3 text-sm font-medium text-white/55 underline-offset-4 hover:text-white hover:underline"
+          >
+            {expanded ? "Show less" : `Show more (${more} more)`}
+          </button>
+        ) : null}
       </Card>
 
       <Card title="Stored resources" description="What your account currently holds.">
@@ -278,7 +372,7 @@ export function UsageTab({
   return (
     <div className="space-y-6">
       <CreditsSection credits={credits} plans={plans} />
-      <ActivitySection usage={usage} />
+      <ActivitySection usage={usage} credits={credits} />
     </div>
   );
 }
