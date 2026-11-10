@@ -18,6 +18,10 @@ export interface FleetBot {
   currency: string | null;
   currency_source: string;
   in_aggregate: boolean;
+  /** Current rate into the base currency when the bot is converted for the totals. */
+  fx_rate?: number | null;
+  equity_base?: number | null;
+  net_pnl_base?: number | null;
   deployed_at: string | null;
   starting_capital: number;
   equity: number;
@@ -87,10 +91,12 @@ export interface FleetEvent {
   pnl?: number | null;
   reason?: string | null;
   precise?: boolean;
+  currency?: string | null;
 }
 
 export interface ActivityLane {
   bot_id: string;
+  currency?: string | null;
   ok: number[];
   error: number[];
   buy: number[];
@@ -104,7 +110,14 @@ export interface FleetPayload {
   as_of: string;
   range: FleetRange;
   definitions: Record<string, string>;
-  currency: { base: string | null; included_bot_ids: string[]; excluded: { bot_id: string; symbol: string; currency: string | null; reason: string }[]; note: string };
+  currency: {
+    base: string | null;
+    included_bot_ids: string[];
+    converted?: { bot_id: string; symbol: string; currency: string; rate: number; rate_date: string }[];
+    fx_source?: string | null;
+    excluded: { bot_id: string; symbol: string; currency: string | null; reason: string }[];
+    note: string;
+  };
   excluded_lifecycles: Record<string, number>;
   health: {
     counts: { live: number; paused: number; error: number; expired: number; ops_stale: number; valuation_stale: number };

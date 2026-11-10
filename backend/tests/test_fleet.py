@@ -139,6 +139,29 @@ def test_currencies_are_never_summed():
     assert "unavailable" in only_unknown["kpis"]
 
 
+def test_other_currency_is_converted_at_daily_rates():
+    chf = _bot("c", 50_000, _h(24 * 5), [(_h(24 * 5 - 1), 50_000, 0)], symbol="HOLN.SW")
+    trades = [TradeIn("t", "u", "won", 1_000, 100, _h(24 * 3), True, _h(24 * 2), True, 102, 20.0, "take_profit")]
+    usd = _bot("u", 10_000, _h(24 * 4), [(_h(24 * 4 - 1), 10_000, 0), (_h(24 * 2), 10_020, 20)], symbol="MSFT", trades=trades)
+    days = [(NOW - timedelta(days=d)).date() for d in range(6, -1, -1)]
+    rates = [(d, 0.90 if d < _h(24 * 2).date() else 0.80) for d in days]
+    out = build_fleet([chf, usd], now=NOW, rng="ALL", poll_interval_s=60, excluded_lifecycle_counts={}, fx={"USD": rates}, fx_source="test")
+    assert out["currency"]["base"] == "CHF" and out["currency"]["excluded"] == []
+    assert [c["bot_id"] for c in out["currency"]["converted"]] == ["u"]
+    k = out["kpis"]
+    # Capital enters at the deployment-day rate (0.90); the latest valuation is worth 10,020 × 0.80.
+    assert k["contributed_capital"] == pytest.approx(50_000 + 9_000)
+    assert k["equity"] == pytest.approx(50_000 + 10_020 * 0.80)
+    assert k["equity"] == pytest.approx(k["contributed_capital"] + k["net_pnl"])
+    assert k["realized_pnl_trades"] == pytest.approx(20 * 0.80)
+    row = next(b for b in out["bots"] if b["id"] == "u")
+    assert row["in_aggregate"] and row["currency"] == "USD" and row["net_pnl"] == pytest.approx(20)
+    assert row["equity_base"] == pytest.approx(10_020 * 0.80) and row["fx_rate"] == pytest.approx(0.80)
+    assert next(e for e in out["events"] if e["kind"] == "trade_close")["currency"] == "USD"
+    no_rates = build_fleet([chf, usd], now=NOW, rng="ALL", poll_interval_s=60, excluded_lifecycle_counts={}, fx={})
+    assert [e["bot_id"] for e in no_rates["currency"]["excluded"]] == ["u"]
+
+
 @pytest.mark.parametrize(
     "symbol,ccy",
     [("AAPL", "USD"), ("BRK-B", "USD"), ("SAP.DE", "EUR"), ("VOD.L", "GBp"), ("EURUSD=X", "USD"), ("USDJPY=X", "JPY"),
@@ -162,6 +185,11 @@ def test_ranges_bucket_and_window():
 
 def _auth(uid):
     return {"Authorization": f"Bearer {mint_token(uid)}"}
+
+
+@pytest.fixture(autouse=True)
+def _no_fx_network(monkeypatch):
+    monkeypatch.setattr("app.dashboard_api.daily_rates", lambda src, dst, start: None)
 
 
 @pytest.mark.parametrize("n", [0, 1, 3, 12])
@@ -193,6 +221,27 @@ def test_fixture_fleets_reconcile(client, user_a, n):
         assert out["excluded_lifecycles"] == {"closed": 1, "archived": 1}
         assert [e["symbol"] for e in out["currency"]["excluded"]] == ["SAP.DE"]
         assert any("closed or archived" in s for s in out["limitations"])
+
+
+def test_fleet_endpoint_converts_with_fetched_rates(client, user_a, monkeypatch):
+    calls = []
+
+    def fake_rates(src, dst, start):
+        calls.append((src, dst))
+        return [(start - timedelta(days=30), 1.10)]
+
+    monkeypatch.setattr("app.dashboard_api.daily_rates", fake_rates)
+    db = SessionLocal()
+    try:
+        build_fleet_fixture(db, str(user_a), 12)
+    finally:
+        db.close()
+    out = client.get("/api/dashboard/fleet?range=1W", headers=_auth(user_a)).json()
+    assert calls == [("EUR", "USD")]
+    assert out["currency"]["excluded"] == [] and [c["symbol"] for c in out["currency"]["converted"]] == ["SAP.DE"]
+    k = out["kpis"]
+    assert k["equity"] == pytest.approx(sum(b["equity_base"] for b in out["bots"]), abs=1e-3)
+    assert k["equity"] == pytest.approx(k["contributed_capital"] + k["net_pnl"], abs=1e-3)
 
 
 def test_fleet_is_user_scoped(client, user_a, user_b):

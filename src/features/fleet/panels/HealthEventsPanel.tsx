@@ -7,7 +7,8 @@ import { Dot, Panel, useElementSize } from "../ui";
 
 const ROW = 19;
 
-function describe(e: FleetEvent, ccy: string | null): { text: string; tone: "error" | "warn" | "ok" | "muted"; color?: string } {
+function describe(e: FleetEvent, base: string | null): { text: string; tone: "error" | "warn" | "ok" | "muted"; color?: string } {
+  const ccy = e.currency ?? base;
   if (e.kind === "error") return { text: `${e.count && e.count > 1 ? `${e.count}× ` : ""}${e.message ?? "Run failed"}`, tone: "error" };
   if (e.kind === "deploy") return { text: `Deployed · ${fmtMoney(e.capital, ccy)}`, tone: "muted" };
   if (e.kind === "trade_open") return { text: `Opened · ${fmtMoney(e.notional, ccy, { compact: true })}`, tone: "ok" };

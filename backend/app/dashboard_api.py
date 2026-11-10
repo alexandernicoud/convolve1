@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, or_
@@ -14,8 +14,9 @@ from app.db import get_db
 from app.models import Bot, BotEquitySnapshot, BotRun, BotTrade
 from app.ownership import bot_scope_clause, bot_scope_owner_id
 from app.services.bot_status import derive_bot_status, next_scheduled_run_iso
-from app.services.fleet import RANGES, build_fleet
+from app.services.fleet import RANGES, build_fleet, choose_base
 from app.services.fleet_db import load_fleet_inputs, trade_win_rate_db
+from app.services.fx import FX_SOURCE, daily_rates
 from app.schemas.bot import (
     BotEquityPointOut,
     DashboardAccuracyOut,
@@ -611,12 +612,22 @@ def get_fleet(
         raise HTTPException(status_code=422, detail=f"range must be one of {', '.join(RANGES)}")
     now = datetime.now(timezone.utc)
     bots, excluded = load_fleet_inputs(db, owner_id, now)
+    base = choose_base(bots)
+    fx: Dict[str, List[Tuple[date, float]]] = {}
+    if base:
+        for ccy in sorted({b.currency for b in bots if b.currency and b.currency != base}):
+            start = min(b.created_at for b in bots if b.currency == ccy).date()
+            rates = daily_rates(ccy, base, start)
+            if rates:
+                fx[ccy] = rates
     return build_fleet(
         bots,
         now=now,
         rng=rng,
         poll_interval_s=int(BOT_POLL_INTERVAL_SECONDS),
         excluded_lifecycle_counts=excluded,
+        fx=fx,
+        fx_source=FX_SOURCE,
     )
 
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 from bisect import bisect_left, bisect_right
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -316,6 +316,42 @@ def _floor(t: datetime, step: int) -> datetime:
     return datetime.fromtimestamp(ts - ts % step, tz=timezone.utc)
 
 
+# ── currency conversion ──────────────────────────────────────────────────────
+
+FxRates = Sequence[Tuple[date, float]]
+
+
+def choose_base(bots: Sequence[BotIn]) -> Optional[str]:
+    """Reporting currency: the currency holding the most starting capital."""
+    by_ccy: Dict[str, float] = {}
+    for b in bots:
+        if b.currency:
+            by_ccy[b.currency] = by_ccy.get(b.currency, 0.0) + float(b.starting_capital)
+    return max(by_ccy.items(), key=lambda kv: kv[1])[0] if by_ccy else None
+
+
+def rate_on(rates: FxRates, d: date) -> float:
+    """Closing rate of the last trading day on or before ``d`` (the first known rate before the series starts)."""
+    i = bisect_right([x[0] for x in rates], d) - 1
+    return float(rates[max(i, 0)][1])
+
+
+def convert_bot(b: BotIn, rates: FxRates, base: str) -> BotIn:
+    """The bot's amounts in ``base``: capital at the deployment-day rate, each valuation and trade at its own day's rate.
+    Exchange-rate moves after deployment therefore show up as P&L, as they would for an investor in ``base``."""
+    r = lambda t: rate_on(rates, t.date())  # noqa: E731
+    return replace(
+        b,
+        starting_capital=float(b.starting_capital) * r(b.created_at),
+        snaps=[(t, e * r(t), re_ * r(t)) for t, e, re_ in b.snaps],
+        trades=[
+            replace(tr, notional=tr.notional * r(tr.opened_at), pnl=None if tr.pnl is None else tr.pnl * r(tr.closed_at or tr.opened_at))
+            for tr in b.trades
+        ],
+        currency=base,
+    )
+
+
 # ── main aggregation ─────────────────────────────────────────────────────────
 
 
@@ -326,37 +362,53 @@ def build_fleet(
     rng: str,
     poll_interval_s: int,
     excluded_lifecycle_counts: Dict[str, int],
+    fx: Optional[Dict[str, FxRates]] = None,
+    fx_source: Optional[str] = None,
 ) -> Dict[str, object]:
+    """``fx`` maps a bot currency to daily rates into the base currency (see ``choose_base``); bots in a
+    currency without rates stay out of the monetary aggregates."""
     # Daily bots legitimately go a weekend plus a holiday without a new bar.
     stale_after_s = max(3 * int(poll_interval_s), 300, SCHEDULED_GAP_S)
     stale_after = timedelta(seconds=stale_after_s)
 
-    # Currency coverage: aggregate only the currency holding the most capital; never convert.
-    by_ccy: Dict[str, float] = {}
+    base = choose_base(bots)
+    fx = fx or {}
+    included: List[BotIn] = []
+    converted: List[Dict[str, object]] = []
+    excluded: List[Dict[str, object]] = []
     for b in bots:
-        if b.currency:
-            by_ccy[b.currency] = by_ccy.get(b.currency, 0.0) + float(b.starting_capital)
-    base = max(by_ccy.items(), key=lambda kv: kv[1])[0] if by_ccy else None
-    included = [b for b in bots if base is not None and b.currency == base]
+        if base is not None and b.currency == base:
+            included.append(b)
+        elif base is not None and b.currency and fx.get(b.currency):
+            rates = fx[b.currency]
+            included.append(convert_bot(b, rates, base))
+            converted.append({"bot_id": b.id, "symbol": b.symbol, "currency": b.currency, "rate": _r(rates[-1][1], 8), "rate_date": rates[-1][0].isoformat()})
+        else:
+            excluded.append(
+                {
+                    "bot_id": b.id,
+                    "symbol": b.symbol,
+                    "currency": b.currency,
+                    "reason": "Quote currency could not be determined from the symbol." if not b.currency else f"No {b.currency}→{base} exchange rate is available.",
+                }
+            )
     inc_ids = {b.id for b in included}
-    excluded = [
-        {
-            "bot_id": b.id,
-            "symbol": b.symbol,
-            "currency": b.currency,
-            "reason": "Quote currency could not be determined from the symbol." if not b.currency else f"{b.currency} cannot be converted to {base}; no FX source is configured.",
-        }
-        for b in bots
-        if b.id not in inc_ids
-    ]
+    rate_now = {c["bot_id"]: float(c["rate"]) for c in converted}  # type: ignore[arg-type]
 
     tls = {b.id: Timeline(b) for b in bots}
-    inc_tls = [tls[b.id] for b in included]
-    path = fleet_path(inc_tls)
+    # Timelines in the base currency, for everything that adds bots together.
+    ctls = {b.id: Timeline(b) for b in included}
+    path = fleet_path(list(ctls.values()))
     limitations: List[str] = [
         "Quote currency is inferred from the ticker format; it is not recorded when a bot is deployed.",
         "Pause and resume times are not recorded, so paused periods cannot be drawn historically.",
     ]
+    if converted:
+        ccys = sorted({str(c["currency"]) for c in converted})
+        limitations.append(
+            f"{', '.join(ccys)} bots are converted to {base} at daily closing rates ({fx_source or 'external FX source'}): "
+            "capital at the deployment-day rate, each valuation and trade at its own day's rate. Totals include exchange-rate moves."
+        )
     n_excl = sum(excluded_lifecycle_counts.values())
     if n_excl:
         limitations.append(
@@ -382,6 +434,9 @@ def build_fleet(
         ops_stale = b.lifecycle == "active" and b.overdue
         imprecise = imprecise or any(not t.opened_precise or (t.closed_at and not t.closed_precise) for t in b.trades)
         wr = trade_win_rate(b.trades)
+        cb = next((x for x in included if x.id == b.id), None)
+        cv = ctls[b.id].value_at(now) if cb is not None else None
+        equity_base = cv[0] if cv else (cb.starting_capital if cb is not None else None)
         bot_rows.append(
             {
                 "id": b.id,
@@ -392,6 +447,9 @@ def build_fleet(
                 "currency": b.currency,
                 "currency_source": b.currency_source,
                 "in_aggregate": b.id in inc_ids,
+                "fx_rate": _r(rate_now[b.id], 8) if b.id in rate_now else None,
+                "equity_base": _r(equity_base, 4),
+                "net_pnl_base": _r(equity_base - cb.starting_capital, 4) if cb is not None and equity_base is not None else None,
                 "deployed_at": _iso(b.created_at),
                 "starting_capital": _r(b.starting_capital, 4),
                 "equity": _r(equity, 4),
@@ -451,12 +509,12 @@ def build_fleet(
         R = path.realized[i_now] if i_now is not None else 0.0
         t24 = now - timedelta(hours=24)
         i24 = state_at(path, t24)
-        obs24 = sum(tls[b.id].obs_between(t24, now) for b in included)
+        obs24 = sum(ctls[b.id].obs_between(t24, now) for b in included)
         pnl_now = E - C
         pnl_then = (path.equity[i24] - path.contributed[i24]) if i24 is not None else 0.0
         inc_trades = [t for b in included for t in b.trades]
         open_n = sum(t.notional for t in inc_trades if t.status == "open")
-        marks = [tls[b.id].last_mark_at(now) for b in included]
+        marks = [ctls[b.id].last_mark_at(now) for b in included]
         marks = [m for m in marks if m]
         stale_val = [r["id"] for r in bot_rows if r["in_aggregate"] and r["valuation_stale"]]
         kpis = {
@@ -528,18 +586,18 @@ def build_fleet(
                 cols["drawdown"].append(_r(min(dds), 8) if dds else None)
                 notional = sum(open_notional_at(b.trades, end)[0] for b in included)
                 cols["exposure"].append(_r(notional / E, 8) if E > 0 else None)
-            n_obs.append(sum(tls[b.id].obs_between(prev_end, end) for b in included))
+            n_obs.append(sum(ctls[b.id].obs_between(prev_end, end) for b in included))
             stale = 0
             for b in included:
                 if b.created_at > end:
                     continue
-                lm = tls[b.id].last_mark_at(end) or b.created_at
+                lm = ctls[b.id].last_mark_at(end) or b.created_at
                 _, n_open = open_notional_at(b.trades, end)
                 if n_open and ((end - lm) > stale_after or (b.lifecycle != "active" and end == now)):
                     stale += 1
             stale_bots.append(stale)
             for b in included:
-                v = tls[b.id].value_at(end)
+                v = ctls[b.id].value_at(end)
                 per_bot_eq[b.id].append(_r(v[0], 4) if v else None)
                 per_bot_pnl[b.id].append(_r(v[0] - b.starting_capital, 4) if v else None)
             prev_end = end
@@ -560,7 +618,7 @@ def build_fleet(
                 if tr.closed_at and tr.closed_at >= start and tr.status in CLOSED_TRADE_STATUSES:
                     markers["closes"].append({"t": _iso(tr.closed_at), "bot_id": b.id, "pnl": _r(tr.pnl, 4), "reason": tr.exit_reason, "precise": tr.closed_precise})
         for b in included:
-            tl = tls[b.id]
+            tl = ctls[b.id]
             v0 = tl.value_at(start)
             v1 = tl.value_at(now) or (float(b.starting_capital), 0.0)
             p0 = (v0[0] - b.starting_capital) if v0 else 0.0
@@ -580,7 +638,7 @@ def build_fleet(
             day_end = min(day_start + timedelta(days=1), now)
             i1 = state_at(path, day_end - timedelta(microseconds=1)) if day_end < now else state_at(path, now)
             i0 = state_at(path, day_start - timedelta(microseconds=1))
-            obs = sum(tls[b.id].obs_between(day_start - timedelta(microseconds=1), day_end - timedelta(microseconds=1)) for b in included)
+            obs = sum(ctls[b.id].obs_between(day_start - timedelta(microseconds=1), day_end - timedelta(microseconds=1)) for b in included)
             deployed_today = [b for b in included if day_start <= b.created_at < day_end]
             flows = sum(b.starting_capital for b in deployed_today)
             realized_d = sum(
@@ -635,6 +693,7 @@ def build_fleet(
         lanes.append(
             {
                 "bot_id": b.id,
+                "currency": b.currency,
                 "ok": ok,
                 "error": err,
                 "buy": buy,
@@ -671,12 +730,24 @@ def build_fleet(
                     "message": msg,
                 }
             )
-        events.append({"kind": "deploy", "severity": "info", "t": _iso(b.created_at), "bot_id": b.id, "capital": _r(b.starting_capital, 4)})
+        ccy = b.currency
+        events.append({"kind": "deploy", "severity": "info", "t": _iso(b.created_at), "bot_id": b.id, "capital": _r(b.starting_capital, 4), "currency": ccy})
         for tr in b.trades:
-            events.append({"kind": "trade_open", "severity": "info", "t": _iso(tr.opened_at), "precise": tr.opened_precise, "bot_id": b.id, "notional": _r(tr.notional, 4)})
+            events.append(
+                {"kind": "trade_open", "severity": "info", "t": _iso(tr.opened_at), "precise": tr.opened_precise, "bot_id": b.id, "notional": _r(tr.notional, 4), "currency": ccy}
+            )
             if tr.closed_at and tr.status in CLOSED_TRADE_STATUSES:
                 events.append(
-                    {"kind": "trade_close", "severity": "info", "t": _iso(tr.closed_at), "precise": tr.closed_precise, "bot_id": b.id, "pnl": _r(tr.pnl, 4), "reason": tr.exit_reason}
+                    {
+                        "kind": "trade_close",
+                        "severity": "info",
+                        "t": _iso(tr.closed_at),
+                        "precise": tr.closed_precise,
+                        "bot_id": b.id,
+                        "pnl": _r(tr.pnl, 4),
+                        "reason": tr.exit_reason,
+                        "currency": ccy,
+                    }
                 )
     events.sort(key=lambda e: (e["severity"] != "critical", -(datetime.fromisoformat(str(e["t"])).timestamp())))
     events = events[:EVENT_LIMIT]
@@ -704,8 +775,14 @@ def build_fleet(
             # With no bots there is nothing to infer from; deploy capital is drawn from the USD paper wallet.
             "base": base if bots else PAPER_WALLET_CURRENCY,
             "included_bot_ids": [b.id for b in included],
+            "converted": converted,
+            "fx_source": fx_source if converted else None,
             "excluded": excluded,
-            "note": "Inferred from ticker format; amounts in different currencies are never summed."
+            "note": (
+                f"Inferred from ticker format; other currencies are converted to {base} at daily closing rates."
+                if converted
+                else "Inferred from ticker format; amounts in different currencies are never summed."
+            )
             if bots
             else "No bots deployed; zero amounts are shown in the paper-wallet currency.",
         },

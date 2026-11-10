@@ -67,7 +67,14 @@ export function FleetTable({ p, hovered, onHover, compact, activity }: { p: Flee
   const ccy = p.currency.base;
   const exposureCol = !compact;
   const cols = ["minmax(0,1.5fr)", "minmax(64px,0.9fr)", "minmax(56px,0.7fr)", ...(exposureCol ? ["minmax(44px,0.55fr)"] : []), activity ? "60px" : "minmax(40px,0.5fr)"].join(" ");
-  const fmtBotMoney = (b: FleetBot, v: number) => fmtMoney(v, b.in_aggregate ? ccy : b.currency, { signed: true, compact: true });
+  const fmtBotMoney = (b: FleetBot, v: number) => fmtMoney(v, b.currency ?? ccy, { signed: true, compact: true });
+  const converted = p.currency.converted ?? [];
+  const badgeTitle = (b: FleetBot) =>
+    !b.in_aggregate
+      ? "Not included in fleet totals (no exchange rate)"
+      : b.fx_rate != null && b.net_pnl_base != null
+        ? `Included in totals at ${b.fx_rate.toFixed(4)} ${ccy}/${b.currency}: net P&L ${fmtMoney(b.net_pnl_base, ccy, { signed: true })}`
+        : `Included in totals in ${ccy}`;
 
   return (
     <Panel id="fleet-table" title={`Fleet · ${bots.length} bot${bots.length === 1 ? "" : "s"}`} link={{ to: BOTS_HREF, label: "All bots" }} bodyClassName="flex flex-col">
@@ -108,7 +115,11 @@ export function FleetTable({ p, hovered, onHover, compact, activity }: { p: Flee
                 <p className="flex items-center gap-1.5 truncate text-[12.5px] font-medium leading-tight text-white">
                   <Dot tone={tone} />
                   <span className="truncate">{b.symbol}</span>
-                  {!b.in_aggregate ? <span className="shrink-0 rounded border border-white/15 px-1 text-[9.5px] text-white/50" title="Not included in fleet totals (currency)">{b.currency ?? "ccy?"}</span> : null}
+                  {!b.in_aggregate || (b.currency && b.currency !== ccy) ? (
+                    <span className="shrink-0 rounded border border-white/15 px-1 text-[9.5px] text-white/50" title={badgeTitle(b)}>
+                      {b.currency ?? "ccy?"}
+                    </span>
+                  ) : null}
                 </p>
                 <p className={cn("truncate pl-3 text-[10.5px] leading-tight", tone === "error" ? "text-[#F87171]" : tone === "warn" ? "text-[#FCD34D]" : "text-white/40")}>
                   {statusLabel(b)}
@@ -131,10 +142,15 @@ export function FleetTable({ p, hovered, onHover, compact, activity }: { p: Flee
           );
         })}
       </div>
-      {p.currency.excluded.length || Object.keys(p.excluded_lifecycles).length ? (
-        <p className="shrink-0 truncate pt-1 text-[10.5px] text-white/40" title={p.currency.note}>
-          {p.currency.excluded.length ? `${p.currency.excluded.length} not in totals (currency)` : ""}
-          {p.currency.excluded.length && Object.keys(p.excluded_lifecycles).length ? " · " : ""}
+      {converted.length || p.currency.excluded.length || Object.keys(p.excluded_lifecycles).length ? (
+        <p className="shrink-0 truncate pt-1 text-[10.5px] text-white/40" title={[p.currency.note, p.currency.fx_source].filter(Boolean).join(" · ")}>
+          {[
+            converted.length ? `Totals in ${ccy}, ${[...new Set(converted.map((c) => c.currency))].join(", ")} converted at daily rates` : "",
+            p.currency.excluded.length ? `${p.currency.excluded.length} not in totals (currency)` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          {(converted.length || p.currency.excluded.length) && Object.keys(p.excluded_lifecycles).length ? " · " : ""}
           {Object.entries(p.excluded_lifecycles).map(([k, v]) => `${v} ${k}`).join(", ")}
           {Object.keys(p.excluded_lifecycles).length ? " excluded" : ""}
         </p>

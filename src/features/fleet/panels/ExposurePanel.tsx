@@ -30,7 +30,8 @@ export function ExposurePanel({ p, hovered }: { p: FleetPayload; hovered: string
   const end = ms(p.window.end) ?? rows[rows.length - 1]?.t ?? 0;
   const { ticks, step } = useMemo(() => timeTicks(start, end, Math.max(120, size.width - 50), 56), [start, end, size.width]);
   const hasExposure = rows.some((r) => r.exposure != null);
-  const total = included.reduce((a, b) => a + Math.max(0, b.equity), 0);
+  const baseEquity = (b: (typeof included)[number]) => Math.max(0, b.equity_base ?? b.equity);
+  const total = included.reduce((a, b) => a + baseEquity(b), 0);
 
   return (
     <Panel id="exposure" title="Capital & exposure" bodyClassName="flex flex-col gap-1">
@@ -52,8 +53,8 @@ export function ExposurePanel({ p, hovered }: { p: FleetPayload; hovered: string
               ? included.map((b, i) => (
                   <div
                     key={b.id}
-                    title={`${b.symbol}: ${fmtMoney(b.equity, ccy)} (${fmtPct(b.equity / total, 0, false)})`}
-                    style={{ width: `${(Math.max(0, b.equity) / total) * 100}%`, background: FLEET_LINE_COLORS[i % FLEET_LINE_COLORS.length], opacity: hovered && hovered !== b.id ? 0.25 : 0.8 }}
+                    title={`${b.symbol}: ${fmtMoney(baseEquity(b), ccy)} (${fmtPct(baseEquity(b) / total, 0, false)})`}
+                    style={{ width: `${(baseEquity(b) / total) * 100}%`, background: FLEET_LINE_COLORS[i % FLEET_LINE_COLORS.length], opacity: hovered && hovered !== b.id ? 0.25 : 0.8 }}
                     className="h-full border-r border-black/60 last:border-r-0"
                   />
                 ))

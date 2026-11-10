@@ -128,7 +128,7 @@ export function ActivitySwimlane({ p, hovered, onHover }: { p: FleetPayload; hov
                       const t = ms(c.t) ?? 0;
                       return t >= start + hover.i * bucketMs && t < start + (hover.i + 1) * bucketMs;
                     })
-                    .map((c) => <TipRow key={c.t} label="Close" value={fmtMoney(c.pnl, ccy, { signed: true })} />)
+                    .map((c) => <TipRow key={c.t} label="Close" value={fmtMoney(c.pnl, tipLane.currency ?? ccy, { signed: true })} />)
                 : null}
             </TooltipBox>
           </div>
