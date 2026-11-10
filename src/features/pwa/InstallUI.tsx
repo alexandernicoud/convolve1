@@ -83,7 +83,15 @@ export function InstallDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 }
 
 /** Sidebar entry: only when installation is possible, not already installed and not dismissed. */
-export function InstallSideLink({ className, variant = "rail" }: { className?: string; variant?: "rail" | "row" }) {
+export function InstallSideLink({
+  className,
+  variant = "rail",
+  hideLabel = false,
+}: {
+  className?: string;
+  variant?: "rail" | "row";
+  hideLabel?: boolean;
+}) {
   const install = useInstall();
   const [open, setOpen] = useState(false);
   if (!install.visible || install.dismissed) return null;
@@ -101,7 +109,9 @@ export function InstallSideLink({ className, variant = "rail" }: { className?: s
         )}
       >
         <Download className="h-[20px] w-[20px] shrink-0" aria-hidden />
-        {variant === "rail" ? (
+        {hideLabel ? (
+          <span className="sr-only">Install</span>
+        ) : variant === "rail" ? (
           <span className="text-center text-[7px] font-semibold uppercase leading-tight tracking-wide text-white/55">Install</span>
         ) : (
           <span>Install Convolve app</span>

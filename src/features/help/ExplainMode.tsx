@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { HelpCircle, X } from "lucide-react";
 import { create } from "zustand";
@@ -263,7 +263,15 @@ export function ExplainLayer() {
   );
 }
 
-export function ExplainToggle({ className = "" }: { className?: string }) {
+export function ExplainToggle({
+  className = "",
+  style,
+  iconSize,
+}: {
+  className?: string;
+  style?: CSSProperties;
+  iconSize?: number;
+}) {
   const on = useExplainStore((s) => s.on);
   const toggle = useExplainStore((s) => s.toggle);
   return (
@@ -273,11 +281,12 @@ export function ExplainToggle({ className = "" }: { className?: string }) {
       data-tour="explain-toggle"
       onClick={toggle}
       aria-pressed={on}
+      style={style}
       className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition ${
         on ? "border-transparent accent-btn" : "border-white/12 text-white/70 hover:bg-white/[0.06] hover:text-white"
       } ${className}`}
     >
-      <HelpCircle className="h-3.5 w-3.5" aria-hidden />
+      <HelpCircle className="h-3.5 w-3.5" style={iconSize ? { width: iconSize, height: iconSize } : undefined} aria-hidden />
       {on ? "Explaining" : "Explain"}
     </button>
   );

@@ -23,6 +23,7 @@ import { confirmRun, chargeRunCredits } from "@/state/creditsStore";
 import { RunCost, RunCostHint } from "@/components/RunCostHint";
 import { useRunsStore } from "@/state/runsStore";
 import { cx, PanelTitle, StatusPill, surface } from "@/features/review/components/primitives";
+import { StepHeading } from "@/components/workspace/ToolUI";
 import { architecturePreview, DEFAULT_ARCHITECTURE } from "@/features/trainer/architecture";
 import {
   DEFAULT_OPTIONS,
@@ -47,10 +48,9 @@ import { fracLabel } from "@/features/review/lib/format";
 import { TIMESPAN_PRESETS } from "@/components/generator/timespanPresets";
 
 const fieldClass =
-  "w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] placeholder-[#F5F5F5]/40 focus:border-white/30 focus:ring-1 focus:ring-white/50";
+  "w-full rounded-lg border border-white/12 bg-[#0a0a0a]/70 h-10 px-3 text-[13px] text-[#F5F5F5] placeholder-[#F5F5F5]/40 focus:border-white/30 focus:ring-1 focus:ring-white/50";
 const smallField =
   "mt-1 w-full rounded-lg border border-white/12 bg-[#0a0a0a]/70 px-3 py-2 text-[13.5px] text-[#F5F5F5] placeholder-[#F5F5F5]/35 focus:border-white/30 focus:ring-1 focus:ring-white/50";
-const labelClass = "mb-2 block text-sm text-[#F5F5F5]/62";
 const smallLabel = "text-[12.5px] text-[#F5F5F5]/50";
 const hint = "mt-1.5 text-[12.5px] leading-relaxed text-white/45";
 
@@ -1174,12 +1174,12 @@ export default function Trainer() {
       ) : null}
 
       <div data-tour="train-dataset" data-help="train-dataset">
-        <label className={labelClass}>
-          Training dataset <span className="text-[#e5e5e5]">*</span>
-        </label>
-        <p className="mb-3 text-[13px] leading-relaxed text-[#F5F5F5]/52">
-          A Convolve chart-generator dataset is selected by default. Upload an external ZIP only if you are not using one from Convolve.
-        </p>
+        <StepHeading
+          step={1}
+          title="Training dataset"
+          status={trainingDataset ? "done" : "todo"}
+          description="A Convolve chart-generator dataset is selected by default. Upload an external ZIP only if you are not using one from Convolve."
+        />
 
         {ingestingGenZip && !manualUploadedDataset ? (
           <div className="mb-3 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-3 text-sm text-white/70">
@@ -1405,11 +1405,19 @@ export default function Trainer() {
         ) : null}
       </div>
 
+      <div className="border-t border-white/[0.07] pt-5">
+        <StepHeading
+          step={2}
+          title="Model"
+          status={config.model_name ? "done" : "todo"}
+          description="Name the saved model and choose the network it trains."
+        />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <div>
-        <label className={labelClass}>
+        <label className={smallLabel}>
           Model name <span className="text-[#e5e5e5]">*</span>
         </label>
-        <div className="relative">
+        <div className="relative mt-1">
           <input
             type="text"
             value={config.model_name.replace(/\.keras$/i, "")}
@@ -1426,6 +1434,61 @@ export default function Trainer() {
         </div>
       </div>
 
+            <div data-help="train-architecture">
+              <label className={smallLabel}>Network</label>
+              <select
+                value={config.architecture}
+                onChange={(e) => {
+                  const next = catalog?.architectures.find((a) => a.id === e.target.value);
+                  setConfig({ ...config, architecture: e.target.value });
+                  if (!next?.supports_transfer && opts.transfer.mode !== "scratch") patchOpts({ transfer: { ...opts.transfer, mode: "scratch" } });
+                }}
+                className={`mt-1 ${fieldClass} text-sm`}
+              >
+                {(catalog?.architectures.filter((a) => a.listed !== false || a.id === config.architecture) ?? [{ id: DEFAULT_ARCHITECTURE, label: "Original (v1)" }]).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
+                    {"default" in a && a.default ? " · default" : ""}
+                  </option>
+                ))}
+              </select>
+              <p className={hint}>
+                {selectedArch?.description ?? "The original Convolve CNN."}
+                {selectedArch?.status_note ? ` ${selectedArch.status_note}` : ""}
+                {config.architecture !== DEFAULT_ARCHITECTURE
+                  ? " Saved under its own identifier; existing models and bots are unaffected."
+                  : ""}
+              </p>
+            </div>
+
+        </div>
+            {catalog?.accelerators.includes("gpu") ? (
+              <div data-help="train-accelerator">
+                <span className={smallLabel}>Hardware</span>
+                <div className="mt-1.5 flex gap-2">
+                  {(["cpu", "gpu"] as const).map((acc) => (
+                    <button
+                      key={acc}
+                      type="button"
+                      onClick={() => setConfig({ ...config, accelerator: acc })}
+                      className={cx(
+                        "rounded-lg border px-3 py-1.5 text-[13px]",
+                        config.accelerator === acc ? "border-white/40 text-white" : "border-white/10 text-white/55",
+                      )}
+                    >
+                      {acc === "cpu" ? "CPU (standard)" : "GPU"}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[12.5px] text-white/45">
+                  Same network and float32 arithmetic on either; GPU results can differ from CPU in the last decimal places.
+                </p>
+              </div>
+            ) : null}
+      </div>
+
+      <div className="space-y-4 border-t border-white/[0.07] pt-5">
+        <StepHeading step={3} title="Training setup" description="Image size, batch, epochs and how validation images are held out." className="mb-0" />
       <div data-tour="train-config" data-help="train-standard">
         <label className="flex cursor-pointer items-center gap-3">
           <input
@@ -1466,37 +1529,9 @@ export default function Trainer() {
         </div>
       )}
 
-      <div className="space-y-5">
-            <div data-help="train-architecture">
-              <label className={smallLabel}>Network</label>
-              <select
-                value={config.architecture}
-                onChange={(e) => {
-                  const next = catalog?.architectures.find((a) => a.id === e.target.value);
-                  setConfig({ ...config, architecture: e.target.value });
-                  if (!next?.supports_transfer && opts.transfer.mode !== "scratch") patchOpts({ transfer: { ...opts.transfer, mode: "scratch" } });
-                }}
-                className={`mt-1 ${fieldClass} text-sm`}
-              >
-                {(catalog?.architectures.filter((a) => a.listed !== false || a.id === config.architecture) ?? [{ id: DEFAULT_ARCHITECTURE, label: "Original (v1)" }]).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
-                    {"default" in a && a.default ? " · default" : ""}
-                  </option>
-                ))}
-              </select>
-              <p className={hint}>
-                {selectedArch?.description ?? "The original Convolve CNN."}
-                {selectedArch?.status_note ? ` ${selectedArch.status_note}` : ""}
-                {config.architecture !== DEFAULT_ARCHITECTURE
-                  ? " Saved under its own identifier; existing models and bots are unaffected."
-                  : ""}
-              </p>
-            </div>
-
             <div data-help="train-validation-method">
               <span className={smallLabel}>Validation images</span>
-              <div className="mt-1.5 space-y-2">
+              <div className="mt-1.5 grid gap-2 xl:grid-cols-2">
                 {(
                   [
                     [
@@ -1531,33 +1566,12 @@ export default function Trainer() {
               </p>
             </div>
 
-            {catalog?.accelerators.includes("gpu") ? (
-              <div data-help="train-accelerator">
-                <span className={smallLabel}>Hardware</span>
-                <div className="mt-1.5 flex gap-2">
-                  {(["cpu", "gpu"] as const).map((acc) => (
-                    <button
-                      key={acc}
-                      type="button"
-                      onClick={() => setConfig({ ...config, accelerator: acc })}
-                      className={cx(
-                        "rounded-lg border px-3 py-1.5 text-[13px]",
-                        config.accelerator === acc ? "border-white/40 text-white" : "border-white/10 text-white/55",
-                      )}
-                    >
-                      {acc === "cpu" ? "CPU (standard)" : "GPU"}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-1.5 text-[12.5px] text-white/45">
-                  Same network and float32 arithmetic on either; GPU results can differ from CPU in the last decimal places.
-                </p>
-              </div>
-            ) : null}
-      </div>
 
       {AdvancedPanel}
+      </div>
 
+      <div className="space-y-4 border-t border-white/[0.07] pt-5">
+        <StepHeading step={4} title="Review and train" description="Check the plan, then start. Training continues on the server if you leave this page." className="mb-0" />
       {error && (
         <div className="rounded-xl border border-red-400/25 bg-red-400/[0.06] px-4 py-3 text-[13.5px] text-red-100/90" role="alert">
           {error}
@@ -1567,6 +1581,7 @@ export default function Trainer() {
       {reviewing ? <div ref={reviewRef}>{ReviewPanel}</div> : null}
 
       {ActionBar}
+      </div>
     </div>
   );
 

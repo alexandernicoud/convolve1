@@ -21,11 +21,11 @@
     { "source": "/dashboard/:path*", "destination": "/index.html" },
     { "source": "/account", "destination": "/index.html" },
     { "source": "/auth/:path*", "destination": "/index.html" },
-    { "source": "/(login|forgot-password|reset-password|credits|docs|vision|home2|home3|about2|products2|founder|pricing|datenschutz|impressum)", "destination": "/index.html" }
+    { "source": "/(login|forgot-password|reset-password|credits|docs|vision|home2|home3|homepage-v2|about2|products2|founder|pricing|datenschutz|impressum)", "destination": "/index.html" }
   ],
   "headers": [
     {
-      "source": "/(dashboard|account|tools|auth|login|forgot-password|reset-password|credits|docs|vision|home3|seo)(/.*)?",
+      "source": "/(dashboard|account|tools|auth|login|forgot-password|reset-password|credits|docs|vision|home3|homepage-v2|seo)(/.*)?",
       "headers": [{ "key": "X-Robots-Tag", "value": "noindex" }]
     },
     {

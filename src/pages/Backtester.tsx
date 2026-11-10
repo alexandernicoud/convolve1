@@ -35,9 +35,10 @@ import ModelUploader from "@/components/ModelUploader";
 import DatasetUploader from "@/components/DatasetUploader";
 import TestDataGeneratorModal from "@/components/TestDataGeneratorModal";
 import RecentRunsBlock from "@/components/RecentRunsBlock";
-import FieldTip from "@/components/generator/FieldTip";
 import StepSection from "@/components/generator/StepSection";
+import { CheckList, Field, FieldGroup, Note, Segmented, StepGrid, ToolIntro, toolUI, type CheckItem } from "@/components/workspace/ToolUI";
 import { datasetListLabel } from "@/features/review/lib/naming";
+import { modelTestCompatibility } from "@/features/backtest/compatibility";
 
 type SourceMode = "library" | "upload";
 
@@ -226,9 +227,7 @@ export default function Backtester() {
   const [datasetCaps, setDatasetCaps] = useState<BacktestDatasetCapabilities | null>(null);
   const [datasetCapsError, setDatasetCapsError] = useState<string | null>(null);
 
-  const fieldClass =
-    "w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-white placeholder:text-white/35 focus:border-white/30 focus:outline-none focus:ring-1 focus:ring-white/50";
-  const labelClass = "mb-2 flex items-center text-sm font-medium text-[#F5F5F5]/75";
+  const fieldClass = toolUI.field;
 
   const trainerRunsFromActivity = useMemo(
     () =>
@@ -945,65 +944,168 @@ export default function Backtester() {
     ? `${selectedInternalModel.kind}:${selectedInternalModel.model_id}`
     : "";
 
+  const pickedDataset = datasets.find((d) => d.dataset_id === pickedDatasetId);
+  const activeDatasetName =
+    pickedDataset?.display_name || pickedDataset?.name || testDataResult?.dataset_name || uploadedDataset?.dataset_id || "";
+  const activeModelName = selectedInternalModel
+    ? selectedInternalModel.display_name || selectedInternalModel.name || selectedInternalModel.model_id
+    : uploadedModel
+      ? uploadedModel.original_filename || uploadedModel.model_id
+      : "";
+  const testDataBusy = Boolean(testDataRunId && !testDataResult && !testDataError);
+  const pct = (n: number) => `${Number(n.toFixed(3))}%`;
+
+  const readiness: CheckItem[] = [
+    {
+      label: "Model",
+      state: hasModel ? (metadataError ? "warn" : "ok") : "pending",
+      value: hasModel ? activeModelName : "Not selected",
+      detail: hasModel
+        ? metadataLoading
+          ? "Loading training metadata…"
+          : metadataError
+            ? metadataError
+            : modelMetadata
+              ? "Training metadata linked"
+              : undefined
+        : undefined,
+    },
+    {
+      label: "Test data",
+      state: !hasDataset ? "pending" : pickedDataset?.kind === "training" ? "warn" : "ok",
+      value: hasDataset
+        ? `${activeDatasetName}${uploadedDataset?.summary.total_images ? ` · ${uploadedDataset.summary.total_images} images` : ""}`
+        : "Not selected",
+      detail:
+        pickedDataset?.kind === "training"
+          ? "Training dataset: not an independent test if the model was trained on it."
+          : undefined,
+    },
+    {
+      label: "Compatibility",
+      ...modelTestCompatibility({
+        modelDatasetId: selectedInternalModel?.dataset_id,
+        modelSymbols: selectedInternalModel?.symbols,
+        modelTimeframe: selectedInternalModel?.timeframe,
+        testDatasetId: hasDataset ? uploadedDataset?.dataset_id : null,
+        testSymbols: pickedDataset?.symbols,
+        testTimeframe: pickedDataset?.timeframe,
+      }),
+    },
+    {
+      label: "Engine",
+      state: !datasetIdForCaps
+        ? "pending"
+        : datasetCapsError
+          ? "warn"
+          : !datasetCaps
+            ? "pending"
+            : marketDataMissing.length > 0
+              ? "bad"
+              : isV2
+                ? "ok"
+                : "warn",
+      value: !datasetIdForCaps
+        ? "Checked after test data"
+        : datasetCapsError
+          ? "Decided by the server at start"
+          : !datasetCaps
+            ? "Checking dataset…"
+            : marketDataMissing.length > 0
+              ? "Cannot be backtested"
+              : isV2
+                ? "Price-based simulation (v2)"
+                : "Legacy label-payoff estimate",
+      detail:
+        datasetCaps && marketDataMissing.length > 0
+          ? datasetCaps.reason
+          : datasetCaps && !isV2
+            ? "Not a price-based trading simulation."
+            : undefined,
+    },
+    {
+      label: "Threshold",
+      state: isV2 ? (config.thresholdMode === "validation" ? "ok" : "warn") : "info",
+      value: isV2
+        ? config.thresholdMode === "validation"
+          ? "Selected on validation data"
+          : `Fixed ${config.confidenceThreshold} (exploratory)`
+        : `Fixed ${config.confidenceThreshold}`,
+      detail: isV2 && config.thresholdMode === "validation" ? "Locked before the test set is scored." : undefined,
+    },
+    {
+      label: "Exits",
+      state: "info",
+      value: isV2
+        ? labelDef?.tp_frac != null && labelDef?.sl_frac != null
+          ? `TP ${pct(labelDef.tp_frac * 100)} · SL ${pct(labelDef.sl_frac * 100)} (from dataset)`
+          : "From the dataset's label definition"
+        : `TP ${pct(config.tpPct)} · SL ${pct(config.slPct)}`,
+    },
+    {
+      label: "Costs",
+      state: config.commissionPct + config.slippagePct > 0 ? "ok" : "warn",
+      value: `${pct(config.commissionPct)} commission · ${pct(config.slippagePct)} slippage`,
+      detail: config.commissionPct + config.slippagePct > 0 ? undefined : "No trading costs: results will look better than live trading.",
+    },
+    {
+      label: "Capital",
+      state: "info",
+      value: `${config.startingCapital.toLocaleString()} · ${pct(config.positionSizePct)} per trade · stop at ${pct(config.maxDrawdownPct)} drawdown`,
+    },
+  ];
+
+  const missingReason = !hasModel
+    ? sourceMode === "library"
+      ? "Pick a library model in step 1."
+      : "Upload a .keras model in step 1."
+    : !hasDataset
+      ? sourceMode === "library"
+        ? "Generate or pick a test dataset in step 2."
+        : "Upload a test dataset ZIP in step 2."
+      : marketDataMissing.length > 0
+        ? "This test dataset cannot be backtested."
+        : null;
+
   return (
     <div className="relative pb-8 text-white">
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
             {showTestDataBanner ? (
-              <div className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/65">
-                {testDataBannerMessage}
-              </div>
+              <Note>{testDataBannerMessage}</Note>
             ) : null}
 
-            <div className="space-y-3" data-tour="bt-source" data-help="bt-source">
-              <p className="text-sm text-white/65">
-                Choose <span className="font-medium text-white">one</span> way to supply the model and test
-                charts — library (pick + generate) or local upload. The other path is cleared when you switch.
-              </p>
-              <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/12 bg-white/[0.03] p-1.5">
-                <button
-                  type="button"
-                  onClick={() => switchSourceMode("library")}
-                  className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
-                    sourceMode === "library"
-           ? "accent-btn convolve-press "
-                      : "text-white/60 hover:bg-white/[0.06] hover:text-white/85"
-                  }`}
-                >
-                  From library
-                </button>
-                <button
-                  type="button"
-                  onClick={() => switchSourceMode("upload")}
-                  className={`rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
-                    sourceMode === "upload"
-           ? "accent-btn convolve-press "
-                      : "text-white/60 hover:bg-white/[0.06] hover:text-white/85"
-                  }`}
-                >
-                  Upload files
-                </button>
-              </div>
-              <p className="text-xs text-white/45">
+            <div data-tour="bt-source" data-help="bt-source">
+              <ToolIntro
+                actions={
+                  <Segmented<SourceMode>
+                    ariaLabel="Model and test data source"
+                    value={sourceMode}
+                    onChange={switchSourceMode}
+                    options={[
+                      { value: "library", label: "From library" },
+                      { value: "upload", label: "Upload files" },
+                    ]}
+                  />
+                }
+              >
                 {sourceMode === "library"
-                  ? "Pick a trained / saved model, then generate a fitting test set (or choose an existing test folder). No re-upload needed."
-                  : "Upload a .keras model and a labeled chart ZIP from your computer."}
-              </p>
+                  ? "Pick a trained model from your workspace, then generate a fitting test set or choose an existing one. Switching to upload clears this path."
+                  : "Upload a .keras model and a labelled chart ZIP from your computer. Switching to the library clears this path."}
+              </ToolIntro>
             </div>
 
+            <StepGrid>
             {sourceMode === "library" ? (
               <>
                 <StepSection
                   step={1}
-                  title="Pick model from library"
-                  description="Select a workspace model or a completed trainer run. The file on disk is used directly — do not re-upload."
+                  title="Model"
+                  status={hasModel ? "done" : "todo"}
+                  description="A workspace model or a completed trainer run. The file on disk is used directly."
                 >
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {internalModels.length > 0 ? (
-                      <div>
-                        <label className={labelClass}>
-                          Workspace models
-                          <FieldTip text="Models already on this server from training or earlier uploads." />
-                        </label>
+                      <Field label="Workspace models" tip="Models already on this server from training or earlier uploads.">
                         <select
                           value={modelSelectValue}
                           onChange={(e) => handleInternalModelSelected(e.target.value)}
@@ -1020,43 +1122,44 @@ export default function Backtester() {
                             </option>
                           ))}
                         </select>
-                      </div>
+                      </Field>
                     ) : null}
 
                     {trainerRunsFromActivity.length > 0 ? (
-                      <div>
-                        <label className={labelClass}>
-                          From activity (trainer runs)
-                          <FieldTip text="Completed trainer runs from your run history." />
-                        </label>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                          <select
-                            value={activityTrainerRunId}
-                            onChange={(e) => handleActivityTrainerPicked(e.target.value)}
-                            className={`${fieldClass} min-w-0 flex-1`}
-                          >
-                            <option value="">Select a completed trainer run…</option>
-                            {trainerRunsFromActivity.map((r) => (
-                              <option key={r.id} value={r.id}>
-                                {runLabel(r, modelNamesByRun)} · {formatRunStamp(r.updated_at)}
-                              </option>
-                            ))}
-                          </select>
-                          <Link
-                            to="/tools/run-log"
-                            className="shrink-0 text-xs text-sky-300/90 underline-offset-2 hover:text-sky-200 hover:underline"
-                          >
-                            Open run log
-                          </Link>
-                        </div>
-                      </div>
+                      <Field
+                        label={
+                          <>
+                            Or a trainer run
+                            <Link
+                              to="/tools/run-log"
+                              className="ml-auto text-[11px] font-normal text-white/45 underline-offset-2 hover:text-white/80 hover:underline"
+                            >
+                              Open run log
+                            </Link>
+                          </>
+                        }
+                      >
+                        <select
+                          value={activityTrainerRunId}
+                          onChange={(e) => handleActivityTrainerPicked(e.target.value)}
+                          className={fieldClass}
+                          aria-label="Completed trainer run"
+                        >
+                          <option value="">Select a completed trainer run…</option>
+                          {trainerRunsFromActivity.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {runLabel(r, modelNamesByRun)} · {formatRunStamp(r.updated_at)}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
                     ) : (
-                      <p className="text-xs text-white/45">
+                      <p className={toolUI.hint}>
                         No trainer runs in activity yet.{" "}
                         <button
                           type="button"
                           onClick={() => switchSourceMode("upload")}
-                          className="text-sky-300/90 underline-offset-2 hover:underline"
+                          className="text-white/80 underline underline-offset-2 hover:text-white"
                         >
                           Switch to Upload
                         </button>{" "}
@@ -1065,30 +1168,21 @@ export default function Backtester() {
                     )}
 
                     {selectedInternalModel ? (
-                      <div className="rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100/90">
+                      <Note tone="ok">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="font-medium text-emerald-50">
-                              Ready ·{" "}
-                              {selectedInternalModel.display_name ||
-                                selectedInternalModel.name ||
-                                selectedInternalModel.model_id}
-                            </p>
-                            <p className="mt-0.5 text-emerald-100/70">
+                            <p className="truncate font-medium text-emerald-50">Ready · {activeModelName}</p>
+                            <p className="text-[12px] text-emerald-100/70">
                               {selectedInternalModel.kind === "trained"
-                                ? "Will run from the trainer artifact (no .keras upload)."
-                                : "Will run from the saved upload on this server."}
-                              {selectedInternalModel.symbols
-                                ? ` · ${selectedInternalModel.symbols}`
-                                : ""}
-                              {selectedInternalModel.timeframe
-                                ? ` · ${selectedInternalModel.timeframe}`
-                                : ""}
+                                ? "Runs from the trainer artifact (no .keras upload)."
+                                : "Runs from the saved upload on this server."}
+                              {selectedInternalModel.symbols ? ` · ${selectedInternalModel.symbols}` : ""}
+                              {selectedInternalModel.timeframe ? ` · ${selectedInternalModel.timeframe}` : ""}
                             </p>
                             {metadataLoading ? (
-                              <p className="mt-1 text-emerald-100/55">Loading training metadata…</p>
+                              <p className="text-[12px] text-emerald-100/55">Loading training metadata…</p>
                             ) : modelMetadata ? (
-                              <p className="mt-1 text-emerald-100/55">
+                              <p className="text-[12px] text-emerald-100/55">
                                 Metadata linked
                                 {modelMetadata.takeProfitFraction != null
                                   ? ` · TP ${(modelMetadata.takeProfitFraction * 100).toFixed(2)}%`
@@ -1096,12 +1190,10 @@ export default function Backtester() {
                                 {modelMetadata.stopLossFraction != null
                                   ? ` · SL ${(modelMetadata.stopLossFraction * 100).toFixed(2)}%`
                                   : ""}
-                                {modelMetadata.imageDimension != null
-                                  ? ` · ${modelMetadata.imageDimension}px`
-                                  : ""}
+                                {modelMetadata.imageDimension != null ? ` · ${modelMetadata.imageDimension}px` : ""}
                               </p>
                             ) : metadataError ? (
-                              <p className="mt-1 text-amber-200/80">{metadataError}</p>
+                              <p className="text-[12px] text-amber-200/80">{metadataError}</p>
                             ) : null}
                           </div>
                           <button
@@ -1110,46 +1202,38 @@ export default function Backtester() {
                               selectInternalModel(null);
                               setActivityTrainerRunId("");
                             }}
-                            className="shrink-0 text-emerald-100/60 underline-offset-2 hover:text-emerald-50 hover:underline"
+                            className="shrink-0 text-[12px] text-emerald-100/60 underline-offset-2 hover:text-emerald-50 hover:underline"
                           >
                             Clear
                           </button>
                         </div>
-                      </div>
+                      </Note>
                     ) : null}
                   </div>
                 </StepSection>
 
                 <StepSection
                   step={2}
-                  title="Test dataset for this model"
-                  description="Generate a fitting out-of-sample set from the model's training metadata, or pick an existing test folder."
+                  title="Test data"
+                  status={hasDataset ? "done" : "todo"}
+                  description="Out-of-sample charts the model has not seen: generate a fitting set or pick an existing one."
                 >
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <button
                       type="button"
                       onClick={() => setIsTestDataModalOpen(true)}
-                      disabled={!selectedInternalModel || Boolean(testDataRunId && !testDataResult && !testDataError)}
-                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-300/15 disabled:opacity-45"
+                      disabled={!selectedInternalModel || testDataBusy}
+                      className={`${toolUI.secondaryBtn} h-10 w-full`}
                     >
-                      {testDataRunId && !testDataResult && !testDataError ? (
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                      ) : (
-                        <Zap className="h-4 w-4" aria-hidden />
-                      )}
-                      {!selectedInternalModel
-                        ? "Pick a model first"
-                        : testDataRunId && !testDataResult && !testDataError
-                          ? "Generating…"
-                          : "Generate fitting test set"}
+                      {testDataBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Zap className="h-4 w-4" aria-hidden />}
+                      {!selectedInternalModel ? "Pick a model first" : testDataBusy ? "Generating…" : "Generate fitting test set"}
                     </button>
 
                     {datasets.length > 0 ? (
-                      <div>
-                        <label className={labelClass}>
-                          Or pick an existing folder
-                          <FieldTip text="Test sets are generated for backtesting. Training datasets are listed separately: a model scored on data it was trained on is not an independent test." />
-                        </label>
+                      <Field
+                        label="Or pick an existing folder"
+                        tip="Test sets are generated for backtesting. Training datasets are listed separately: a model scored on data it was trained on is not an independent test."
+                      >
                         <div className="flex items-center gap-2">
                           <select
                             value={pickedDatasetId}
@@ -1180,26 +1264,23 @@ export default function Backtester() {
                             type="button"
                             onClick={() => void loadDatasets()}
                             title="Refresh folder list"
-                            className="shrink-0 rounded-lg border border-white/12 bg-white/[0.04] p-2.5 text-white/60 transition hover:bg-white/[0.08]"
+                            aria-label="Refresh folder list"
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/12 bg-white/[0.04] text-white/60 transition hover:bg-white/[0.08]"
                           >
                             <RefreshCw className="h-4 w-4" aria-hidden />
                           </button>
                         </div>
-                        {datasets.find((d) => d.dataset_id === pickedDatasetId)?.kind === "training" ? (
-                          <p className="mt-2 text-xs leading-relaxed text-amber-200/80">
+                        {pickedDataset?.kind === "training" ? (
+                          <p className="mt-2 text-[12px] leading-relaxed text-amber-200/80">
                             This is a training dataset. If the model was trained on it, results will look better than on new data and the backtest will not
                             count as an independent test. Prefer a generated test set from a later period.
                           </p>
                         ) : null}
-                      </div>
+                      </Field>
                     ) : null}
 
                     {testdataRunsFromActivity.length > 0 ? (
-                      <div>
-                        <label className={labelClass}>
-                          From activity (test data runs)
-                          <FieldTip text="Completed test-dataset generator runs." />
-                        </label>
+                      <Field label="Or a test-data run" tip="Completed test-dataset generator runs.">
                         <select
                           value={activityTestdataRunId}
                           onChange={(e) => void handleActivityTestdataPicked(e.target.value)}
@@ -1212,20 +1293,14 @@ export default function Backtester() {
                             </option>
                           ))}
                         </select>
-                      </div>
+                      </Field>
                     ) : null}
 
                     {pickedDatasetId && uploadedDataset ? (
-                      <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs">
+                      <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-[12px]">
                         <span className="truncate text-white/85">
-                          Active:{" "}
-                          {datasets.find((d) => d.dataset_id === pickedDatasetId)?.display_name ||
-                            datasets.find((d) => d.dataset_id === pickedDatasetId)?.name ||
-                            testDataResult?.dataset_name ||
-                            pickedDatasetId}
-                          {uploadedDataset.summary.total_images
-                            ? ` · ${uploadedDataset.summary.total_images} imgs`
-                            : ""}
+                          Active: {activeDatasetName}
+                          {uploadedDataset.summary.total_images ? ` · ${uploadedDataset.summary.total_images} imgs` : ""}
                         </span>
                         <button
                           type="button"
@@ -1238,28 +1313,18 @@ export default function Backtester() {
                     ) : null}
 
                     {(testDataRunId || testDataResult || testDataError) && (
-                      <div className="space-y-3 rounded-xl border border-white/12 bg-[#0a0a0a]/50 p-3">
-                        {testDataError ? (
-                          <div className="rounded-lg border border-red-400/25 bg-red-400/10 px-3 py-2 text-sm text-red-200">
-                            {testDataError}
-                          </div>
-                        ) : null}
-                        {testDataRunId && !testDataResult && !testDataError ? (
+                      <div className={`space-y-3 p-3 ${toolUI.inset}`}>
+                        {testDataError ? <Note tone="bad">{testDataError}</Note> : null}
+                        {testDataBusy ? (
                           <div className="space-y-2">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="text-white/75">
-                                {testDataStatus?.message || "Generating test charts…"}
-                              </span>
-                              <span className="tabular-nums text-white/45">
-                                {Math.round(testDataShown * 100)}%
-                              </span>
+                            <div className="flex items-center justify-between text-[12.5px]">
+                              <span className="text-white/75">{testDataStatus?.message || "Generating test charts…"}</span>
+                              <span className="tabular-nums text-white/45">{Math.round(testDataShown * 100)}%</span>
                             </div>
-                            <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
                               <div
                                 className="h-full rounded-full bg-white transition-[width] duration-300 ease-out"
-                                style={{
-                                  width: `${Math.min(100, Math.max(3, testDataShown * 100))}%`,
-                                }}
+                                style={{ width: `${Math.min(100, Math.max(3, testDataShown * 100))}%` }}
                               />
                             </div>
                           </div>
@@ -1268,10 +1333,8 @@ export default function Backtester() {
                           <div className="flex items-start gap-2">
                             <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-white">
-                                {testDataResult.dataset_name || "Test dataset"} attached
-                              </p>
-                              <p className="text-xs text-white/55">
+                              <p className="text-[13px] font-medium text-white">{testDataResult.dataset_name || "Test dataset"} attached</p>
+                              <p className="text-[12px] text-white/55">
                                 {testDataResult.summary.total_images} images
                                 {testDataResult.summary.start_date && testDataResult.summary.end_date
                                   ? ` · ${testDataResult.summary.start_date} → ${testDataResult.summary.end_date}`
@@ -1289,7 +1352,8 @@ export default function Backtester() {
               <>
                 <StepSection
                   step={1}
-                  title="Upload model"
+                  title="Model"
+                  status={hasModel ? "done" : "todo"}
                   description="Drop a local .keras file. This replaces any library model selection."
                 >
                   <ModelUploader
@@ -1302,8 +1366,9 @@ export default function Backtester() {
 
                 <StepSection
                   step={2}
-                  title="Upload test dataset"
-                  description="ZIP of labeled chart images (folders for labels 0 / 1)."
+                  title="Test data"
+                  status={hasDataset ? "done" : "todo"}
+                  description="ZIP of labelled chart images (folders for labels 0 / 1)."
                 >
                   <DatasetUploader
                     compact
@@ -1314,433 +1379,349 @@ export default function Backtester() {
                 </StepSection>
               </>
             )}
+            </StepGrid>
 
             <StepSection
               step={3}
-              title="Backtest settings"
-              description="Signal thresholds, TP/SL, capital, and risk controls for the simulated run."
+              title="Strategy"
+              description="How signals become simulated trades: threshold, exits, capital, risk and costs."
+              aside={
+                <button
+                  type="button"
+                  onClick={() => (showParamsSourcePicker ? setShowParamsSourcePicker(false) : openTrainingParamsPicker())}
+                  title="Copy TP / SL / image size from any model's training metadata, including when you uploaded files and need to look up the matching trained model."
+                  className={toolUI.secondaryBtn}
+                >
+                  Use same parameters as for training
+                </button>
+              }
             >
-              <div className="mb-5 space-y-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-white/50">
-                    Copy TP / SL / image size from any model&apos;s training metadata — including when you
-                    uploaded files and need to look up the matching trained model.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      showParamsSourcePicker
-                        ? setShowParamsSourcePicker(false)
-                        : openTrainingParamsPicker()
-                    }
-                    className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15"
-                  >
-                    Use same parameters as for training
-                  </button>
-                </div>
-
+              <div className="space-y-5">
                 {paramsSourceLabel && !showParamsSourcePicker ? (
-                  <p className="text-xs text-emerald-200/80">
+                  <p className="text-[12px] text-emerald-200/80">
                     Settings copied from <span className="font-medium text-emerald-100">{paramsSourceLabel}</span>
                     {" · "}
-                    <button
-                      type="button"
-                      onClick={openTrainingParamsPicker}
-                      className="underline-offset-2 hover:underline"
-                    >
+                    <button type="button" onClick={openTrainingParamsPicker} className="underline-offset-2 hover:underline">
                       Change
                     </button>
                   </p>
                 ) : null}
 
                 {showParamsSourcePicker ? (
-                  <div className="space-y-3 rounded-xl border border-white/12 bg-white/[0.03] p-3 sm:p-4">
-                    <p className="text-sm font-medium text-white">Find the training model</p>
-                    <p className="text-xs text-white/50">
-                      This only fills settings — it does not replace your uploaded / selected backtest model.
-                    </p>
+                  <div className={`space-y-3 p-3.5 ${toolUI.inset}`}>
                     <div>
-                      <label className={labelClass}>
-                        Reference model
-                        <FieldTip text="Pick the trained or saved model whose TP, SL, and image size should be copied into the fields below." />
-                      </label>
-                      <select
-                        value={paramsSourceKey}
-                        onChange={(e) => {
-                          setParamsSourceKey(e.target.value);
-                          setParamsSourceError(null);
-                        }}
-                        className={fieldClass}
-                      >
-                        <option value="">Select a model with training metadata…</option>
-                        {uploadedModel ? (
-                          <option value="active-uploaded">
-                            Your upload · {uploadedModel.original_filename || uploadedModel.model_id}
-                          </option>
-                        ) : null}
-                        {sourceMode === "library" && selectedInternalModel ? (
-                          <option value="active-library">
-                            Active library model ·{" "}
-                            {selectedInternalModel.display_name ||
-                              selectedInternalModel.name ||
-                              selectedInternalModel.model_id}
-                          </option>
-                        ) : null}
-                        {internalModels.length > 0 ? (
-                          <optgroup label="Workspace models">
-                            {internalModels.map((m) => (
-                              <option
-                                key={`params-${m.kind}:${m.model_id}`}
-                                value={
-                                  m.kind === "trained"
-                                    ? `trainer:${m.training_run_id || m.model_id}`
-                                    : `uploaded:${m.model_id}`
-                                }
-                              >
-                                {m.kind === "trained" ? "Trained" : "Uploaded"} ·{" "}
-                                {m.display_name || m.name || m.model_id}
-                                {m.symbols ? ` · ${m.symbols}` : ""}
-                                {m.timeframe ? ` · ${m.timeframe}` : ""}
-                                {lifecycleSuffix(m)}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ) : null}
-                        {trainerRunsFromActivity.length > 0 ? (
-                          <optgroup label="Trainer runs (activity)">
-                            {trainerRunsFromActivity.map((r) => (
-                              <option key={`params-trainer-${r.id}`} value={`trainer:${r.id}`}>
-                                {runLabel(r, modelNamesByRun)} · {formatRunStamp(r.updated_at)}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ) : null}
-                      </select>
+                      <p className="text-[13px] font-medium text-white">Find the training model</p>
+                      <p className={toolUI.hint}>This only fills settings — it does not replace your uploaded / selected backtest model.</p>
                     </div>
-                    {paramsSourceError ? (
-                      <p className="text-xs text-rose-200">{paramsSourceError}</p>
-                    ) : null}
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void applyTrainingParamsFromPicker()}
-                        disabled={applyingTrainingParams || !paramsSourceKey}
-                        className="inline-flex items-center justify-center gap-1.5 rounded-lg accent-btn convolve-press px-3 py-2 text-xs font-semibold  transition hover:bg-white/90 disabled:opacity-45"
+                    <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
+                      <Field
+                        className="flex-1"
+                        label="Reference model"
+                        tip="Pick the trained or saved model whose TP, SL, and image size should be copied into the fields below."
                       >
-                        {applyingTrainingParams ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : null}
-                        Apply settings
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowParamsSourcePicker(false);
-                          setParamsSourceError(null);
-                        }}
-                        className="rounded-lg border border-white/15 px-3 py-2 text-xs font-medium text-white/70 transition hover:bg-white/[0.06]"
-                      >
-                        Cancel
-                      </button>
+                        <select
+                          value={paramsSourceKey}
+                          onChange={(e) => {
+                            setParamsSourceKey(e.target.value);
+                            setParamsSourceError(null);
+                          }}
+                          className={fieldClass}
+                        >
+                          <option value="">Select a model with training metadata…</option>
+                          {uploadedModel ? (
+                            <option value="active-uploaded">
+                              Your upload · {uploadedModel.original_filename || uploadedModel.model_id}
+                            </option>
+                          ) : null}
+                          {sourceMode === "library" && selectedInternalModel ? (
+                            <option value="active-library">Active library model · {activeModelName}</option>
+                          ) : null}
+                          {internalModels.length > 0 ? (
+                            <optgroup label="Workspace models">
+                              {internalModels.map((m) => (
+                                <option
+                                  key={`params-${m.kind}:${m.model_id}`}
+                                  value={m.kind === "trained" ? `trainer:${m.training_run_id || m.model_id}` : `uploaded:${m.model_id}`}
+                                >
+                                  {m.kind === "trained" ? "Trained" : "Uploaded"} · {m.display_name || m.name || m.model_id}
+                                  {m.symbols ? ` · ${m.symbols}` : ""}
+                                  {m.timeframe ? ` · ${m.timeframe}` : ""}
+                                  {lifecycleSuffix(m)}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                          {trainerRunsFromActivity.length > 0 ? (
+                            <optgroup label="Trainer runs (activity)">
+                              {trainerRunsFromActivity.map((r) => (
+                                <option key={`params-trainer-${r.id}`} value={`trainer:${r.id}`}>
+                                  {runLabel(r, modelNamesByRun)} · {formatRunStamp(r.updated_at)}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ) : null}
+                        </select>
+                      </Field>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void applyTrainingParamsFromPicker()}
+                          disabled={applyingTrainingParams || !paramsSourceKey}
+                          className="accent-btn convolve-press inline-flex h-10 items-center justify-center gap-1.5 rounded-lg px-3.5 text-[12px] font-semibold transition disabled:opacity-45"
+                        >
+                          {applyingTrainingParams ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                          Apply settings
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowParamsSourcePicker(false);
+                            setParamsSourceError(null);
+                          }}
+                          className="h-10 rounded-lg border border-white/15 px-3 text-[12px] font-medium text-white/70 transition hover:bg-white/[0.06]"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
+                    {paramsSourceError ? <p className="text-[12px] text-rose-200">{paramsSourceError}</p> : null}
                   </div>
                 ) : null}
-              </div>
 
-              {datasetIdForCaps ? (
-                <div className="mb-5 rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-3 text-sm leading-relaxed">
-                  {datasetCapsError ? (
-                    <p className="text-white/60">Could not check which engine this dataset supports ({datasetCapsError}). The server will decide when the run starts.</p>
+                {datasetIdForCaps ? (
+                  datasetCapsError ? (
+                    <Note>Could not check which engine this dataset supports ({datasetCapsError}). The server will decide when the run starts.</Note>
                   ) : !datasetCaps ? (
-                    <p className="text-white/45">Checking dataset…</p>
+                    <Note>Checking dataset…</Note>
                   ) : marketDataMissing.length > 0 ? (
-                    <>
-                      <p className="font-medium text-red-200">This test dataset cannot be backtested</p>
-                      <p className="mt-1 text-white/65">{datasetCaps.reason}</p>
-                    </>
+                    <Note tone="bad" title="This test dataset cannot be backtested">
+                      {datasetCaps.reason}
+                    </Note>
                   ) : isV2 ? (
-                    <>
-                      <p className="font-medium text-white">Price-based simulation (v2)</p>
-                      <p className="mt-1 text-white/60">
-                        Entries at the next bar's open, exits on stored OHLC bars. Exits follow the dataset's label definition
-                        {labelDef ? `: take profit ${((labelDef.tp_frac ?? 0) * 100).toFixed(2)}%, stop loss ${((labelDef.sl_frac ?? 0) * 100).toFixed(2)}%, ${labelDef.horizon_bars} ${labelDef.timeframe ?? ""} bars` : ""}.
-                      </p>
-                    </>
+                    <Note title="Price-based simulation (v2)">
+                      Entries at the next bar's open, exits on stored OHLC bars. Exits follow the dataset's label definition
+                      {labelDef
+                        ? `: take profit ${((labelDef.tp_frac ?? 0) * 100).toFixed(2)}%, stop loss ${((labelDef.sl_frac ?? 0) * 100).toFixed(2)}%, ${labelDef.horizon_bars} ${labelDef.timeframe ?? ""} bars`
+                        : ""}
+                      .
+                    </Note>
                   ) : (
-                    <>
-                      <p className="font-medium text-amber-100/90">Legacy label-payoff estimate — not a price-based trading simulation.</p>
-                      <p className="mt-1 text-white/60">{datasetCaps.reason}</p>
-                    </>
-                  )}
-                </div>
-              ) : null}
-
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                <div>
-                  <label className={labelClass}>
-                    Sample size
-                    <FieldTip text="Use every chart in the test folder, or cap the sample for a faster smoke run." />
-                  </label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 text-sm text-white">
-                      <input
-                        type="radio"
-                        name="sampleSize"
-                        value="all"
-                        checked={config.sampleSize === "all"}
-                        onChange={(e) => setConfig({ ...config, sampleSize: e.target.value })}
-                        className="text-white focus:ring-white"
-                      />
-                      All
-                    </label>
-                    <label className="flex items-center gap-2 text-sm text-white">
-                      <input
-                        type="radio"
-                        name="sampleSize"
-                        value="custom"
-                        checked={typeof config.sampleSize === "number"}
-                        onChange={() => setConfig({ ...config, sampleSize: 1000 })}
-                        className="text-white focus:ring-white"
-                      />
-                      Custom
-                    </label>
-                  </div>
-                  {typeof config.sampleSize === "number" ? (
-                    <FreeNumberField
-                      value={config.sampleSize}
-                      onChange={(n) => setConfig({ ...config, sampleSize: Math.max(1, Math.round(n)) })}
-                      className={`${fieldClass} mt-2`}
-                    />
-                  ) : null}
-                </div>
-
-                {isV2 ? (
-                  <div>
-                    <label className={labelClass}>
-                      Threshold
-                      <FieldTip text="Validation: chosen on the model's recorded validation split (max F1 for label 1), then locked before the test set is scored. Fixed: the value below; the run is labelled exploratory." />
-                    </label>
-                    <select
-                      value={config.thresholdMode}
-                      onChange={(e) => setConfig({ ...config, thresholdMode: e.target.value as BacktesterConfig["thresholdMode"] })}
-                      className={fieldClass}
-                    >
-                      <option value="validation">Select on validation data (recommended)</option>
-                      <option value="fixed">Use a fixed value</option>
-                    </select>
-                  </div>
+                    <Note tone="warn" title="Legacy label-payoff estimate — not a price-based trading simulation.">
+                      {datasetCaps.reason}
+                    </Note>
+                  )
                 ) : null}
 
-                {!isV2 || config.thresholdMode === "fixed" ? (
-                  <div data-help="bt-threshold" data-tour="bt-threshold">
-                    <label className={labelClass}>
-                      Confidence threshold (0–1)
-                      <FieldTip text="Minimum model confidence required before a trade is opened." />
-                    </label>
-                    <FreeNumberField
-                      value={config.confidenceThreshold}
-                      onChange={(n) => setConfig({ ...config, confidenceThreshold: n })}
-                      className={fieldClass}
-                    />
-                  </div>
-                ) : null}
-
-                <div data-help="take-profit">
-                  <label className={labelClass}>
-                    Take profit %
-                    <FieldTip text={isV2 ? "Fixed by the dataset's label definition so trades and labels use the same exit rule." : "Exit target as a percent of entry price for each simulated trade."} />
-                  </label>
-                  {isV2 ? (
-                    <div className={`${fieldClass} text-white/55`} aria-readonly>{labelDef?.tp_frac != null ? `${(labelDef.tp_frac * 100).toFixed(2)} (from dataset)` : "From dataset"}</div>
-                  ) : (
-                    <FreeNumberField value={config.tpPct} onChange={(n) => setConfig({ ...config, tpPct: n })} className={fieldClass} />
-                  )}
-                </div>
-
-                <div data-help="stop-loss">
-                  <label className={labelClass}>
-                    Stop loss %
-                    <FieldTip text={isV2 ? "Fixed by the dataset's label definition." : "Stop distance as a percent of entry price."} />
-                  </label>
-                  {isV2 ? (
-                    <div className={`${fieldClass} text-white/55`} aria-readonly>{labelDef?.sl_frac != null ? `${(labelDef.sl_frac * 100).toFixed(2)} (from dataset)` : "From dataset"}</div>
-                  ) : (
-                    <FreeNumberField value={config.slPct} onChange={(n) => setConfig({ ...config, slPct: n })} className={fieldClass} />
-                  )}
-                </div>
-
-                {isV2 ? (
-                  <>
-                    <div>
-                      <label className={labelClass}>
-                        Max gross exposure %
-                        <FieldTip text="New entries are skipped when open positions would exceed this share of equity." />
-                      </label>
-                      <FreeNumberField value={config.maxExposurePct} onChange={(n) => setConfig({ ...config, maxExposurePct: n })} className={fieldClass} />
+                <FieldGroup title="Signal and exits" cols={3}>
+                  <Field label="Sample size" tip="Use every chart in the test folder, or cap the sample for a faster smoke run.">
+                    <div className="flex h-10 items-center gap-2">
+                      <Segmented<"all" | "custom">
+                        ariaLabel="Sample size"
+                        value={typeof config.sampleSize === "number" ? "custom" : "all"}
+                        onChange={(v) => setConfig({ ...config, sampleSize: v === "all" ? "all" : 1000 })}
+                        options={[
+                          { value: "all", label: "All" },
+                          { value: "custom", label: "Custom" },
+                        ]}
+                      />
+                      {typeof config.sampleSize === "number" ? (
+                        <FreeNumberField
+                          value={config.sampleSize}
+                          onChange={(n) => setConfig({ ...config, sampleSize: Math.max(1, Math.round(n)) })}
+                          className={`${fieldClass} min-w-0 flex-1`}
+                        />
+                      ) : null}
                     </div>
-                    <div>
-                      <label className={labelClass}>
-                        Max open positions
-                        <FieldTip text="Maximum simultaneous positions; one position per symbol at a time." />
-                      </label>
+                  </Field>
+
+                  {isV2 ? (
+                    <Field
+                      label="Threshold"
+                      tip="Validation: chosen on the model's recorded validation split (max F1 for label 1), then locked before the test set is scored. Fixed: the value below; the run is labelled exploratory."
+                    >
+                      <select
+                        value={config.thresholdMode}
+                        onChange={(e) => setConfig({ ...config, thresholdMode: e.target.value as BacktesterConfig["thresholdMode"] })}
+                        className={fieldClass}
+                      >
+                        <option value="validation">Select on validation data (recommended)</option>
+                        <option value="fixed">Use a fixed value</option>
+                      </select>
+                    </Field>
+                  ) : null}
+
+                  {!isV2 || config.thresholdMode === "fixed" ? (
+                    <Field
+                      data-help="bt-threshold"
+                      data-tour="bt-threshold"
+                      label="Confidence threshold (0–1)"
+                      tip="Minimum model confidence required before a trade is opened."
+                    >
                       <FreeNumberField
-                        value={config.maxConcurrentPositions}
-                        onChange={(n) => setConfig({ ...config, maxConcurrentPositions: Math.max(1, Math.round(n)) })}
+                        value={config.confidenceThreshold}
+                        onChange={(n) => setConfig({ ...config, confidenceThreshold: n })}
                         className={fieldClass}
                       />
-                    </div>
-                  </>
-                ) : null}
+                    </Field>
+                  ) : null}
 
-                <div>
-                  <label className={labelClass}>
-                    Image size (px)
-                    <FieldTip text="Must match the size the model was trained on (usually 224)." />
-                  </label>
-                  <FreeNumberField
-                    value={config.imgSize}
-                    onChange={(n) => setConfig({ ...config, imgSize: Math.max(1, Math.round(n)) })}
-                    className={fieldClass}
-                  />
-                </div>
+                  <Field
+                    data-help="take-profit"
+                    label="Take profit %"
+                    tip={isV2 ? "Fixed by the dataset's label definition so trades and labels use the same exit rule." : "Exit target as a percent of entry price for each simulated trade."}
+                  >
+                    {isV2 ? (
+                      <div className={`${fieldClass} flex items-center text-white/55`} aria-readonly>
+                        {labelDef?.tp_frac != null ? `${(labelDef.tp_frac * 100).toFixed(2)} (from dataset)` : "From dataset"}
+                      </div>
+                    ) : (
+                      <FreeNumberField value={config.tpPct} onChange={(n) => setConfig({ ...config, tpPct: n })} className={fieldClass} />
+                    )}
+                  </Field>
 
-                <div data-help="bt-capital">
-                  <label className={labelClass}>
-                    Starting capital
-                    <FieldTip text="Simulated account equity at the start of the backtest." />
-                  </label>
-                  <FreeNumberField
-                    value={config.startingCapital}
-                    onChange={(n) => setConfig({ ...config, startingCapital: n })}
-                    className={fieldClass}
-                  />
-                </div>
+                  <Field
+                    data-help="stop-loss"
+                    label="Stop loss %"
+                    tip={isV2 ? "Fixed by the dataset's label definition." : "Stop distance as a percent of entry price."}
+                  >
+                    {isV2 ? (
+                      <div className={`${fieldClass} flex items-center text-white/55`} aria-readonly>
+                        {labelDef?.sl_frac != null ? `${(labelDef.sl_frac * 100).toFixed(2)} (from dataset)` : "From dataset"}
+                      </div>
+                    ) : (
+                      <FreeNumberField value={config.slPct} onChange={(n) => setConfig({ ...config, slPct: n })} className={fieldClass} />
+                    )}
+                  </Field>
 
-                <div data-help="bt-position">
-                  <label className={labelClass}>
-                    Position size % of capital
-                    <FieldTip text="Fraction of current equity allocated per open trade." />
-                  </label>
-                  <FreeNumberField
-                    value={config.positionSizePct}
-                    onChange={(n) => setConfig({ ...config, positionSizePct: n })}
-                    className={fieldClass}
-                  />
-                </div>
+                  <Field label="Image size (px)" tip="Must match the size the model was trained on (usually 224).">
+                    <FreeNumberField
+                      value={config.imgSize}
+                      onChange={(n) => setConfig({ ...config, imgSize: Math.max(1, Math.round(n)) })}
+                      className={fieldClass}
+                    />
+                  </Field>
+                </FieldGroup>
 
-                <div data-help="bt-costs">
-                  <label className={labelClass}>
-                    Commission % per trade
-                    <FieldTip text="Fee as a percent of trade notional (any value, e.g. 0.1 for 0.1%)." />
-                  </label>
-                  <FreeNumberField
-                    value={config.commissionPct}
-                    onChange={(n) => setConfig({ ...config, commissionPct: n })}
-                    className={fieldClass}
-                  />
-                </div>
+                <div className="grid gap-5 2xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                  <FieldGroup title="Capital and risk" cols={3}>
+                    <Field data-help="bt-capital" label="Starting capital" tip="Simulated account equity at the start of the backtest.">
+                      <FreeNumberField
+                        value={config.startingCapital}
+                        onChange={(n) => setConfig({ ...config, startingCapital: n })}
+                        className={fieldClass}
+                      />
+                    </Field>
+                    <Field data-help="bt-position" label="Position size % of capital" tip="Fraction of current equity allocated per open trade.">
+                      <FreeNumberField
+                        value={config.positionSizePct}
+                        onChange={(n) => setConfig({ ...config, positionSizePct: n })}
+                        className={fieldClass}
+                      />
+                    </Field>
+                    <Field
+                      data-help="max-drawdown"
+                      label="Max drawdown % (stop trading)"
+                      tip="Halt new trades once equity drawdown from peak exceeds this percent."
+                    >
+                      <FreeNumberField
+                        value={config.maxDrawdownPct}
+                        onChange={(n) => setConfig({ ...config, maxDrawdownPct: n })}
+                        className={fieldClass}
+                      />
+                    </Field>
+                    {isV2 ? (
+                      <>
+                        <Field label="Max gross exposure %" tip="New entries are skipped when open positions would exceed this share of equity.">
+                          <FreeNumberField value={config.maxExposurePct} onChange={(n) => setConfig({ ...config, maxExposurePct: n })} className={fieldClass} />
+                        </Field>
+                        <Field label="Max open positions" tip="Maximum simultaneous positions; one position per symbol at a time.">
+                          <FreeNumberField
+                            value={config.maxConcurrentPositions}
+                            onChange={(n) => setConfig({ ...config, maxConcurrentPositions: Math.max(1, Math.round(n)) })}
+                            className={fieldClass}
+                          />
+                        </Field>
+                      </>
+                    ) : null}
+                  </FieldGroup>
 
-                <div>
-                  <label className={labelClass}>
-                    Slippage % per trade
-                    <FieldTip text="Assumed adverse fill slippage as a percent (any value)." />
-                  </label>
-                  <FreeNumberField
-                    value={config.slippagePct}
-                    onChange={(n) => setConfig({ ...config, slippagePct: n })}
-                    className={fieldClass}
-                  />
-                </div>
-
-                <div data-help="max-drawdown">
-                  <label className={labelClass}>
-                    Max drawdown % (stop trading)
-                    <FieldTip text="Halt new trades once equity drawdown from peak exceeds this percent." />
-                  </label>
-                  <FreeNumberField
-                    value={config.maxDrawdownPct}
-                    onChange={(n) => setConfig({ ...config, maxDrawdownPct: n })}
-                    className={fieldClass}
-                  />
+                  <FieldGroup title="Trading costs" cols={2} data-help="bt-costs">
+                    <Field label="Commission % per trade" tip="Fee as a percent of trade notional (any value, e.g. 0.1 for 0.1%).">
+                      <FreeNumberField
+                        value={config.commissionPct}
+                        onChange={(n) => setConfig({ ...config, commissionPct: n })}
+                        className={fieldClass}
+                      />
+                    </Field>
+                    <Field label="Slippage % per trade" tip="Assumed adverse fill slippage as a percent (any value).">
+                      <FreeNumberField
+                        value={config.slippagePct}
+                        onChange={(n) => setConfig({ ...config, slippagePct: n })}
+                        className={fieldClass}
+                      />
+                    </Field>
+                  </FieldGroup>
                 </div>
               </div>
             </StepSection>
 
-            <RecentRunsBlock tool="backtester" title="Recent backtests" />
-
-            {error ? (
-              <div className="rounded-lg border border-rose-400/25 bg-rose-400/10 p-3">
-                <p className="text-sm text-rose-200">{error}</p>
+            <StepSection
+              step={4}
+              title="Review and run"
+              status={hasModel && hasDataset ? "todo" : "locked"}
+              lockedReason={missingReason ?? undefined}
+              description="Compatibility and integrity summary of exactly what will be simulated."
+            >
+              <div className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(16rem,1fr)]">
+                <CheckList items={readiness} />
+                <div className="flex flex-col justify-end gap-2.5 lg:border-l lg:border-white/[0.07] lg:pl-5" data-tour="bt-run">
+                  {error ? <Note tone="bad">{error}</Note> : null}
+                  <button
+                    type="submit"
+                    data-help="bt-run"
+                    disabled={!canRun}
+                    className={`${toolUI.primaryBtn} w-full border border-white/25`}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Starting…
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-4 w-4" />
+                        Run backtest <RunCost tool="backtester" params={pricingParams} />
+                      </>
+                    )}
+                  </button>
+                  <RunCostHint tool="backtester" params={pricingParams} className="text-center" />
+                </div>
               </div>
-            ) : null}
-
-            <div className="space-y-2" data-tour="bt-run">
-              <button
-                type="submit"
-                data-help="bt-run"
-                disabled={!canRun}
-                className="flex w-full items-center justify-center gap-2 rounded-full border border-white/25 accent-btn convolve-press px-4 py-3 text-sm font-semibold  transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Starting…
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4" />
-                    Run backtest <RunCost tool="backtester" params={pricingParams} />
-                  </>
-                )}
-              </button>
-              <RunCostHint tool="backtester" params={pricingParams} className="text-center" />
-              {!canRun && !isSubmitting ? (
-                <p className="text-center text-[10px] text-white/40">
-                  {!hasModel
-                    ? sourceMode === "library"
-                      ? "Pick a library model · "
-                      : "Upload a .keras model · "
-                    : null}
-                  {!hasDataset
-                    ? sourceMode === "library"
-                      ? "Generate or pick a test dataset"
-                      : "Upload a test dataset ZIP"
-                    : null}
-                </p>
-              ) : null}
-            </div>
+            </StepSection>
 
             {currentRunId && runStatus ? (
-              <div className="rounded-xl border border-white/15 bg-white/[0.03] p-5">
+              <div className={`${toolUI.card} p-5`}>
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    {runStatus.status === "running" ? (
-                      <Loader2 className="h-5 w-5 animate-spin text-white/70" />
-                    ) : null}
-                    {runStatus.status === "succeeded" ? (
-                      <CheckCircle className="h-5 w-5 text-emerald-400" />
-                    ) : null}
+                    {runStatus.status === "running" ? <Loader2 className="h-5 w-5 animate-spin text-white/70" /> : null}
+                    {runStatus.status === "succeeded" ? <CheckCircle className="h-5 w-5 text-emerald-400" /> : null}
                     {runStatus.status === "failed" ? <XCircle className="h-5 w-5 text-red-400" /> : null}
-                    <h3 className="text-lg font-medium text-white">
+                    <h3 className="text-[15px] font-medium text-white">
                       Backtest{" "}
-                      {runStatus.status === "running"
-                        ? "Running"
-                        : runStatus.status === "succeeded"
-                          ? "Completed"
-                          : "Failed"}
+                      {runStatus.status === "running" ? "Running" : runStatus.status === "succeeded" ? "Completed" : "Failed"}
                     </h3>
                   </div>
-                  <div className="text-xs text-white/45">Run ID: {currentRunId.slice(-8)}</div>
+                  <div className="text-[12px] text-white/45">Run ID: {currentRunId.slice(-8)}</div>
                 </div>
 
                 <div className="mb-4">
-                  <div className="mb-2 h-3 w-full overflow-hidden rounded-full bg-black/40">
+                  <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-black/40">
                     <div
-                      className="h-3 rounded-full bg-white transition-[width] duration-300 ease-out"
+                      className="h-2 rounded-full bg-white transition-[width] duration-300 ease-out"
                       style={{ width: `${Math.max(3, Math.min(100, backtestShown * 100))}%` }}
                     />
                   </div>
-                  <div className="flex justify-between text-sm">
+                  <div className="flex justify-between text-[13px]">
                     <span className="text-white/70">{runStatus.message}</span>
                     <span className="text-white/45">{Math.round(backtestShown * 100)}%</span>
                   </div>
@@ -1775,6 +1756,8 @@ export default function Backtester() {
                 ) : null}
               </div>
             ) : null}
+
+            <RecentRunsBlock tool="backtester" title="Recent backtests" />
         </form>
 
       <TestDataGeneratorModal

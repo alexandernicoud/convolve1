@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { OG_IMAGE, OG_IMAGE_ALT, PUBLIC_ROUTES, SITE_NAME, SITE_URL, routeMeta } from "@/lib/seoRoutes";
+import { CANONICAL_ALIASES, OG_IMAGE, OG_IMAGE_ALT, PUBLIC_ROUTES, SITE_NAME, SITE_URL, routeMeta } from "@/lib/seoRoutes";
 
 function upsert(selector: string, create: () => HTMLElement, attr: string, value: string) {
   let el = document.head.querySelector<HTMLElement>(selector);
@@ -19,6 +19,14 @@ function meta(key: "name" | "property", id: string, content: string) {
   }, "content", content);
 }
 
+function canonical(href: string) {
+  upsert('link[rel="canonical"]', () => {
+    const l = document.createElement("link");
+    l.setAttribute("rel", "canonical");
+    return l;
+  }, "href", href);
+}
+
 /** Title, description, canonical, social tags and robots for the current route. Only public
  * marketing and legal pages are indexable; everything else (app, account, 404) is noindex. */
 export function RouteSeo() {
@@ -27,19 +35,17 @@ export function RouteSeo() {
     const route = routeMeta(pathname);
     const home = PUBLIC_ROUTES[0];
     meta("name", "robots", route ? "index, follow" : "noindex");
+    const alias = CANONICAL_ALIASES[pathname.replace(/\/+$/, "")];
     if (!route) {
       if (!document.title || document.title === home.title) document.title = SITE_NAME;
-      document.head.querySelector('link[rel="canonical"]')?.remove();
+      if (alias) canonical(`${SITE_URL}${alias}`);
+      else document.head.querySelector('link[rel="canonical"]')?.remove();
       return;
     }
     const url = `${SITE_URL}${route.path === "/" ? "/" : route.path}`;
     document.title = route.title;
     meta("name", "description", route.description);
-    upsert('link[rel="canonical"]', () => {
-      const l = document.createElement("link");
-      l.setAttribute("rel", "canonical");
-      return l;
-    }, "href", url);
+    canonical(url);
     meta("property", "og:title", route.title);
     meta("property", "og:description", route.description);
     meta("property", "og:url", url);

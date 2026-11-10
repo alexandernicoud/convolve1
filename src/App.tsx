@@ -48,6 +48,7 @@ import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 
 // Signed-in workspace pages load on demand, so public pages do not download the research tools.
 const Docs = lazy(() => import("./pages/Docs"));
+const HomeV2Page = lazy(() => import("./features/marketing2/v2/HomeV2Page"));
 const RunLog = lazy(() => import("./pages/RunLog"));
 const Account = lazy(() => import("./pages/Account"));
 const LabelingOptimizerTechnical = lazy(() => import("./pages/products/LabelingOptimizerTechnical"));
@@ -127,6 +128,7 @@ function AppShell() {
   const { headerContentPushPx } = useHeaderReveal();
   const isMarketing2 =
     pathname === "/" ||
+    pathname === "/homepage-v2" ||
     pathname === "/about" ||
     pathname === "/products" ||
     pathname === "/help" ||
@@ -213,6 +215,7 @@ function AppShell() {
         <Routes>
           {/* Main pages */}
           <Route path="/" element={<PageWrapper><Home2Page /></PageWrapper>} />
+          <Route path="/homepage-v2" element={<PageWrapper><HomeV2Page /></PageWrapper>} />
           <Route path="/vision" element={<PageWrapper><VisionHome2 /></PageWrapper>} />
           <Route path="/home2" element={<KeepHashRedirect to="/" />} />
           <Route path="/home3" element={<PageWrapper><VisionHome3 /></PageWrapper>} />

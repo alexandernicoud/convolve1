@@ -2,7 +2,8 @@
 """Regenerate favicons, PWA icons and the Open Graph image from src/assets/convolve-mark.png.
 
 Run from the repo root:
-  python3 scripts/generate-brand-assets.py
+  python3 scripts/generate-brand-assets.py          # icons only
+  python3 scripts/generate-brand-assets.py --og     # also the Open Graph image
 """
 from __future__ import annotations
 
@@ -19,17 +20,73 @@ OUT = ROOT / "public"
 BG = (5, 5, 6, 255)
 
 
-def square_icon(size: int, pad_ratio: float = 0.04) -> Image.Image:
-    canvas = Image.new("RGBA", (size, size), BG)
-    pad = int(size * pad_ratio)
-    inner = max(1, size - 2 * pad)
+# The source PNG carries a faint glow (alpha < 32) reaching far beyond the symbol. Cropping to
+# the full alpha box shrank the white mark to about half of every icon, so crop to the solid mark.
+HALO_ALPHA = 32
+
+
+def solid_mark() -> Image.Image:
     mark = MARK.copy()
-    bbox = mark.split()[-1].getbbox()
-    if bbox:
-        mark = mark.crop(bbox)
-    mark.thumbnail((inner, inner), Image.Resampling.LANCZOS)
-    canvas.alpha_composite(mark, ((size - mark.width) // 2, (size - mark.height) // 2))
-    return canvas
+    alpha = mark.split()[-1].point(lambda v: 0 if v < HALO_ALPHA else v)
+    mark.putalpha(alpha)
+    bbox = alpha.getbbox()
+    return mark.crop(bbox) if bbox else mark
+
+
+SOLID = solid_mark()
+
+
+def square_icon(size: int, pad_ratio: float = 0.08) -> Image.Image:
+    """The white mark centred on the dark tile; ``pad_ratio`` is the margin above and below it."""
+    scale = 8 if size < 64 else 2
+    big = size * scale
+    canvas = Image.new("RGBA", (big, big), BG)
+    inner = max(1, round(big * (1 - 2 * pad_ratio)))
+    fit = inner / max(SOLID.size)
+    mark = SOLID.resize((max(1, round(SOLID.width * fit)), max(1, round(SOLID.height * fit))), Image.Resampling.LANCZOS)
+    canvas.alpha_composite(mark, ((big - mark.width) // 2, (big - mark.height) // 2))
+    return canvas.resize((size, size), Image.Resampling.LANCZOS)
+
+
+def mark_height(img: Image.Image) -> int:
+    """Rendered height of the white mark, as measured on the final tile."""
+    tile = Image.new("RGBA", img.size, BG)
+    tile.alpha_composite(img.convert("RGBA"))
+    box = tile.convert("L").point(lambda v: 255 if v > 60 else 0).getbbox()
+    return box[3] - box[1] if box else 0
+
+
+# Visible mark height per icon size: the midpoint between the original icons (mark too small)
+# and the first enlargement (too large on small sizes).
+MARK_HEIGHT = {16: 13, 32: 24, 48: 36, 180: 126, 192: 134, 256: 195, 512: 320}
+
+
+def sized_icon(size: int) -> Image.Image:
+    """The tile whose rendered mark height is closest to MARK_HEIGHT[size]."""
+    target = MARK_HEIGHT[size]
+    best = None
+    for step in range(0, 400):
+        img = square_icon(size, step / 1000)
+        err = abs(mark_height(img) - target)
+        if best is None or err < best[0]:
+            best = (err, img)
+        if err == 0:
+            break
+    return best[1]
+
+
+CORNER_RATIO = 0.22
+
+
+def rounded(img: Image.Image, ratio: float = CORNER_RATIO) -> Image.Image:
+    """Tab and search-result icons are shown as-is, so they carry their own rounded corners."""
+    scale = 8
+    w, h = img.size
+    mask = Image.new("L", (w * scale, h * scale), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, w * scale - 1, h * scale - 1], radius=round(min(w, h) * ratio * scale), fill=255)
+    out = img.convert("RGBA")
+    out.putalpha(Image.composite(out.split()[-1], Image.new("L", out.size, 0), mask.resize(out.size, Image.Resampling.LANCZOS)))
+    return out
 
 
 def save_png(img: Image.Image, path: Path, *, rgb: bool = False) -> None:
@@ -90,14 +147,17 @@ def write_og() -> None:
 
 
 def main() -> None:
+    import sys
+
     OUT.mkdir(exist_ok=True)
-    save_png(square_icon(32), OUT / "favicon-32x32.png")
-    save_png(square_icon(48), OUT / "favicon-48x48.png")
-    save_png(square_icon(180), OUT / "apple-touch-icon.png", rgb=True)
-    save_png(square_icon(192), OUT / "icon-192.png", rgb=True)
-    save_png(square_icon(512, pad_ratio=0.03), OUT / "icon-512.png", rgb=True)
-    save_png(square_icon(256), OUT / "favicon.png")
-    write_ico(OUT / "favicon.ico", [square_icon(16, 0.0), square_icon(32, 0.06), square_icon(48, 0.05)])
+    save_png(rounded(sized_icon(32)), OUT / "favicon-32x32.png")
+    save_png(rounded(sized_icon(48)), OUT / "favicon-48x48.png")
+    # Home-screen icons get rounded or circular masks; their targets keep the mark inside the safe zone.
+    save_png(sized_icon(180), OUT / "apple-touch-icon.png", rgb=True)
+    save_png(sized_icon(192), OUT / "icon-192.png", rgb=True)
+    save_png(sized_icon(512), OUT / "icon-512.png", rgb=True)
+    save_png(rounded(sized_icon(256)), OUT / "favicon.png")
+    write_ico(OUT / "favicon.ico", [rounded(sized_icon(16)), rounded(sized_icon(32)), rounded(sized_icon(48))])
     png48 = (OUT / "favicon-48x48.png").read_bytes()
     (OUT / "favicon.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Convolve">\n'
@@ -105,7 +165,8 @@ def main() -> None:
         "</svg>\n"
     )
     print("wrote public/favicon.svg")
-    write_og()
+    if "--og" in sys.argv:
+        write_og()
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ import { improveLink } from "./diagnostics";
 import { LoadingRegion, SkeletonPanel } from "@/components/skeleton/Skeleton";
 import AiPromptButton from "@/features/aiPrompt/AiPromptButton";
 import { collectAnalysis } from "@/features/aiPrompt/collect";
+import { ToolIntro } from "@/components/workspace/ToolUI";
 
 const TABS = [
   { id: "explorer", label: "Image explorer" },
@@ -168,28 +169,25 @@ export default function LabPage() {
   const selectedModel = model ? `${model.kind}:${model.id}` : "";
 
   return (
-    <div className="mx-auto w-full max-w-[100rem] space-y-5 pb-10">
-      <header className="flex flex-wrap items-start justify-between gap-4 pt-1">
-        <div className="min-w-0">
-          <p className="text-[13px] text-white/45">Analysis</p>
-          <h1 className="mt-1.5 text-[26px] font-semibold tracking-tight text-white">CNN interpretability lab</h1>
-          <p className="mt-1.5 max-w-3xl text-[14px] leading-relaxed text-white/55">
-            Where does the model's evidence sit, does that evidence actually drive its output, and how are its internal features organised? Every result records its sample,
-            seed and method so it can be reproduced.
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          {model && context?.dataset ? (
-            <AiPromptButton
-              fileName={`convolve_analysis_${model.id.slice(0, 12)}_ai_prompt`}
-              collect={() => collectAnalysis({ sessionId, context, model })}
-            />
-          ) : null}
-          <Link to="/tools/analysis/legacy" className="text-[13px] text-white/45 underline-offset-4 transition hover:text-white hover:underline">
-            One-shot analysis report (previous version)
-          </Link>
-        </div>
-      </header>
+    <div className="mx-auto w-full max-w-[100rem] space-y-4 pb-10">
+      <ToolIntro
+        actions={
+          <>
+            <Link to="/tools/analysis/legacy" className="text-[12.5px] text-white/45 underline-offset-4 transition hover:text-white hover:underline">
+              One-shot report (previous version)
+            </Link>
+            {model && context?.dataset ? (
+              <AiPromptButton
+                fileName={`convolve_analysis_${model.id.slice(0, 12)}_ai_prompt`}
+                collect={() => collectAnalysis({ sessionId, context, model })}
+              />
+            ) : null}
+          </>
+        }
+      >
+        Where does the model's evidence sit, does that evidence actually drive its output, and how are its internal features organised? Every
+        result records its sample, seed and method so it can be reproduced.
+      </ToolIntro>
 
       <section className={cx(surface, "grid gap-4 px-5 py-4 md:grid-cols-2")} data-tour="lab-select">
         <label className="flex min-w-0 flex-col gap-1.5" data-help="lab-model">

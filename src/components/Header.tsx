@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Menu, X } from "lucide-react";
 import { ConvolveMark } from "@/components/brand/ConvolveMark";
 import { isCompactHeaderPathname, useHeaderReveal } from "@/context/HeaderRevealContext";
 import { useAuth } from "@/context/AuthContext";
@@ -8,14 +8,17 @@ import { cn } from "@/lib/utils";
 import { isLegalPath } from "@/features/legal/paths";
 import { PRODUCT_PIPELINE_ITEMS } from "@/components/products/productPipelineLinks";
 
-function HeaderCta({ isHomeLanding }: { isHomeLanding: boolean }) {
+function HeaderCta({ isHomeLanding, accountInMenu = false }: { isHomeLanding: boolean; accountInMenu?: boolean }) {
   const { session, loading } = useAuth();
   const primary = cn(
     "convolve-press accent-btn inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border border-transparent px-3 py-1.5 text-xs font-medium transition-all duration-200 sm:px-4 sm:py-2 sm:text-sm",
     !isHomeLanding && "shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
   );
   const accountLink = session ? "/account" : `/login?next=${encodeURIComponent("/account")}`;
-  const accountClass = "accent-secondary whitespace-nowrap text-xs text-white/60 transition-colors hover:text-white sm:text-sm";
+  const accountClass = cn(
+    "accent-secondary whitespace-nowrap text-xs text-white/60 transition-colors hover:text-white sm:text-sm",
+    accountInMenu && "hidden md:inline",
+  );
   if (loading) {
     return <span className={cn(primary, "opacity-50")}>…</span>;
   }
@@ -69,6 +72,59 @@ function useWordmarkCollapsed() {
   return collapsed;
 }
 
+const MOBILE_LINKS: [string, string][] = [
+  ["Home", "/"],
+  ["Products", "/products"],
+  ["About", "/about"],
+  ["Contact", "/contact"],
+];
+
+/** Below `md` the centre links are hidden; this menu restores them (Homepage V2 only). */
+function MobileMenu() {
+  const [open, setOpen] = useState(false);
+  const { pathname } = useLocation();
+  const { session } = useAuth();
+  const links: [string, string][] = [
+    ...MOBILE_LINKS,
+    ["Account", session ? "/account" : `/login?next=${encodeURIComponent("/account")}`],
+    ...(session ? ([["Open workspace", "/dashboard"]] as [string, string][]) : ([["Sign in", "/login"]] as [string, string][])),
+  ];
+  useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+  return (
+    <div className="relative md:hidden">
+      <button
+        type="button"
+        aria-label={open ? "Close menu" : "Open menu"}
+        aria-expanded={open}
+        aria-controls="mobile-site-menu"
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/[0.05] text-white/80 transition-colors hover:text-white"
+      >
+        {open ? <X className="h-4 w-4" aria-hidden /> : <Menu className="h-4 w-4" aria-hidden />}
+      </button>
+      {open ? (
+        <nav
+          id="mobile-site-menu"
+          aria-label="Site"
+          className="absolute right-0 top-full z-[100] mt-2 w-56 rounded-2xl border border-white/[0.12] bg-[#0a0b0d] p-2 shadow-[0_24px_60px_rgba(0,0,0,0.7)]"
+        >
+          {links.map(([label, to]) => (
+            <Link key={to} to={to} className="block rounded-xl px-3.5 py-3 text-[15px] text-white/80 transition-colors hover:bg-white/[0.05] hover:text-white">
+              {label}
+            </Link>
+          ))}
+        </nav>
+      ) : null}
+    </div>
+  );
+}
+
 function MainNav({
   productsOpen,
   setProductsOpen,
@@ -89,6 +145,7 @@ function MainNav({
     location.pathname.startsWith("/dashboard");
   const isHomeLanding =
     location.pathname === "/" ||
+    location.pathname === "/homepage-v2" ||
     location.pathname === "/vision" ||
     location.pathname === "/home3" ||
     location.pathname === "/about" ||
@@ -133,7 +190,7 @@ function MainNav({
             className={cn(
               "whitespace-nowrap text-sm transition-colors",
               isHomeLanding ?
-                isActive("/") || isActive("/vision") ?
+                isActive("/") || isActive("/vision") || isActive("/homepage-v2") ?
                   "text-white"
                 : "text-white/55 hover:text-white/90"
               : isActive("/") || isActive("/vision") ?
@@ -250,7 +307,8 @@ function MainNav({
       </div>
 
       <div className="flex items-center justify-end gap-2 sm:gap-3 md:justify-self-end">
-        <HeaderCta isHomeLanding={isHomeLanding} />
+        <HeaderCta isHomeLanding={isHomeLanding} accountInMenu={location.pathname === "/homepage-v2"} />
+        {location.pathname === "/homepage-v2" ? <MobileMenu /> : null}
       </div>
     </nav>
   );

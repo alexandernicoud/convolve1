@@ -5,19 +5,17 @@ import { improveApi, internalModelsApi, type ImproveExperiment, type ImproveSess
 import { RunCost } from "@/components/RunCostHint";
 import { btn, btnSm, cx, EmptyState, surface } from "@/features/review/components/primitives";
 import { fmtInt, fmtNum, fmtPct, MISSING } from "@/lib/viz/format";
+import { ToolIntro } from "@/components/workspace/ToolUI";
 import { VARIANT_COPY, type Variant } from "./variants";
 import { changeLines, experimentTitle, VERDICT_COPY } from "./workspace";
 
 export function Shell({ children, intro }: { children: React.ReactNode; intro?: React.ReactNode }) {
   return (
-    <div className="mx-auto w-full max-w-[90rem] space-y-5 pb-12">
+    <div className="mx-auto w-full max-w-[90rem] space-y-4 pb-12">
       {intro ?? (
-        <header data-help="improve-why">
-          <h1 className="text-[22px] font-medium text-white">Improve model</h1>
-          <p className="mt-1 max-w-3xl text-[13.5px] leading-relaxed text-white/50">
-            Diagnose a model, test one controlled change at a time against it, and keep only what clearly helps.
-          </p>
-        </header>
+        <div data-help="improve-why">
+          <ToolIntro>Diagnose a model, test one controlled change at a time against it, and keep only what clearly helps.</ToolIntro>
+        </div>
       )}
       {children}
     </div>
@@ -88,14 +86,11 @@ export function ModelPicker({ onPick }: { onPick: (runId: string) => void }) {
   return (
     <Shell
       intro={
-        <header className="pt-2" data-help="improve-why">
-          <h1 className="text-[28px] font-medium tracking-tight text-white sm:text-[32px]">
-            Make your models better<span className="accent-period">.</span>
-          </h1>
-          <p className="mt-2 max-w-2xl text-[14.5px] leading-relaxed text-white/55">
+        <div data-help="improve-why">
+          <ToolIntro>
             Select a trained model. Convolve will diagnose its weaknesses and help you test improvements through controlled experiments.
-          </p>
-        </header>
+          </ToolIntro>
+        </div>
       }
     >
       {!models ? (

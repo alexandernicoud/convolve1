@@ -5,6 +5,7 @@ import ToolLayout from "@/components/ToolLayout";
 import GeneratorTimeline from "@/components/generator/GeneratorTimeline";
 import FieldTip from "@/components/generator/FieldTip";
 import StepSection from "@/components/generator/StepSection";
+import { ToolIntro } from "@/components/workspace/ToolUI";
 import SymbolBasket from "@/components/generator/SymbolBasket";
 import { TIMESPAN_PRESETS } from "@/components/generator/timespanPresets";
 import { reviewApi, trainingChartGeneratorApi, ApiError, type ChartPreviewResult } from "@/lib/api";
@@ -62,7 +63,7 @@ interface GeneratorConfig {
 }
 
 const INPUT_BASE =
-  "w-full rounded-xl border bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] focus:ring-1";
+  "w-full rounded-lg border bg-[#0a0a0a]/70 h-10 px-3 text-[13px] text-[#F5F5F5] focus:ring-1";
 
 /** Input classes with a red border while the field is invalid. */
 function inputCls(invalid: boolean, extra = ""): string {
@@ -736,7 +737,7 @@ export default function Generator() {
   );
 
   const InputPanel = (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {transfer ? (
         <OptimizerTransferBanner
           transfer={transfer}
@@ -745,10 +746,10 @@ export default function Generator() {
         />
       ) : null}
       {/* Quick flow */}
-      <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/70">
-        <span className="font-medium text-white">Three steps:</span> pick the stocks → set how much training
-        data to generate and when → review the preview and start generation.
-      </div>
+      <ToolIntro>
+        Pick the stocks, set how much training data to generate and when, then review the preview and start
+        generation.
+      </ToolIntro>
 
       {/* Step 1 — Stocks / symbols */}
       <StepSection
@@ -765,6 +766,7 @@ export default function Generator() {
             tipText="This is the actual stock ticker on Yahoo Finance — not a crypto pair or made-up code. Search by company name (Apple) or ticker (AAPL), then pick a suggestion."
             inputId={FIELD_IDS.symbols}
             error={visibleErrors.symbols}
+            layout="split"
           />
         </div>
       </StepSection>
@@ -993,7 +995,7 @@ export default function Generator() {
 
       {/* Step 3 — Chart settings */}
       <details
-        className={`rounded-2xl border bg-white/[0.02] p-5 md:p-6 ${
+        className={`rounded-2xl border bg-white/[0.035] p-4 md:p-5 ${
           attempted && revealPlan(visibleErrors).open.includes("chartSettings") ? "border-red-400/40" : "border-white/[0.1]"
         }`}
         open={sectionsOpen.chartSettings}
@@ -1004,12 +1006,12 @@ export default function Generator() {
       >
         <summary className="cursor-pointer list-none">
           <div className="flex items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-sm font-semibold text-white/80">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[12px] font-semibold text-white">
               3
             </span>
             <div>
-              <h3 className="text-base font-semibold text-white">Chart settings</h3>
-              <p className="mt-0.5 text-sm text-white/55">
+              <h3 className="text-[15px] font-semibold leading-7 text-white">Chart settings</h3>
+              <p className="text-[12.5px] leading-relaxed text-white/50">
                 Dataset name, chart type, timeframe, history window, labeling horizon, TP/SL, and image size.
               </p>
             </div>
@@ -1017,7 +1019,7 @@ export default function Generator() {
         </summary>
         <div className="mt-5 space-y-4 border-t border-white/10 pt-5">
           <div>
-            <label htmlFor={FIELD_IDS.datasetName} className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
+            <label htmlFor={FIELD_IDS.datasetName} className="mb-1.5 flex items-center text-[12px] font-medium text-white/70">
               Dataset name <span className="text-[#e5e5e5]">*</span>
               <FieldTip text="Shown in your library. Suggested from the stocks and labels until you edit it." />
             </label>
@@ -1038,28 +1040,28 @@ export default function Generator() {
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
+              <label className="mb-1.5 flex items-center text-[12px] font-medium text-white/70">
                 Chart Type <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="Candlestick uses OHLC when available; line uses close prices." />
               </label>
               <select
                 value={config.useCandles ? "candles" : "line"}
                 onChange={(e) => setConfig({ ...config, useCandles: e.target.value === "candles" })}
-                className="w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] focus:border-white/30 focus:ring-1 focus:ring-white/50"
+                className="w-full rounded-lg border border-white/12 bg-[#0a0a0a]/70 h-10 px-3 text-[13px] text-[#F5F5F5] focus:border-white/30 focus:ring-1 focus:ring-white/50"
               >
                 <option value="candles">Candlestick</option>
                 <option value="line">Line Chart</option>
               </select>
             </div>
             <div data-tour="gen-timeframe" data-help="gen-timeframe">
-              <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
+              <label className="mb-1.5 flex items-center text-[12px] font-medium text-white/70">
                 Timeframe <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="Bar size for history: daily, weekly, or monthly candles." />
               </label>
               <select
                 value={config.timeframe}
                 onChange={(e) => setConfig({ ...config, timeframe: e.target.value as "1d" | "1wk" | "1mo" })}
-                className="w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] focus:border-white/30 focus:ring-1 focus:ring-white/50"
+                className="w-full rounded-lg border border-white/12 bg-[#0a0a0a]/70 h-10 px-3 text-[13px] text-[#F5F5F5] focus:border-white/30 focus:ring-1 focus:ring-white/50"
               >
                 <option value="1d">Daily (1d)</option>
                 <option value="1wk">Weekly (1wk)</option>
@@ -1067,7 +1069,7 @@ export default function Generator() {
               </select>
             </div>
             <div data-tour="gen-lookback" data-help="gen-lookback">
-              <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
+              <label className="mb-1.5 flex items-center text-[12px] font-medium text-white/70">
                 Chart history window <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="How much calendar history each chart image covers." />
               </label>
@@ -1082,7 +1084,7 @@ export default function Generator() {
                     timespanCount: preset.count,
                   });
                 }}
-                className="w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] focus:border-white/30 focus:ring-1 focus:ring-white/50"
+                className="w-full rounded-lg border border-white/12 bg-[#0a0a0a]/70 h-10 px-3 text-[13px] text-[#F5F5F5] focus:border-white/30 focus:ring-1 focus:ring-white/50"
               >
                 {TIMESPAN_PRESETS.map((p) => (
                   <option key={p.key} value={p.key}>
@@ -1092,7 +1094,7 @@ export default function Generator() {
               </select>
             </div>
             <div data-tour="gen-labeling" data-help="gen-horizon">
-              <label htmlFor={FIELD_IDS.horizonBars} className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
+              <label htmlFor={FIELD_IDS.horizonBars} className="mb-1.5 flex items-center text-[12px] font-medium text-white/70">
                 Future Horizon (bars) <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="How many future bars define the label horizon for each sample." />
               </label>
@@ -1109,7 +1111,7 @@ export default function Generator() {
               <FieldError field="horizonBars" message={visibleErrors.horizonBars} />
             </div>
             <div data-help="take-profit">
-              <label htmlFor={FIELD_IDS.takeProfit} className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
+              <label htmlFor={FIELD_IDS.takeProfit} className="mb-1.5 flex items-center text-[12px] font-medium text-white/70">
                 Take Profit (%) <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="Up move as a percentage of the entry price — e.g. 2 means a +2% take-profit threshold." />
               </label>
@@ -1127,7 +1129,7 @@ export default function Generator() {
               <FieldError field="takeProfit" message={visibleErrors.takeProfit} />
             </div>
             <div data-help="stop-loss">
-              <label htmlFor={FIELD_IDS.stopLoss} className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
+              <label htmlFor={FIELD_IDS.stopLoss} className="mb-1.5 flex items-center text-[12px] font-medium text-white/70">
                 Stop Loss (%) <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="Down move as a percentage of the entry price — e.g. 1 means a −1% stop-loss threshold." />
               </label>
@@ -1145,14 +1147,14 @@ export default function Generator() {
               <FieldError field="stopLoss" message={visibleErrors.stopLoss} />
             </div>
             <div>
-              <label className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
+              <label className="mb-1.5 flex items-center text-[12px] font-medium text-white/70">
                 Image Dimension <span className="text-[#e5e5e5]">*</span>
                 <FieldTip text="Square PNG size in pixels. 224 matches many CNN inputs." />
               </label>
               <select
                 value={config.imageDimension}
                 onChange={(e) => setConfig({ ...config, imageDimension: parseInt(e.target.value, 10) })}
-                className="w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] focus:border-white/30 focus:ring-1 focus:ring-white/50"
+                className="w-full rounded-lg border border-white/12 bg-[#0a0a0a]/70 h-10 px-3 text-[13px] text-[#F5F5F5] focus:border-white/30 focus:ring-1 focus:ring-white/50"
               >
                 <option value="128">128x128</option>
                 <option value="224">224x224 (CNN standard)</option>
@@ -1354,7 +1356,7 @@ export default function Generator() {
         </div>
       </details>
 
-      <section className="rounded-2xl border border-white/[0.1] bg-white/[0.02] p-5 md:p-6" aria-labelledby="gen-health-title" data-testid="dataset-health" data-help="dataset-health">
+      <section className="rounded-2xl border border-white/[0.12] bg-white/[0.035] p-4 md:p-5" aria-labelledby="gen-health-title" data-testid="dataset-health" data-help="dataset-health">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h3 id="gen-health-title" className="text-base font-semibold text-white">
             Dataset health

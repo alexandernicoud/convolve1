@@ -717,18 +717,18 @@ export default function TestDataGeneratorModal({
           {/* Step 4 — Chart settings (secondary) */}
           <details
             ref={settingsRef}
-            className="rounded-2xl border border-white/[0.1] bg-white/[0.02] p-5 md:p-6"
+            className="rounded-2xl border border-white/[0.12] bg-white/[0.035] p-4 md:p-5"
             open={settingsOpen}
             onToggle={(e) => setSettingsOpen((e.currentTarget as HTMLDetailsElement).open)}
           >
             <summary className="cursor-pointer list-none">
               <div className="flex items-start gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06] text-sm font-semibold text-white/80">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[12px] font-semibold text-white">
                   4
                 </span>
                 <div>
-                  <h3 className="text-base font-semibold text-white">Chart settings</h3>
-                  <p className="mt-0.5 text-sm text-white/55">
+                  <h3 className="text-[15px] font-semibold leading-7 text-white">Chart settings</h3>
+                  <p className="text-[12.5px] leading-relaxed text-white/50">
                     Usually copied from training. Expand only if you need to adjust timeframe, TP/SL, or image size.
                   </p>
                 </div>
@@ -969,7 +969,7 @@ export default function TestDataGeneratorModal({
               value={datasetName}
               onChange={(e) => setDatasetName(e.target.value)}
               placeholder={defaultDatasetName}
-              className="w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-[#F5F5F5] placeholder-[rgba(255,255,255,0.35)] focus:border-white/30 focus:ring-1 focus:ring-white/50"
+              className="w-full rounded-lg border border-white/12 bg-[#0a0a0a]/70 h-10 px-3 text-[13px] text-[#F5F5F5] placeholder-[rgba(255,255,255,0.35)] focus:border-white/30 focus:ring-1 focus:ring-white/50"
             />
           </div>
 

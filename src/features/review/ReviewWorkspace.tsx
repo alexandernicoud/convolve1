@@ -14,6 +14,7 @@ import { LineageView } from "./views/LineageView";
 import { CompareView } from "./views/CompareView";
 import { Inspector } from "./inspector/Inspector";
 import { LoadingRegion, SkeletonPanel, SkeletonStatGrid, SkeletonTable } from "@/components/skeleton/Skeleton";
+import { ToolIntro } from "@/components/workspace/ToolUI";
 
 const TAB_META: Record<TabId, { label: string; icon: typeof LayoutGrid }> = {
   overview: { label: "Overview", icon: LayoutGrid },
@@ -59,13 +60,10 @@ function Workspace() {
 
   return (
     <div className={cx("pb-6 transition-[padding]", inspected && "xl:pr-[min(560px,90vw)]")}>
-      <header className="mb-3 pt-1">
-        <h2 className="text-[26px] font-semibold tracking-tight text-white">Search Hub</h2>
-        <p className="mt-1 max-w-3xl text-[14px] leading-relaxed text-white/55">
-          Every stock, label search, dataset, model, analysis, test set, backtest and bot you created, connected by the lineage the tools recorded. Click a node to trace it
-          and to analyse, backtest, deploy or improve it.
-        </p>
-      </header>
+      <ToolIntro className="mb-3">
+        Every stock, label search, dataset, model, analysis, test set, backtest and bot you created, connected by the lineage the tools recorded. Click a node to trace it
+        and to analyse, backtest, deploy or improve it.
+      </ToolIntro>
       <div className="sticky top-0 z-20 mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b border-white/[0.1] bg-black">
         <nav className="-mb-px flex flex-wrap" role="tablist" aria-label="Search Hub sections">
           {TABS.map((t, i) => {

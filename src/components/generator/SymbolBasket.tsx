@@ -20,6 +20,8 @@ type Props = {
   inputId?: string;
   /** Validation message; marks the field invalid when set. */
   error?: string | null;
+  /** "split" puts the search and the selected tickers side by side on wide screens. */
+  layout?: "stack" | "split";
 };
 
 /**
@@ -35,7 +37,9 @@ export default function SymbolBasket({
   maxSymbols,
   inputId,
   error,
+  layout = "stack",
 }: Props) {
+  const split = layout === "split";
   const errorId = inputId ? `${inputId}-error` : undefined;
   const [symbolDraft, setSymbolDraft] = useState("");
   const [symbolSuggestions, setSymbolSuggestions] = useState<YFinanceSearchRow[]>([]);
@@ -79,8 +83,9 @@ export default function SymbolBasket({
   );
 
   return (
-    <div className="relative">
-      <label htmlFor={inputId} className="mb-2 flex items-center text-sm text-[#F5F5F5]/62">
+    <div className={split ? "relative grid gap-x-4 lg:grid-cols-2" : "relative"}>
+      <div className="relative min-w-0">
+      <label htmlFor={inputId} className="mb-1.5 flex items-center text-[12px] font-medium text-white/70">
         {fieldLabel} <span className="text-[#e5e5e5]">*</span>
         <FieldTip
           text={
@@ -91,7 +96,7 @@ export default function SymbolBasket({
           }
         />
       </label>
-      <div className="relative mt-2 flex gap-2">
+      <div className="relative flex gap-2">
         <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
           <input
@@ -115,7 +120,7 @@ export default function SymbolBasket({
                 else if (q) addSymbol(q.replace(/[^A-Z0-9.-]/g, ""));
               }
             }}
-            className={`w-full rounded-lg border bg-[#0a0a0a]/60 py-2 pl-9 pr-3 text-[#F5F5F5] placeholder:text-white/30 focus:ring-1 ${
+            className={`h-10 w-full rounded-lg border bg-[#0a0a0a]/60 pl-9 pr-3 text-[13px] text-[#F5F5F5] placeholder:text-white/30 focus:ring-1 ${
               error
                 ? "border-red-400/80 ring-1 ring-red-400/40 focus:border-red-400 focus:ring-red-400/60"
                 : "border-white/8 focus:border-white/30 focus:ring-white/50"
@@ -188,7 +193,8 @@ export default function SymbolBasket({
           {error}
         </p>
       ) : null}
-      <div className="mt-3 rounded-lg border border-white/12 bg-white/[0.06] p-3">
+      </div>
+      <div className={split ? "mt-3 min-h-[4.25rem] rounded-lg border border-white/12 bg-white/[0.04] p-3 lg:mt-0" : "mt-3 rounded-lg border border-white/12 bg-white/[0.04] p-3"}>
         <div className="mb-2 flex items-center justify-between gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/55">
             {single ? "Selected ticker" : `Selected tickers (${selectedSymbols.length})`}
@@ -197,8 +203,8 @@ export default function SymbolBasket({
         {selectedSymbols.length === 0 ? (
           <p className="text-xs text-white/45">
             {single
-              ? "None yet — search for a real stock (e.g. AAPL) above."
-              : "None yet — add real stock tickers (e.g. AAPL, MSFT) above."}
+              ? `None yet — search for a real stock (e.g. AAPL)${split ? "." : " above."}`
+              : `None yet — add real stock tickers (e.g. AAPL, MSFT)${split ? "." : " above."}`}
           </p>
         ) : (
           <div className="flex flex-wrap gap-2">

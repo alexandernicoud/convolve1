@@ -158,12 +158,13 @@ export default function BacktestWorkspace() {
           <Link to="/tools/backtester" className="inline-flex items-center gap-1 text-[13px] text-white/45 transition hover:text-white">
             <ArrowLeft className="h-3.5 w-3.5" /> Backtester
           </Link>
-          <h1 className="mt-1.5 text-[26px] font-semibold tracking-tight text-white">Backtest research workspace</h1>
+          <h1 className="mt-1.5 text-[19px] font-medium tracking-tight text-white">
+            Backtest <span className="font-digits text-white/70">{runId.slice(0, 8)}</span>
+          </h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-white/50">
             {summary ? <MethodologyBadge id={summary.methodology.id} /> : status?.methodology ? <MethodologyBadge id={status.methodology.id} /> : null}
             {summary && isV2(summary) ? <EvaluationBadge cls={summary.evaluation_class} /> : null}
-            <span className="font-digits">{runId.slice(0, 8)}</span>
-            {status?.started_at ? <span>· started {fmtDateTime(status.started_at)}</span> : null}
+            {status?.started_at ? <span>Started {fmtDateTime(status.started_at)}</span> : null}
           </div>
         </div>
         {summary ? (

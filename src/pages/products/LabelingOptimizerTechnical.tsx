@@ -11,6 +11,7 @@ import { RunCost, RunCostHint } from "@/components/RunCostHint";
 import { Slider } from "@/components/ui/slider";
 import FieldTip from "@/components/generator/FieldTip";
 import StepSection from "@/components/generator/StepSection";
+import { ToolIntro, toolUI } from "@/components/workspace/ToolUI";
 import SymbolBasket from "@/components/generator/SymbolBasket";
 import TestPeriodTimeline from "@/components/generator/TestPeriodTimeline";
 import { isoDateString, parseIsoDate, startOfLocalDay } from "@/lib/generatorDates";
@@ -191,25 +192,24 @@ export default function LabelingOptimizerTechnical() {
   };
 
   const inputClass =
-    "w-full rounded-xl border border-white/12 bg-[#0a0a0a]/70 px-4 py-3 text-base text-white placeholder:text-white/35 focus:border-white/30 focus:outline-none focus:ring-1 focus:ring-white/50";
-  const labelClass = "mb-2 flex items-center text-sm font-medium text-[#F5F5F5]/75";
+    "w-full rounded-lg border border-white/12 bg-[#0a0a0a]/70 h-10 px-3 text-[13px] text-white placeholder:text-white/35 focus:border-white/30 focus:outline-none focus:ring-1 focus:ring-white/50";
+  const labelClass = toolUI.label;
 
   return (
     <div className="relative pb-8 text-white">
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/70">
-              <span className="font-medium text-white">Three steps:</span> pick a symbol → set the calendar
-              window → tune the TP/SL/horizon search grid, then run.
-            </div>
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            <ToolIntro>Pick a symbol, set the calendar window, tune the TP/SL and horizon search grid, then run.</ToolIntro>
 
             <StepSection
               step={1}
               title="Choose symbol"
+              status={selectedSymbols.length ? "done" : "todo"}
               description="Search Yahoo Finance the same way as the chart generator. This run uses a single ticker."
             >
               <SymbolBasket
                 selectedSymbols={selectedSymbols}
                 maxSymbols={1}
+                layout="split"
                 tipText="Search by company or ticker (e.g. Intel, INTC). Pick a suggestion or press Enter. Choosing another ticker replaces the current one."
                 onAdd={(sym) => {
                   setSelectedSymbols([sym]);
@@ -245,7 +245,7 @@ export default function LabelingOptimizerTechnical() {
                 }
               />
 
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2" data-help="opt-window">
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" data-help="opt-window">
                 <div>
                   <label className={labelClass}>
                     Start date <span className="text-[#e5e5e5]">*</span>
@@ -293,7 +293,7 @@ export default function LabelingOptimizerTechnical() {
                   />
                   {errors.end && <p className="mt-1 text-xs text-red-400">{errors.end.message}</p>}
                 </div>
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-2 lg:col-span-1">
                   <label className={labelClass}>
                     Bar timeframe
                     <FieldTip text="Candle size for the price series the optimizer sweeps over (daily, weekly, or monthly)." />
@@ -304,8 +304,8 @@ export default function LabelingOptimizerTechnical() {
                     <option value="1mo">1 month</option>
                   </select>
                 </div>
-                <div className="sm:col-span-2">
-                  <label className="flex items-center gap-2 text-sm text-white/75">
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <label className="flex items-center gap-2 text-[13px] text-white/75">
                     <input
                       type="checkbox"
                       checked={reserveEval}
@@ -348,17 +348,17 @@ export default function LabelingOptimizerTechnical() {
               description="Define the TP/SL and horizon ranges to sweep, plus filters that discard thin strategies."
             >
               <div className="space-y-5" data-help="opt-grid">
-                <p className="rounded-xl border border-amber-300/25 bg-amber-300/[0.06] px-4 py-3 text-[12.5px] leading-relaxed text-amber-100/85">
+                <p className="rounded-xl border border-amber-300/25 bg-amber-300/[0.06] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-amber-100/85">
                   The current engine searches a fixed grid on daily bars: take-profit 0.5–40% and stop-loss 0.5–20% (25 steps
                   each), horizons 1–200 bars, at least 50 trades, 0.1% fee per side. The fields below are saved with the run
                   for reference but do not change the search yet; only the symbol and date window do.
                 </p>
                 <div>
-                  <div className="mb-3 flex items-center text-sm font-medium text-white/80">
+                  <div className="mb-2 flex items-center text-[12px] font-medium text-white/70">
                     Take-profit &amp; stop-loss ranges
                     <FieldTip text="Percent move from entry. The optimizer samples a grid between min and max for each side." />
                   </div>
-                  <div className="space-y-4">
+                  <div className="grid gap-x-6 gap-y-4 lg:grid-cols-2">
                     <div>
                       <div className="mb-1 flex items-center justify-between gap-2">
                         <span className="flex items-center text-[11px] text-[rgba(255,255,255,0.65)]">
@@ -418,7 +418,7 @@ export default function LabelingOptimizerTechnical() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   <div>
                     <label className={labelClass}>
                       Horizon min (bars)
@@ -467,7 +467,7 @@ export default function LabelingOptimizerTechnical() {
                     </label>
                     <input {...register("fee_rate_pct")} type="number" step="0.01" className={inputClass} />
                   </div>
-                  <div className="md:col-span-2">
+                  <div>
                     <label className={labelClass}>
                       Objective
                       <FieldTip text="Primary metric used to rank labeling configs after the sweep completes." />
@@ -494,7 +494,7 @@ export default function LabelingOptimizerTechnical() {
                 type="submit"
                 data-help="opt-run"
                 disabled={isSubmitting || selectedSymbols.length === 0}
-                className="flex w-full items-center justify-center gap-2 rounded-full border border-white/25 accent-btn convolve-press px-4 py-3 text-sm font-semibold  transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+                className={`${toolUI.primaryBtn} w-full border border-white/25`}
               >
                 {isSubmitting ? (
                   <>

@@ -257,7 +257,7 @@ export default function AnalysisTechnical() {
                 <select
                   value={modelSelectValue}
                   onChange={(e) => handleInternalModelSelected(e.target.value)}
-                  className="w-full rounded-xl border border-white/15 bg-[#0a0a0a]/70 px-4 py-3 text-base text-white focus:border-white/30 focus:ring-1 focus:ring-white/40"
+                  className="w-full rounded-lg border border-white/15 bg-[#0a0a0a]/70 h-10 px-3 text-[13px] text-white focus:border-white/30 focus:ring-1 focus:ring-white/40"
                 >
                   <option value="">Select a model from this workspace…</option>
                   {internalModels.map((m) => (
@@ -321,7 +321,7 @@ export default function AnalysisTechnical() {
                   <select
                     value={pickedDatasetId}
                     onChange={(e) => handleDatasetPicked(e.target.value)}
-                    className="w-full rounded-xl border border-white/15 bg-[#0a0a0a]/70 px-4 py-3 text-base text-white focus:border-white/30 focus:ring-1 focus:ring-white/40"
+                    className="w-full rounded-lg border border-white/15 bg-[#0a0a0a]/70 h-10 px-3 text-[13px] text-white focus:border-white/30 focus:ring-1 focus:ring-white/40"
                   >
                     <option value="">Select an existing folder…</option>
                     {testFolders.length > 0 && (

@@ -98,8 +98,14 @@ export const NOINDEX_PREFIXES = [
   "/reset-password",
   "/vision",
   "/home3",
+  "/homepage-v2",
   "/docs",
 ];
+
+/** Noindex drafts of a public page: their canonical points at the page they would replace. */
+export const CANONICAL_ALIASES: Record<string, string> = {
+  "/homepage-v2": "/",
+};
 
 export function routeMeta(pathname: string): RouteMeta | null {
   const bare = pathname.replace(/\/+$/, "") || "/";

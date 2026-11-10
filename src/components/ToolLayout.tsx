@@ -55,16 +55,8 @@ export default function ToolLayout({
         </p>
 
         {!hasOutput ? (
-          <div
-            className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/8 bg-[#0a0a0a]/60 p-4 backdrop-blur-sm opacity-0 animate-fade-up md:p-5"
-            style={{ animationDelay: "100ms" }}
-          >
-            <h2 className="mb-2 flex shrink-0 items-center gap-2 text-base font-medium text-[#F5F5F5]">
-              <div className="h-2 w-2 shrink-0 rounded-full bg-white" />
-              Configuration
-            </h2>
-            <div className="min-h-0">{inputPanel}</div>
-          </div>
+          // Full-width tools are built from their own step cards; a wrapping card would nest surfaces.
+          <div className="min-h-0 min-w-0">{inputPanel}</div>
         ) : outputPlacement === "integrated" ? (
           <div
             className={`grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden lg:items-start lg:gap-5 ${
