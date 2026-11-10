@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Regenerate favicons, PWA icons and the Open Graph image from src/assets/convolve-mark.png.
+"""Regenerate favicons and PWA icons from src/assets/convolve-mark.png.
 
 Run from the repo root:
-  python3 scripts/generate-brand-assets.py          # icons only
-  python3 scripts/generate-brand-assets.py --og     # also the Open Graph image
+  python3 scripts/generate-brand-assets.py
+
+The Open Graph image is rendered separately by scripts/og/render.mjs.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ import io
 import struct
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 MARK = Image.open(ROOT / "src/assets/convolve-mark.png").convert("RGBA")
@@ -118,37 +119,7 @@ def write_ico(path: Path, images: list[Image.Image]) -> None:
     print(f"wrote {path.relative_to(ROOT)} ({len(images)} sizes, {len(out)} bytes)")
 
 
-def write_og() -> None:
-    w, h = 1200, 630
-    og = Image.new("RGB", (w, h), (5, 5, 6))
-    draw = ImageDraw.Draw(og)
-    draw.rectangle([0, 0, w, 2], fill=(166, 236, 200))
-    mark = square_icon(240, pad_ratio=0.02).convert("RGBA")
-    og.paste(mark, (96, (h - mark.height) // 2), mark)
-    try:
-        font_brand = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 92)
-        font_sub = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 34)
-    except OSError:
-        font_brand = ImageFont.load_default()
-        font_sub = font_brand
-    brand, sub = "Convolve", "Chart-based neural nets for markets"
-    text_x = 96 + mark.width + 48
-    bb = draw.textbbox((0, 0), brand, font=font_brand)
-    bh = bb[3] - bb[1]
-    sb = draw.textbbox((0, 0), sub, font=font_sub)
-    sh = sb[3] - sb[1]
-    gap = 22
-    text_y = (h - (bh + gap + sh)) // 2 - 8
-    draw.text((text_x, text_y), brand, font=font_brand, fill=(255, 255, 255))
-    draw.text((text_x, text_y + bh + gap), sub, font=font_sub, fill=(180, 180, 185))
-    path = OUT / "og-image.png"
-    og.save(path, "PNG", optimize=True)
-    print(f"wrote {path.relative_to(ROOT)} {og.size}")
-
-
 def main() -> None:
-    import sys
-
     OUT.mkdir(exist_ok=True)
     save_png(rounded(sized_icon(32)), OUT / "favicon-32x32.png")
     save_png(rounded(sized_icon(48)), OUT / "favicon-48x48.png")
@@ -165,8 +136,6 @@ def main() -> None:
         "</svg>\n"
     )
     print("wrote public/favicon.svg")
-    if "--og" in sys.argv:
-        write_og()
 
 
 if __name__ == "__main__":

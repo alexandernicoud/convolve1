@@ -6,8 +6,8 @@
 
 export const SITE_URL = "https://www.we-convolve.com";
 export const SITE_NAME = "Convolve";
-export const OG_IMAGE = `${SITE_URL}/og-image.png`;
-export const OG_IMAGE_ALT = "Convolve — chart-based neural nets for markets";
+export const OG_IMAGE = `${SITE_URL}/og-convolve.png`;
+export const OG_IMAGE_ALT = "Convolve: Build. Backtest. Improve. Screenshot of a price chart passing through a convolutional network to a prediction.";
 
 /** Official public profiles that identify Convolve / its operator. Only real profiles — never placeholders. */
 export const OFFICIAL_PROFILES = [

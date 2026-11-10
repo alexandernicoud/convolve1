@@ -39,14 +39,14 @@ test("brand icons and OG image exist for crawlers and share previews", () => {
     "apple-touch-icon.png",
     "icon-192.png",
     "icon-512.png",
-    "og-image.png",
+    "og-convolve.png",
     "site.webmanifest",
     "robots.txt",
   ]) {
     assert.ok(fs.existsSync(path.join(root, "public", file)), file);
   }
   assert.match(indexHtml, /favicon-48x48\.png/);
-  assert.match(indexHtml, /og-image\.png/);
+  assert.match(indexHtml, /og-convolve\.png/);
   assert.match(indexHtml, /og:image:alt/);
   const robots = fs.readFileSync(path.join(root, "public/robots.txt"), "utf8");
   assert.match(robots, /Sitemap:\s*https:\/\/www\.we-convolve\.com\/sitemap\.xml/);
